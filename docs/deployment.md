@@ -10,6 +10,43 @@ Plex tells Fanfarr where a show lives using Plex's view of the filesystem. To
 write `theme.mp3` beside the media, Fanfarr needs the same directory in its own
 view. Those two views must be reconciled, one way or the other.
 
+## The reference deployment
+
+Recorded because it is the setup Fanfarr is developed against, and because it
+exercises most of what follows.
+
+- **Plex runs on bare metal**, not in a container. It therefore reports *host*
+  paths, and any container that wants to act on them must see the same paths.
+- **Five ext4 drives** mounted individually under `/media`, pooled by mergerfs
+  into `/media/merged-storage/{TV,Movies,Music,Sets}`.
+- **Sonarr and Radarr write to the individual drives** (`/tv1`..`/tv5`,
+  `/movies1`..`/movies5`) rather than the pool, so they control placement.
+  Plex reads the pool. Both views describe the same files.
+- Everything owned by `1000:1000`, which is the `PUID`/`PGID` default.
+
+The whole media tree is mounted at the identical path:
+
+```yaml
+volumes:
+  - /media:/media:rslave
+```
+
+That single line covers the pool and the individual drives, needs no
+`PATH_MAPPINGS`, and keeps working when a library is added on a new drive.
+
+### Why `:rslave` is required here, not optional
+
+The mergerfs pools are **separate mount points nested underneath `/media`**. A
+plain bind mount of a directory does not carry nested mounts into the
+container: Docker would bind `/media`, and `/media/merged-storage` would appear
+as the **empty directory** that exists under the mount rather than the pooled
+contents.
+
+Nothing errors. The library simply looks empty, and there is no hint as to why.
+
+`:rslave` propagates the nested mounts through, and additionally means a pool
+remounted on the host is reflected in the container rather than going stale.
+
 ## Recommended: make the paths identical
 
 Mount your library at the **same container path in both Plex and Fanfarr**:

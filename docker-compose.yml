@@ -43,17 +43,20 @@ services:
       # Database, generated secret, and cached posters.
       - ./config:/config
 
-      # Media library. Mount it at the SAME container path your Plex container
-      # uses, and Fanfarr needs no further configuration -- add as many
-      # libraries underneath as you like and it will find all of them.
+      # Media, mounted at the IDENTICAL path the host uses.
       #
-      # One shared root is deliberate. Enumerating each library here would mean
-      # editing compose every time you add one; sharing a root means Plex is
-      # the only place that knows what libraries exist.
+      # Plex runs on bare metal here, so it reports host paths -- /media/... as
+      # the host sees them. Mounting /media at /media makes Fanfarr's view match
+      # Plex's exactly, so no translation is needed and PATH_MAPPINGS stays
+      # empty. It also survives adding a library on a new drive later.
       #
-      # If the paths cannot match, set PATH_MAPPINGS instead of reshaping this.
-      # For mergerfs, append :rslave -- see docs/deployment.md.
-      - /mnt/storage:/data
+      # :rslave is REQUIRED, not decorative. The mergerfs pools under
+      # /media/merged-storage are separate mount points, and a plain bind mount
+      # does not carry nested mounts through -- the container would see
+      # /media/merged-storage as an empty directory, with no error and no clue
+      # why the library looks empty. :rslave propagates them, and also means a
+      # pool remounted on the host is picked up rather than going stale.
+      - /media:/media:rslave
     networks:
       - media-stack
 
