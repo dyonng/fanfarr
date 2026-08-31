@@ -49,6 +49,8 @@ defmodule Fanfarr.MixProject do
       {:ash_phoenix, "~> 2.0"},
       {:ash_sqlite, "~> 0.2"},
       {:ash, "~> 3.0"},
+      # Runtime dep of the vendored SaladUI components (lib/fanfarr_web/components/vendor).
+      {:tw_merge, "~> 0.1"},
       {:igniter, "~> 0.6", only: [:dev, :test]},
       {:phoenix, "~> 1.8.13"},
       {:phoenix_ecto, "~> 4.5"},

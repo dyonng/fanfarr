@@ -25,11 +25,33 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/fanfarr"
 import topbar from "../vendor/topbar"
 
+// Vendored SaladUI runtime (assets/js/salad_ui). Each component module
+// self-registers with the factory on import, so an unimported component
+// renders but stays inert -- import every one we use.
+import SaladUI from "./salad_ui/index.js"
+import "./salad_ui/components/accordion.js"
+import "./salad_ui/components/collapsible.js"
+import "./salad_ui/components/command.js"
+import "./salad_ui/components/dialog.js"
+import "./salad_ui/components/dropdown_menu.js"
+import "./salad_ui/components/hover-card.js"
+import "./salad_ui/components/menu.js"
+import "./salad_ui/components/popover.js"
+import "./salad_ui/components/radio_group.js"
+import "./salad_ui/components/select.js"
+import "./salad_ui/components/slider.js"
+import "./salad_ui/components/switch.js"
+import "./salad_ui/components/tabs.js"
+import "./salad_ui/components/toast.js"
+import "./salad_ui/components/toast-flash.js"
+import "./salad_ui/components/tooltip.js"
+
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, SaladUI: SaladUI.SaladUIHook},
 })
 
 // Show progress bar on live navigation and form submits

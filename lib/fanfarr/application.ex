@@ -9,6 +9,11 @@ defmodule Fanfarr.Application do
   def start(_type, _args) do
     children = [
       FanfarrWeb.Telemetry,
+      # Backs the vendored SaladUI components: they resolve Tailwind class
+      # conflicts through TwMerge, which memoises results in an ETS table this
+      # process owns. Without it every component render raises on a missing
+      # table, so it has to start before anything can render.
+      TwMerge.Cache,
       Fanfarr.Repo,
       {Ecto.Migrator,
        repos: Application.fetch_env!(:fanfarr, :ecto_repos), skip: skip_migrations?()},
