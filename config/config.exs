@@ -72,6 +72,32 @@ config :spark,
     ]
   ]
 
+# SQLite connection tuning.
+#
+# SQLite allows exactly one writer at a time. WAL mode lets readers continue
+# concurrently with that writer instead of blocking, which is what makes a
+# dashboard usable while a library sync is running. busy_timeout gives a
+# blocked writer time to acquire the lock rather than failing immediately --
+# without it, concurrent job workers surface SQLITE_BUSY as job errors.
+#
+# The corollary is a design rule, not a setting: never hold a transaction open
+# across HTTP. A yt-dlp fetch or a Plex upload takes minutes and would block
+# every other write for its duration. Write intent, commit, do the IO, then
+# write the outcome.
+#
+# Note: `PRAGMA busy_timeout` reads back 0 even when this is set. exqlite
+# installs a custom busy handler and applies the timeout through its own NIF
+# rather than the pragma, because the pragma would destroy that handler
+# (deps/exqlite/lib/exqlite/connection.ex). The readback is not a way to
+# verify this setting.
+config :fanfarr, Fanfarr.Repo,
+  journal_mode: :wal,
+  busy_timeout: 15_000,
+  synchronous: :normal,
+  foreign_keys: :on,
+  cache_size: -64_000,
+  temp_store: :memory
+
 config :fanfarr,
   ecto_repos: [Fanfarr.Repo],
   generators: [timestamp_type: :utc_datetime],
