@@ -101,7 +101,7 @@ A mergerfs pool is an ordinary POSIX mount, so the basic case needs nothing
 special: mount the pool into the container like any other volume. Four things
 are worth getting right.
 
-### 1. Use `rslave` bind propagation
+### Use `rslave` bind propagation
 
 ```yaml
 volumes:
@@ -116,7 +116,32 @@ empty. `rslave` propagates host mount changes into the container.
 This is the single most common mergerfs-in-Docker problem, and it is
 indistinguishable from a wrong path unless you know to look.
 
-### 2. Prefer a path-preserving create policy
+### The reference host uses `mfs`, so EXDEV is the normal case
+
+The pools are mounted with:
+
+```
+defaults,nonempty,allow_other,use_ino,category.create=mfs,minfreespace=20G
+```
+
+`category.create=mfs` is **not** path-preserving, and given the spread of free
+space across the five drives, most new files land on whichever drive currently
+has the most room -- not the drive holding the show. So a theme written into a
+show's folder will *usually* land somewhere other than its episodes.
+
+That has one consequence for us, and it is not optional: **the file writer must
+handle `EXDEV` when renaming its temporary file into place.** Under a
+path-preserving policy the temporary file and its target share a branch and the
+rename is atomic. Here they routinely will not, and the rename fails. The
+fallback is copy-then-unlink, accepting a non-atomic write rather than failing.
+
+This is a confirmed property of the target deployment, not a hypothetical.
+
+Changing the pool to `epmfs` would avoid it, but that is a stack-wide decision
+about where *all* new files go, and it is not Fanfarr's to make. Handling EXDEV
+is cheaper and correct under either policy.
+
+### Prefer a path-preserving create policy
 
 mergerfs chooses which underlying branch a *new* file goes to using
 `category.create`. With a non-path-preserving policy such as `mfs` (most free
@@ -134,7 +159,7 @@ category.create=epmfs   # existing path, most free space
 Fanfarr cannot influence this from inside the container; it is a property of
 how the pool is mounted on the host.
 
-### 3. Expect `EXDEV` on rename
+### Expect `EXDEV` on rename
 
 Fanfarr writes a theme to a temporary file in the destination directory and
 renames it into place, so an interrupted download never appears as a valid
@@ -147,7 +172,7 @@ copy-then-unlink when it sees `EXDEV`, accepting a non-atomic write rather than
 failing outright. This is a requirement on the implementation, recorded here so
 it is not discovered in the field.
 
-### 4. Ownership still applies
+### Ownership still applies
 
 mergerfs passes ownership through to the underlying branches, so `PUID`/`PGID`
 matter exactly as much as with a plain mount. Set them to the user that owns
