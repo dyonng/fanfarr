@@ -25,6 +25,11 @@ services:
       - URL_SCHEME=${URL_SCHEME:-http}
       - BASE_PATH=${BASE_PATH:-}
 
+      # Only needed when Plex and Fanfarr see the library at different paths.
+      # Pairs of plex_prefix:local_prefix, separated by ; -- see
+      # docs/deployment.md. Leave empty when the mounts above match Plex's.
+      - PATH_MAPPINGS=${PATH_MAPPINGS:-}
+
       - LOG_LEVEL=${LOG_LEVEL:-info}
     # Cap Docker's capture of stdout so months of logs can't fill the disk.
     logging:
@@ -38,13 +43,17 @@ services:
       # Database, generated secret, and cached posters.
       - ./config:/config
 
-      # Media libraries. These must be mounted at the SAME container paths that
-      # your Plex container uses. Fanfarr locates a show's folder from the path
-      # Plex reports for it, so if Plex sees /data/tv and Fanfarr sees /tv, it
-      # cannot find anything and the local theme.mp3 output mode will not work.
-      # Read-only is not an option for that mode -- it writes into the library.
-      - /path/to/your/tv:/data/tv
-      - /path/to/your/movies:/data/movies
+      # Media library. Mount it at the SAME container path your Plex container
+      # uses, and Fanfarr needs no further configuration -- add as many
+      # libraries underneath as you like and it will find all of them.
+      #
+      # One shared root is deliberate. Enumerating each library here would mean
+      # editing compose every time you add one; sharing a root means Plex is
+      # the only place that knows what libraries exist.
+      #
+      # If the paths cannot match, set PATH_MAPPINGS instead of reshaping this.
+      # For mergerfs, append :rslave -- see docs/deployment.md.
+      - /mnt/storage:/data
     networks:
       - media-stack
 
