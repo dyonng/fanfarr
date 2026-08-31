@@ -32,6 +32,7 @@ DEB="mergerfs_${TARGET_VERSION}.ubuntu-noble_amd64.deb"
 DEB_URL="https://github.com/trapexit/mergerfs/releases/download/${TARGET_VERSION}/${DEB}"
 STATE_DIR="${STATE_DIR:-$HOME/mergerfs-upgrade}"
 POOL_GLOB="${POOL_GLOB:-/media/merged-storage/*}"
+TEST_MOUNT="${TEST_MOUNT:-/mnt/mergerfs-upgrade-test}"
 
 RED=$'\033[31m'; GRN=$'\033[32m'; YLW=$'\033[33m'; BLD=$'\033[1m'; RST=$'\033[0m'
 say()  { printf '%s\n' "$*"; }
@@ -73,13 +74,27 @@ phase_capture() {
   local installed
   installed="$(dpkg-query -W -f='${Version}' mergerfs 2>/dev/null || echo '')"
   if [ -n "$installed" ]; then
-    printf '%s\n' "$installed" > "$STATE_DIR/old-deb-version.txt"
-    ok "installed via dpkg, version $installed (rollback target recorded)"
+    if [ -s "$STATE_DIR/old-deb-version.txt" ]; then
+      ok "installed version $installed; rollback target already recorded as \
+$(cat "$STATE_DIR/old-deb-version.txt") (left alone)"
+    elif [[ "$installed" == *"$TARGET_VERSION"* ]]; then
+      # Capturing after the upgrade: recording this would make rollback a no-op
+      # and silently discard the only record of what to go back to.
+      warn "already running $TARGET_VERSION and no earlier version recorded here."
+      warn "rollback target NOT written -- an earlier capture (possibly under a"
+      warn "different \$HOME, e.g. run without sudo) holds it. Find its"
+      warn "old-deb-version.txt before relying on the rollback phase."
+    else
+      printf '%s\n' "$installed" > "$STATE_DIR/old-deb-version.txt"
+      ok "installed via dpkg, version $installed (rollback target recorded)"
+    fi
   else
     warn "not installed via dpkg -- built from source? rollback will need manual work"
   fi
 
-  mount | grep -i mergerfs > "$STATE_DIR/current-mounts.txt" 2>/dev/null || true
+  # Exclude our own scratch mount: it is not one of the real pools, and
+  # recording it would put a bogus entry in the replay script.
+  mount | grep -i mergerfs | grep -v "$TEST_MOUNT" > "$STATE_DIR/current-mounts.txt" 2>/dev/null || true
   local pool_count
   pool_count="$(wc -l < "$STATE_DIR/current-mounts.txt")"
   say "  active pools: $pool_count"
@@ -104,6 +119,8 @@ phase_capture() {
     local -a argv=()
     mapfile -d '' -t argv < "/proc/$pid/cmdline"
     [ "${#argv[@]}" -gt 0 ] || continue
+    # Skip our own scratch mount.
+    case " ${argv[*]} " in *" $TEST_MOUNT "*) continue ;; esac
     found=$((found + 1))
     local a quoted=""
     for a in "${argv[@]}"; do quoted+="$(shq "$a") "; done
@@ -238,7 +255,13 @@ phase_test() {
   [ -n "$opts" ] || { warn "no captured options to test with; skipping"; return 0; }
   say "  options under test: $opts"
 
-  local mp="/mnt/mergerfs-upgrade-test"
+  local mp="$TEST_MOUNT"
+  # A previous run may have left this mounted; umount failures were being
+  # swallowed. Clear it before mounting again.
+  if mountpoint -q "$mp" 2>/dev/null; then
+    warn "stale test mount found at $mp -- unmounting"
+    umount "$mp" || die "could not unmount stale test mount $mp"
+  fi
   mkdir -p "$mp"
   # Two real branches, mounted read-only, purely to exercise option parsing.
   local branches="/media/the-biggest-one/MorePlex/TV:/media/red-10-redemption/TV"
@@ -254,9 +277,13 @@ phase_test() {
     fi
     say "  sample contents:"
     ls "$mp" 2>/dev/null | head -3 | sed 's/^/      /'
-    umount "$mp" 2>/dev/null || true
-    rmdir "$mp" 2>/dev/null || true
-    ok "test mount cleaned up"
+    if umount "$mp" 2>/dev/null; then
+      rmdir "$mp" 2>/dev/null || true
+      ok "test mount cleaned up"
+    else
+      warn "could not unmount $mp -- it is still mounted."
+      warn "clear it before remounting: sudo umount $mp"
+    fi
   else
     umount "$mp" 2>/dev/null || true
     rmdir "$mp" 2>/dev/null || true
