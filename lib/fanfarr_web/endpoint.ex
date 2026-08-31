@@ -15,6 +15,13 @@ defmodule FanfarrWeb.Endpoint do
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]
 
+  # Honour the forwarding headers a reverse proxy sets, so generated URLs and
+  # redirects point at the address the browser actually used rather than at the
+  # container. Harmless when no proxy is present -- nothing upstream sets these
+  # headers, so there is nothing to rewrite -- but note they are trusted when
+  # they do appear, which is the usual arrangement for a LAN service.
+  plug Plug.RewriteOn, [:x_forwarded_host, :x_forwarded_port, :x_forwarded_proto]
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),

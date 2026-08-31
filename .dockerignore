@@ -1,0 +1,28 @@
+# Build output and dependencies are rebuilt inside the image; copying host
+# copies in would poison the build with artifacts from a different OS.
+_build/
+deps/
+.elixir_ls/
+.lexical/
+
+# Generated assets are rebuilt by `mix assets.deploy`.
+priv/static/assets/
+priv/static/cache_manifest.json
+
+# Local databases must never reach the image.
+*.db
+*.db-*
+/config/
+
+.git/
+.github/
+.githooks/
+docs/
+test/
+README.md
+CHANGELOG.md
+*.md
+.env
+.env.*
+!.env.example
+docker-compose*.yml

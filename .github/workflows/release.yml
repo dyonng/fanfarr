@@ -1,0 +1,44 @@
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Manual path: creates the tag at the current commit if it doesn't exist
+  # (useful when the tag can't be pushed directly).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        # Notes priority: committed notes file > annotated tag message >
+        # auto-generated notes.
+        run: |
+          set -e
+          ARGS=(--title "Fanfarr $TAG")
+          if [ -f ".github/release-notes/$TAG.md" ]; then
+            ARGS+=(--notes-file ".github/release-notes/$TAG.md")
+          elif [ "$(git cat-file -t "$TAG" 2>/dev/null)" = "tag" ]; then
+            ARGS+=(--notes-from-tag)
+          else
+            ARGS+=(--generate-notes)
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ARGS+=(--target "$GITHUB_SHA")
+          fi
+          gh release create "$TAG" "${ARGS[@]}"

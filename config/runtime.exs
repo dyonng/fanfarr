@@ -41,73 +41,93 @@ if config_env() == :dev do
 end
 
 if config_env() == :prod do
-  database_path =
-    System.get_env("DATABASE_PATH") ||
-      raise """
-      environment variable DATABASE_PATH is missing.
-      For example: /etc/fanfarr/fanfarr.db
-      """
+  # Everything below is read when the container starts, not when the image is
+  # built, so a single published image is configured entirely by environment.
+
+  # The config volume. All mutable state lives here: the database, the generated
+  # secret, and any caches. *arr convention is /config, and Fanfarr follows it so
+  # it sits naturally next to Sonarr and Radarr in a compose file.
+  config_dir = System.get_env("FANFARR_CONFIG_DIR", "/config")
+  File.mkdir_p!(config_dir)
+
+  database_path = System.get_env("DATABASE_PATH") || Path.join(config_dir, "fanfarr.db")
+  File.mkdir_p!(Path.dirname(database_path))
 
   config :fanfarr, Fanfarr.Repo,
     database: database_path,
+    # SQLite serialises writes regardless of pool size; the pool exists so
+    # concurrent readers are not stuck behind the writer, which WAL makes
+    # possible. See the pragmas in config/config.exs.
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
 
-  # The secret key base is used to sign/encrypt cookies and other secrets.
-  # A default value is used in config/dev.exs and config/test.exs but you
-  # want to use a different value for prod and you most likely don't want
-  # to check this value into version control, so we use an environment
-  # variable instead.
+  # Phoenix needs a secret to sign cookies and sessions. Requiring the operator
+  # to generate one before first run is a poor fit for an appliance, so if none
+  # is supplied we generate it once and persist it beside the database. Setting
+  # SECRET_KEY_BASE explicitly still wins, and rotating it just invalidates
+  # existing sessions.
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
+      (
+        secret_path = Path.join(config_dir, "secret_key_base")
 
-  host = System.get_env("PHX_HOST") || "example.com"
+        case File.read(secret_path) do
+          {:ok, existing} when byte_size(existing) >= 64 ->
+            String.trim(existing)
+
+          _ ->
+            generated = 48 |> :crypto.strong_rand_bytes() |> Base.encode64()
+            File.write!(secret_path, generated)
+            File.chmod!(secret_path, 0o600)
+            generated
+        end
+      )
+
+  port = String.to_integer(System.get_env("PORT") || "7373")
+
+  bind_address =
+    if System.get_env("BIND_IPV6") in ["1", "true", "yes"] do
+      {0, 0, 0, 0, 0, 0, 0, 0}
+    else
+      {0, 0, 0, 0}
+    end
+
+  # URL generation. Defaults suit a LAN deployment reached directly by IP; set
+  # these when running behind a reverse proxy so links and redirects point at
+  # the public address rather than the container.
+  scheme = System.get_env("URL_SCHEME") || "http"
+  host = System.get_env("PHX_HOST") || "localhost"
+
+  url_port =
+    case System.get_env("URL_PORT") do
+      nil -> if scheme == "https", do: 443, else: port
+      value -> String.to_integer(value)
+    end
+
+  # Subpath hosting, e.g. BASE_PATH=/fanfarr behind a proxy that does not give
+  # the app its own hostname.
+  base_path =
+    case System.get_env("BASE_PATH") do
+      nil -> "/"
+      "" -> "/"
+      value -> "/" <> String.trim(value, "/")
+    end
 
   config :fanfarr, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :fanfarr, FanfarrWeb.Endpoint,
-    url: [host: host, port: 443, scheme: "https"],
+    url: [host: host, port: url_port, scheme: scheme, path: base_path],
     http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://bandit.hexdocs.pm/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0}
+      # Bind all interfaces: inside a container only the published port is
+      # reachable anyway, and binding loopback would make the app unreachable
+      # from outside it.
+      #
+      # IPv4 by default, unlike the Phoenix generator. Binding :: fails outright
+      # with :eafnosupport wherever IPv6 is unavailable -- which includes Docker
+      # daemons started with ipv6 disabled, a common configuration -- and the
+      # failure presents as the container booting and immediately dying. Set
+      # BIND_IPV6=true for a dual-stack host that needs it.
+      ip: bind_address,
+      port: port
     ],
     secret_key_base: secret_key_base
-
-  # ## SSL Support
-  #
-  # To get SSL working, you will need to add the `https` key
-  # to your endpoint configuration:
-  #
-  #     config :fanfarr, FanfarrWeb.Endpoint,
-  #       https: [
-  #         ...,
-  #         port: 443,
-  #         cipher_suite: :strong,
-  #         keyfile: System.get_env("SOME_APP_SSL_KEY_PATH"),
-  #         certfile: System.get_env("SOME_APP_SSL_CERT_PATH")
-  #       ]
-  #
-  # The `cipher_suite` is set to `:strong` to support only the
-  # latest and more secure SSL ciphers. This means old browsers
-  # and clients may not be supported. You can set it to
-  # `:compatible` for wider support.
-  #
-  # `:keyfile` and `:certfile` expect an absolute path to the key
-  # and cert in disk or a relative path inside priv, for example
-  # "priv/ssl/server.key". For all supported SSL configuration
-  # options, see https://plug.hexdocs.pm/Plug.SSL.html#configure/1
-  #
-  # We also recommend setting `force_ssl` in your config/prod.exs,
-  # ensuring no data is ever sent via http, always redirecting to https:
-  #
-  #     config :fanfarr, FanfarrWeb.Endpoint,
-  #       force_ssl: [hsts: true]
-  #
-  # Check `Plug.SSL` for all available options in `force_ssl`.
 end

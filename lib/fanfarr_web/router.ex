@@ -25,6 +25,12 @@ defmodule FanfarrWeb.Router do
   end
 
   scope "/", FanfarrWeb do
+    pipe_through :api
+
+    get "/health", HealthController, :show
+  end
+
+  scope "/", FanfarrWeb do
     pipe_through :browser
 
     get "/", PageController, :home

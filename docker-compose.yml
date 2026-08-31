@@ -1,0 +1,54 @@
+services:
+  fanfarr:
+    image: ghcr.io/dyonng/fanfarr:latest
+    container_name: fanfarr
+    restart: unless-stopped
+    environment:
+      # Ownership of files Fanfarr writes. Match these to the user that owns
+      # your media library, or the theme.mp3 files it writes into the library
+      # will be unreadable by Plex and unwritable by everything else.
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-UTC}
+
+      - PORT=${PORT:-7373}
+
+      # Plex Media Server. Use the host IP if Plex runs on baremetal, or the
+      # container name if it shares this network.
+      - PLEX_URL=${PLEX_URL}
+      - PLEX_TOKEN=${PLEX_TOKEN}
+
+      # Reverse proxy support. Leave unset when reaching Fanfarr directly by IP.
+      # PHX_HOST/URL_SCHEME fix generated links; BASE_PATH is for hosting under
+      # a subpath rather than its own hostname.
+      - PHX_HOST=${PHX_HOST:-}
+      - URL_SCHEME=${URL_SCHEME:-http}
+      - BASE_PATH=${BASE_PATH:-}
+
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    # Cap Docker's capture of stdout so months of logs can't fill the disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "${PORT:-7373}:${PORT:-7373}"
+    volumes:
+      # Database, generated secret, and cached posters.
+      - ./config:/config
+
+      # Media libraries. These must be mounted at the SAME container paths that
+      # your Plex container uses. Fanfarr locates a show's folder from the path
+      # Plex reports for it, so if Plex sees /data/tv and Fanfarr sees /tv, it
+      # cannot find anything and the local theme.mp3 output mode will not work.
+      # Read-only is not an option for that mode -- it writes into the library.
+      - /path/to/your/tv:/data/tv
+      - /path/to/your/movies:/data/movies
+    networks:
+      - media-stack
+
+networks:
+  media-stack:
+    external: true
+    name: media-stack

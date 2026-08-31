@@ -101,6 +101,12 @@ defmodule Fanfarr.MixProject do
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind fanfarr", "esbuild fanfarr"],
       "assets.deploy": [
+        # `compile` must come first: LiveView writes colocated CSS/JS into
+        # _build/$MIX_ENV/phoenix-colocated during compilation, and app.css
+        # imports it. Without this, a clean prod build (the Docker image, or
+        # CI) fails to resolve colocated.css. `assets.build` already does this;
+        # the generated `assets.deploy` did not.
+        "compile",
         "tailwind fanfarr --minify",
         "esbuild fanfarr --minify",
         "phx.digest"
