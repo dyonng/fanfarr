@@ -48,6 +48,18 @@ defmodule ProdConfigTest do
            "check_origin is hardcoded true, which pins the socket to one host again"
   end
 
+  test "the sign-in form is labelled Username, not Email" do
+    overrides = File.read!("lib/fanfarr_web/auth_overrides.ex")
+
+    # identity_input_label is a fixed string upstream, not derived from the
+    # resource's identity field, so renaming :email to :username left the form
+    # still asking for an email.
+    assert String.contains?(overrides, ~s(set :identity_input_label, "Username")), """
+    The identity field is :username, but the sign-in form's label is a separate
+    upstream default that still reads "Email" unless overridden here.
+    """
+  end
+
   test "the auth pages do not carry Ash Framework branding" do
     overrides = File.read!("lib/fanfarr_web/auth_overrides.ex")
 

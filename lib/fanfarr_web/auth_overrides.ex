@@ -12,7 +12,7 @@ defmodule FanfarrWeb.AuthOverrides do
   alias AshAuthentication.Phoenix.Components
 
   override Components.Banner do
-    set :root_class, "w-full flex flex-col items-center gap-1 py-6"
+    set :root_class, "w-full flex flex-col items-center gap-1 mb-6"
     set :href_url, "/"
     set :href_class, "text-3xl font-semibold tracking-tight text-foreground no-underline"
     # No image at all: the default points at an Ash Framework logo hosted
@@ -26,7 +26,18 @@ defmodule FanfarrWeb.AuthOverrides do
   end
 
   override Components.SignIn do
-    set :root_class, "grid h-screen place-items-center bg-background px-4"
+    # The upstream default is `flex-1 ... lg:flex-none`, meant for a split
+    # marketing layout. On its own it stretches, which pushed the banner to
+    # the top of the viewport and the form to the bottom.
+    set :root_class,
+        "min-h-screen w-full flex flex-col items-center justify-center bg-background px-4 py-10"
+
+    set :strategy_class, "w-full max-w-sm"
+
+    set :authentication_error_container_class,
+        "w-full max-w-sm text-center text-destructive text-sm mt-3"
+
+    set :authentication_error_text_class, ""
     set :strategy_display_order, [:password]
   end
 
@@ -49,6 +60,12 @@ defmodule FanfarrWeb.AuthOverrides do
   end
 
   override Components.Password.Input do
+    # The identity label is a hardcoded string upstream, not derived from the
+    # field, so renaming the attribute to :username left the form still
+    # saying "Email".
+    set :identity_input_label, "Username"
+    set :identity_input_placeholder, "admin"
+    set :password_input_label, "Password"
     set :field_class, "mt-2 mb-3"
     set :label_class, "block text-xs font-medium text-muted-foreground mb-1"
 
