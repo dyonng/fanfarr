@@ -223,6 +223,17 @@ cache 404s too. Details in `docs/themerrdb.md`.
   app parses JSON -- **a diagnostic that exercises a different code path than
   the program is worth very little.** It now probes `Accept: application/json`
   explicitly.
+- The favicon 404'd in prod while working in dev. `Plug.Static`'s `:only`
+  matches whole path segments, so `favicon.svg` does not match the digested
+  `favicon-e922....svg` that the layout actually links to. Directories are
+  unaffected (`assets` stays `assets`), which is why only the root-level files
+  broke. `:only_matching` is the prefix-based option Plug documents for exactly
+  this. **`raise_on_missing_only` cannot catch it: it is enabled only when code
+  reloading is, i.e. dev, the one environment with no digests.** Guarded by an
+  invariant test in `test/favicon_test.exs` that every bare file in
+  `static_paths/0` has a matching prefix.
+- `pkill -f "rel/fanfarr/bin"` kills the shell running it, because the pattern
+  matches that shell's own command line. Kill by port (`fuser -k 7452/tcp`).
 - The generator's `force_ssl` in `config/prod.exs` made the dashboard
   unreachable over LAN, redirecting everything except `localhost` to https.
   The healthcheck kept passing because it requested `localhost` -- the one
@@ -246,6 +257,20 @@ against `deps/ash_sqlite/lib/` rather than assuming parity.
 - **`belongs_to` foreign keys are private by default**, so `accept :*` silently
   excludes them and every create fails on a missing relationship. Set
   `attribute_public? true`.
+
+## Versioning
+
+`Fanfarr.Version.display()` -> `"0.1.0 (a1b2c3d)"`, shown bottom-left in the
+sidebar and returned by `/health`. The version comes from `mix.exs`; the ref is
+the commit, passed as the `BUILD_REF` Docker build arg by the release workflow
+and captured **at compile time**, so a running container cannot be made to
+misreport itself and the release needs no build env at runtime. A local build
+has no ref and says `(dev)` rather than inventing one.
+
+`0.1.0` alone is not enough to identify a build: every `latest` pull between
+releases carries it, and self-hosters report bugs by version. Images are already
+tagged `latest`, `sha-<sha>` and semver by `docker/metadata-action`; tag a
+release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
 
 ## Conventions
 

@@ -38,4 +38,34 @@ defmodule FaviconTest do
     assert type == 1, "not an icon file"
     assert count == 3, "expected 16, 32 and 48px entries"
   end
+
+  describe "digested paths" do
+    test "every bare file in static_paths has a matching prefix in only_matching" do
+      # Digesting rewrites favicon.svg to favicon-<hash>.svg, which no longer
+      # matches an exact Plug.Static :only entry. That 404'd every icon in prod
+      # while working fine in dev, where nothing is digested. Directories are
+      # exempt: digesting does not touch the directory segment.
+      prefixes = FanfarrWeb.static_root_file_prefixes()
+
+      bare_files = Enum.filter(FanfarrWeb.static_paths(), &String.contains?(&1, "."))
+
+      assert bare_files != [], "expected static_paths to contain some root files"
+
+      for file <- bare_files do
+        assert Enum.any?(prefixes, &String.starts_with?(file, &1)),
+               """
+               #{file} is served from the root but no prefix in \
+               static_root_file_prefixes/0 matches it, so its digested form \
+               (#{Path.rootname(file)}-<hash>#{Path.extname(file)}) will 404 in prod.
+               """
+      end
+    end
+
+    test "the endpoint actually passes only_matching to Plug.Static" do
+      # The list above is worthless if it is not wired in.
+      source = File.read!("lib/fanfarr_web/endpoint.ex")
+
+      assert source =~ "only_matching: FanfarrWeb.static_root_file_prefixes()"
+    end
+  end
 end

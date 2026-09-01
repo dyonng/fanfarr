@@ -31,7 +31,6 @@ defmodule FanfarrWeb.HealthController do
     error -> {:error, Exception.message(error)}
   end
 
-  defp version do
-    Application.spec(:fanfarr, :vsn) |> to_string()
-  end
+  # Same string the sidebar shows, so a bug report quoting either is unambiguous.
+  defp version, do: Fanfarr.Version.display()
 end

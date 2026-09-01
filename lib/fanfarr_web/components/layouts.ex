@@ -67,6 +67,12 @@ defmodule FanfarrWeb.Layouts do
         </nav>
 
         <div class="border-t border-border p-2">
+          <div
+            class="px-2 pb-1 pt-0.5 font-mono text-[11px] leading-none text-muted-foreground"
+            title={"Fanfarr #{Fanfarr.Version.display()}"}
+          >
+            {Fanfarr.Version.display()}
+          </div>
           <div class="flex items-center justify-between px-2 py-1">
             <.theme_toggle />
             <a

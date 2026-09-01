@@ -20,6 +20,17 @@ defmodule FanfarrWeb do
   def static_paths,
     do: ~w(assets fonts images favicon.ico favicon.svg apple-touch-icon.png robots.txt)
 
+  @doc """
+  Filename prefixes of static files that live at the root rather than in a
+  directory.
+
+  Digesting rewrites `favicon.svg` to `favicon-<hash>.svg`, which no longer
+  matches an exact `:only` entry, so these need Plug.Static's prefix matching
+  or they 404 in prod. Anything added to `static_paths/0` that is a bare file
+  rather than a directory belongs here too.
+  """
+  def static_root_file_prefixes, do: ~w(favicon apple-touch-icon robots)
+
   def router do
     quote do
       use Phoenix.Router, helpers: false

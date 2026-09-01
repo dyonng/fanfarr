@@ -30,6 +30,13 @@ COPY priv priv
 COPY lib lib
 COPY assets assets
 
+# The commit this image is built from, baked in at compile time so a running
+# container cannot misreport itself and the release needs no build-related env
+# at runtime. Declared here rather than at the top of the file so it only
+# invalidates the compile layers, not the dependency cache.
+ARG BUILD_REF=""
+ENV BUILD_REF=$BUILD_REF
+
 # Digests and gzips static assets into priv/static.
 RUN mix assets.deploy
 RUN mix compile
