@@ -7,9 +7,27 @@
     <.live_title default="Fanfarr" phx-no-format>{assigns[:page_title]}</.live_title>
     <%!-- SVG first for browsers that support it (crisp at any size, adapts to
           the tab strip); .ico is the fallback for those that do not. --%>
-    <link rel="icon" href={~p"/favicon.svg"} type="image/svg+xml" />
-    <link rel="icon" href={~p"/favicon.ico"} sizes="16x16 32x32 48x48" />
-    <link rel="apple-touch-icon" href={~p"/apple-touch-icon.png"} />
+    <%!-- Linked at their plain paths rather than through ~p, which rewrites them
+      to the digested filename. Digesting a favicon buys nothing (the URL is
+      not on a hot path) and cost us the icon entirely once already: the
+      digested name did not match Plug.Static's :only list and every icon
+      404'd in prod while working in dev. A version query busts the cache when
+      the artwork changes, and Plug.Static treats any query string as a
+      versioned request, so these still get immutable caching. --%>
+    <link
+      rel="icon"
+      href={"/favicon.svg?v=#{Fanfarr.Version.asset_version()}"}
+      type="image/svg+xml"
+    />
+    <link
+      rel="icon"
+      href={"/favicon.ico?v=#{Fanfarr.Version.asset_version()}"}
+      sizes="16x16 32x32 48x48"
+    />
+    <link
+      rel="apple-touch-icon"
+      href={"/apple-touch-icon.png?v=#{Fanfarr.Version.asset_version()}"}
+    />
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>

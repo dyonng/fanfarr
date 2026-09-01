@@ -41,7 +41,16 @@ defmodule FanfarrWeb.Layouts do
       <%!-- Sidebar: the *arr convention -- persistent, dark, icon + label. --%>
       <aside class="fixed inset-y-0 left-0 z-40 flex w-52 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
         <a href={~p"/"} class="flex h-14 items-center gap-2 border-b border-border px-4">
-          <span class="text-lg" aria-hidden="true">🎺</span>
+          <%!-- The drawn mark rather than the emoji it replaced: an emoji renders
+          in whatever the viewer's system font decides, so the brand changed
+          shape between platforms and vanished where the glyph was missing.
+          Same file as the favicon, so tab and sidebar cannot drift apart. --%>
+          <img
+            src={"/favicon.svg?v=#{Fanfarr.Version.asset_version()}"}
+            alt=""
+            aria-hidden="true"
+            class="size-5"
+          />
           <span class="text-base font-semibold tracking-tight">Fanfarr</span>
         </a>
 

@@ -23,12 +23,43 @@ defmodule FaviconTest do
     end
   end
 
-  test "the layout points at all three", %{conn: conn} do
+  test "the layout points at all three, undigested and cache-busted", %{conn: conn} do
     html = conn |> get(~p"/") |> html_response(200)
 
-    assert html =~ ~s(href="/favicon.svg")
-    assert html =~ ~s(href="/favicon.ico")
-    assert html =~ ~s(href="/apple-touch-icon.png")
+    for file <- @icons do
+      assert html =~ ~s(href="/#{file}?v=),
+             "#{file} should be linked at its plain path with a version query"
+    end
+  end
+
+  test "the layout never links a digested icon path", %{conn: conn} do
+    # The digested name is what 404'd in prod: it does not match Plug.Static's
+    # :only list, and the failure is invisible in dev where nothing is digested.
+    html = conn |> get(~p"/") |> html_response(200)
+
+    refute html =~ ~r/href="\/favicon-[0-9a-f]{32}/
+    refute html =~ ~r/href="\/apple-touch-icon-[0-9a-f]{32}/
+  end
+
+  test "the cache-busting token changes with the build" do
+    assert Fanfarr.Version.asset_version() != ""
+
+    assert Fanfarr.Version.asset_version() == Fanfarr.Version.build_ref() ||
+             Fanfarr.Version.asset_version() == Fanfarr.Version.version()
+  end
+
+  test "the svg is drawable and parseable" do
+    # SVG is XML, and XML forbids a double hyphen inside a comment. One in an
+    # explanatory comment makes the whole file unparseable, and the browser
+    # shows a broken image rather than reporting an error, so it fails silently
+    # in exactly the way favicon bugs always do. This happened.
+    svg = File.read!("priv/static/favicon.svg")
+
+    assert svg =~ ~r/<(path|circle|rect|polygon)/,
+           "the svg has no drawable elements"
+
+    refute svg =~ ~r/<!--(?:(?!-->).)*--(?!>)/s,
+           "a double hyphen inside an XML comment makes the svg unparseable"
   end
 
   test "the ico really is a multi-size icon container" do

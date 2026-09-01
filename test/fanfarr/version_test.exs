@@ -14,6 +14,16 @@ defmodule Fanfarr.VersionTest do
     assert Version.display() =~ ~r/^\d+\.\d+\.\d+ \(.+\)$/
   end
 
+  test "it asks Mix to recompile when BUILD_REF changes" do
+    # Without this the module keeps the ref it was first compiled with, and
+    # reports the wrong build forever. Caught by rebuilding a release with a
+    # new ref and watching it report the old one.
+    assert function_exported?(Fanfarr.Version, :__mix_recompile__?, 0)
+
+    # The suite compiles with BUILD_REF unset, so nothing has changed.
+    refute Fanfarr.Version.__mix_recompile__?()
+  end
+
   test "a build with no ref says dev rather than pretending" do
     # The suite compiles without BUILD_REF set.
     assert Version.build_ref() == nil

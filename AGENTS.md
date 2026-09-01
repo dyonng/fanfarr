@@ -232,6 +232,22 @@ cache 404s too. Details in `docs/themerrdb.md`.
   reloading is, i.e. dev, the one environment with no digests.** Guarded by an
   invariant test in `test/favicon_test.exs` that every bare file in
   `static_paths/0` has a matching prefix.
+- A `--` inside an XML comment is illegal, and SVG is XML. A double hyphen in
+  an explanatory comment in `favicon.svg` made the whole file unparseable; the
+  browser showed a broken-image glyph rather than reporting anything, and the
+  generated ICO came out structurally valid and entirely blank. Guarded in
+  `test/favicon_test.exs`, and `scripts/generate-icons.py` now counts painted
+  pixels and refuses to write a blank icon.
+- A module attribute that reads `System.get_env/1` is invisible to Mix's
+  recompilation tracking, so `Fanfarr.Version` kept the `BUILD_REF` it was
+  first compiled with and reported the wrong build on every later one. Fixed
+  with `__mix_recompile__?/0`. **A version that silently lies about which build
+  it is, is worse than no version at all.**
+- Chromium will not render into a window smaller than roughly 50px and produces
+  a valid, empty PNG instead. `generate-icons.py` renders into a 200px window
+  and crops.
+- Icons are linked at their plain paths with a `?v=` query, never through `~p`,
+  which rewrites them to the digested filename. See root.html.heex.
 - `pkill -f "rel/fanfarr/bin"` kills the shell running it, because the pattern
   matches that shell's own command line. Kill by port (`fuser -k 7452/tcp`).
 - The generator's `force_ssl` in `config/prod.exs` made the dashboard
