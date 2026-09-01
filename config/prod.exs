@@ -7,17 +7,20 @@ import Config
 # before starting your production server.
 config :fanfarr, FanfarrWeb.Endpoint, cache_static_manifest: "priv/static/cache_manifest.json"
 
-# Force using SSL in production. This also sets the "strict-security-transport" header,
-# known as HSTS. If you have a health check endpoint, you may want to exclude it below.
-# Note `:force_ssl` is required to be set at compile-time.
-config :fanfarr, FanfarrWeb.Endpoint,
-  force_ssl: [
-    rewrite_on: [:x_forwarded_proto],
-    exclude: [
-      # paths: ["/health"],
-      hosts: ["localhost", "127.0.0.1"]
-    ]
-  ]
+# SSL is deliberately NOT forced.
+#
+# The Phoenix generator enables force_ssl here, excluding only "localhost" and
+# "127.0.0.1". That is wrong for this application: Fanfarr is a LAN appliance
+# reached by IP, alongside Sonarr and Radarr, neither of which forces HTTPS.
+# With it enabled, every request to http://<lan-ip>:7373 answers 301 to
+# https://<host>/ and the dashboard is unreachable -- while the container
+# healthcheck keeps passing, because it curls localhost, the one excluded host.
+#
+# The brief requires that a reverse proxy not be needed but not be broken
+# either. Forcing SSL breaks the first case outright: without a proxy there is
+# nothing listening on 443 to redirect to. Where a proxy is present it
+# terminates TLS and issues its own redirect, and Plug.RewriteOn in the
+# endpoint honours X-Forwarded-Proto so generated URLs stay correct.
 
 # Do not print debug messages in production
 config :logger, level: :info

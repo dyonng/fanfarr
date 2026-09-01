@@ -92,8 +92,13 @@ EXPOSE 7373
 # Shallow on purpose: this reports whether the app is up and can reach its
 # database. Plex or YouTube being unreachable is a dashboard concern, not a
 # reason for Docker to restart the container.
+# The Host header is deliberately not localhost. Phoenix's generated force_ssl
+# config excludes localhost specifically, so a healthcheck using it would keep
+# passing while every real request was redirected away -- which is exactly how
+# that bug reached a running container unnoticed. Checking under an ordinary
+# host name exercises the same path a browser does.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-  CMD curl -fsS "http://localhost:${PORT}/health" || exit 1
+  CMD curl -fsS -H "Host: fanfarr.healthcheck" "http://127.0.0.1:${PORT}/health" || exit 1
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bin/server"]
