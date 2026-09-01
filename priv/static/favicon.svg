@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Fanfarr</title>
+  <g fill="#eab308">
+    <!-- Bell, flaring right. Deliberately chunky: at 16px a thin silhouette
+         reads as noise rather than an instrument. -->
+    <path d="M20 5 L30.5 1 v30 l-10.5 -4 z" />
+    <!-- Body -->
+    <rect x="5" y="12" width="16" height="8" rx="2.5" />
+    <!-- Mouthpiece -->
+    <rect x="0.5" y="13.5" width="6" height="5" rx="2.5" />
+    <!-- Valves -->
+    <rect x="8.5" y="5" width="3.6" height="8" rx="1.4" />
+    <rect x="13.6" y="5" width="3.6" height="8" rx="1.4" />
+    <rect x="18.7" y="5" width="3.6" height="8" rx="1.4" />
+  </g>
+</svg>
