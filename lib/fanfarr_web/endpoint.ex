@@ -49,7 +49,13 @@ defmodule FanfarrWeb.Endpoint do
     cookie_key: "request_logger"
 
   plug Plug.RequestId
-  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  # The container healthcheck polls /health every 30 seconds, which is two log
+  # lines a poll -- around 5,800 a day of nothing, enough to bury a real error
+  # and to churn the log rotation. This hook drops those specific requests to
+  # :debug while leaving every other request at :info.
+  plug Plug.Telemetry,
+    event_prefix: [:phoenix, :endpoint],
+    log: {FanfarrWeb.RequestLogLevel, :for_conn, []}
 
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json, AshJsonApi.Plug.Parser],
