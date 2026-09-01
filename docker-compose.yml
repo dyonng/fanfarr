@@ -13,6 +13,13 @@ services:
 
       - PORT=${PORT:-7373}
 
+      # Dashboard login. Set both to require one; leave both unset and the
+      # dashboard is OPEN to anyone who can reach the port, which is how the
+      # *arrs also start. There is no sign-up page: this is the account, and
+      # changing the password here and restarting is the whole story.
+      - AUTH_USERNAME=${AUTH_USERNAME:-}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+
       # Plex Media Server. Use host.docker.internal if Plex runs on bare metal,
       # or the container name if it shares this network.
       - PLEX_URL=${PLEX_URL}

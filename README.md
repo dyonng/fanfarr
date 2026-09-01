@@ -28,8 +28,10 @@ required for the local-file output path.
   like (`/tv1`, `/tv2`, …); items are located by directory name across the
   configured roots. On mergerfs and friends, themes are written to the drive
   that actually holds the show.
-- **Single-user authentication** — first visit registers the operator;
-  registration closes itself afterwards.
+- **Login from the environment** — set `AUTH_USERNAME` and `AUTH_PASSWORD` in
+  compose and that is the account. No sign-up page, no reset flow: changing or
+  recovering the password is an edit and a restart. Leave them unset and the
+  dashboard is open, as the *arrs also start.
 - **Safe by default** — libraries are opt-in, dry-run is the default for bulk
   work, and sync never re-enables what you disabled.
 - **One container, one volume** — SQLite for everything, secrets generated on
@@ -71,11 +73,22 @@ See `docs/deployment.md` for path mapping, mergerfs specifics (`:rslave`,
 create policies, `EXDEV`), reverse proxies, and why yt-dlp should not go
 through your VPN.
 
-## Resetting a lost password
+## Authentication
 
-There is no email reset — the appliance has no mailer. Recovery runs on the
-machine itself (operator `mix` task; command to be finalised alongside the
-release tooling).
+```yaml
+environment:
+  - AUTH_USERNAME=admin
+  - AUTH_PASSWORD=something-long-and-random
+```
+
+Both set: a login is required, and the account is reconciled to match on every
+start. Change the password by editing compose and restarting — which is also
+how you recover a forgotten one. Renaming `AUTH_USERNAME` removes the old
+account rather than leaving a second login behind.
+
+Both unset: the dashboard is open to anyone who can reach the port, the same
+default Sonarr and Radarr ship with. Reasonable on a trusted LAN, unwise if
+the port is exposed. It is warned about in the logs on every boot.
 
 ## Development
 

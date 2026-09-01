@@ -29,9 +29,10 @@ defmodule FanfarrWeb.Router do
       overrides: [FanfarrWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
 
     # Remove these if you'd like to use your own authentication views
-    sign_in_route register_path: "/register",
-                  reset_path: "/reset",
-                  auth_routes_prefix: "/auth",
+    # No register_path or reset_path: there is no sign-up. The operator account
+    # is declared with AUTH_USERNAME/AUTH_PASSWORD in the compose file and
+    # reconciled at boot by Fanfarr.Accounts.Seed.
+    sign_in_route auth_routes_prefix: "/auth",
                   on_mount: [{FanfarrWeb.LiveUserAuth, :live_no_user}],
                   overrides: [
                     FanfarrWeb.AuthOverrides,

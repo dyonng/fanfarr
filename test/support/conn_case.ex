@@ -32,7 +32,9 @@ defmodule FanfarrWeb.ConnCase do
   end
 
   @doc """
-  Registers the single user and signs the conn in as them.
+  Creates the operator account and signs the conn in as them.
+
+  Mirrors what the boot-time seeder does from AUTH_USERNAME/AUTH_PASSWORD.
 
       setup :register_and_log_in_user
   """
@@ -40,7 +42,7 @@ defmodule FanfarrWeb.ConnCase do
     user =
       Fanfarr.Accounts.User
       |> Ash.Changeset.for_create(:register_with_password, %{
-        email: "operator@fanfarr.test",
+        username: "operator",
         password: "a-long-password",
         password_confirmation: "a-long-password"
       })

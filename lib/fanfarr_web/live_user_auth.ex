@@ -22,10 +22,19 @@ defmodule FanfarrWeb.LiveUserAuth do
   end
 
   def on_mount(:live_user_required, _params, _session, socket) do
-    if socket.assigns[:current_user] do
-      {:cont, socket}
-    else
-      {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/sign-in")}
+    cond do
+      socket.assigns[:current_user] ->
+        {:cont, socket}
+
+      # No operator account means AUTH_USERNAME/AUTH_PASSWORD are unset and
+      # authentication is off, the way the *arrs start. Redirecting to a
+      # sign-in form nobody has credentials for would lock the dashboard
+      # instead of opening it.
+      not Fanfarr.Accounts.AuthMode.required?() ->
+        {:cont, Phoenix.Component.assign(socket, :current_user, nil)}
+
+      true ->
+        {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/sign-in")}
     end
   end
 

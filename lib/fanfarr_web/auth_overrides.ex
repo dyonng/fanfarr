@@ -32,25 +32,20 @@ defmodule FanfarrWeb.AuthOverrides do
 
   override Components.Password do
     set :root_class, "w-full max-w-sm"
-
-    set :interstitial_class,
-        "flex justify-between items-center gap-2 mt-4 text-sm text-muted-foreground"
-
-    set :sign_in_toggle_text, "Already set up? Sign in"
-    set :register_toggle_text, "First run? Create your account"
-    set :toggler_class, "text-primary hover:underline cursor-pointer"
+    # No toggles: registration and reset do not exist here, so there is
+    # nothing to switch to. Removing register_path from the route already
+    # stops the form rendering; these keep the links from appearing at all.
+    set :register_toggle_text, nil
+    set :reset_toggle_text, nil
+    set :sign_in_toggle_text, nil
+    set :show_first, :sign_in
+    set :hide_class, "hidden"
   end
 
   override Components.Password.SignInForm do
     set :label_class, "mb-4 text-xl font-semibold tracking-tight text-foreground"
     set :label, "Sign in"
     set :disable_button_text, "Signing in…"
-  end
-
-  override Components.Password.RegisterForm do
-    set :label_class, "mb-4 text-xl font-semibold tracking-tight text-foreground"
-    set :label, "Create the operator account"
-    set :disable_button_text, "Creating…"
   end
 
   override Components.Password.Input do

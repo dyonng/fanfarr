@@ -25,6 +25,9 @@ defmodule Fanfarr.Application do
       # Start a worker by calling: Fanfarr.Worker.start_link(arg)
       # {Fanfarr.Worker, arg},
       # Start to serve requests, typically the last entry
+      # Applies AUTH_USERNAME/AUTH_PASSWORD once migrations have run. A task
+      # rather than a worker: it reconciles and exits.
+      {Task, &Fanfarr.Accounts.Seed.run/0},
       {DNSCluster, query: Application.get_env(:fanfarr, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Fanfarr.PubSub},
       FanfarrWeb.Endpoint,

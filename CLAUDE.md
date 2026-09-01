@@ -45,9 +45,16 @@ through.
   from the domains rather than hand-writing them.
 - **Mocking**: Mox, against the `Fanfarr.Plex.Client` behaviour. Ash and
   Phoenix ship no mock library; Mox is the ecosystem standard.
-- **Password recovery**: no mailer, so no email reset. `:set_password` on the
-  User resource backs an operator recovery path (mix task to be added); it is
-  not routeable.
+- **Authentication**: credentials come from `AUTH_USERNAME`/`AUTH_PASSWORD`,
+  reconciled at boot by `Fanfarr.Accounts.Seed`. No sign-up route, no reset
+  flow, no mailer. Both unset means no account, which means no login -- the
+  dashboard is open, as the *arrs start, warned loudly in logs.
+  `Fanfarr.Accounts.AuthMode.required?/0` derives the mode from whether a user
+  exists, so it cannot disagree with what the sign-in form would do.
+  The identity field is `username`, not email.
+- **`HashPasswordChange` needs `strategy_name`** when used in an action the
+  password strategy did not generate. Without it, it raises at *runtime*, not
+  compile time -- which is how a broken `:set_password` shipped once.
 - **Secrets**: SECRET_KEY_BASE and TOKEN_SIGNING_SECRET both auto-generate on
   first boot and persist under /config. Env vars win if set.
 - **Dark is the default theme** (`root.html.heex` falls back to "dark", not

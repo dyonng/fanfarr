@@ -4,29 +4,37 @@ defmodule FanfarrWeb.DashboardTest do
   import Phoenix.LiveViewTest
 
   describe "authentication" do
-    test "every dashboard page requires sign-in", %{conn: conn} do
+    test "the dashboard requires sign-in once an operator account exists", %{conn: conn} do
+      Fanfarr.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_password, %{
+        username: "operator",
+        password: "a-long-password",
+        password_confirmation: "a-long-password"
+      })
+      |> Ash.create!(authorize?: false)
+
       for path <- ["/", "/activity", "/settings"] do
         assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, path)
       end
     end
 
-    test "the first registration succeeds and the second is refused", %{conn: _conn} do
-      register = fn email ->
-        Fanfarr.Accounts.User
-        |> Ash.Changeset.for_create(:register_with_password, %{
-          email: email,
-          password: "a-long-password",
-          password_confirmation: "a-long-password"
-        })
-        |> Ash.create(authorize?: false)
-      end
+    test "with no operator account the dashboard is open", %{conn: conn} do
+      # AUTH_USERNAME/AUTH_PASSWORD unset means no account, which means no
+      # login -- the way Sonarr and Radarr start. Redirecting to a form nobody
+      # has credentials for would lock the dashboard rather than open it.
+      refute Fanfarr.Accounts.AuthMode.required?()
 
-      assert {:ok, _user} = register.("first@fanfarr.test")
+      assert {:ok, _view, html} = live(conn, "/")
+      assert html =~ "Library"
+    end
 
-      # Single-user appliance: once the operator exists, the register form is
-      # a locked door, not an invitation to whoever can reach the port.
-      assert {:error, error} = register.("second@fanfarr.test")
-      assert Exception.message(error) =~ "registration is disabled"
+    test "there is no registration route" do
+      # Credentials come from the environment; a sign-up form would be a
+      # second, unguarded way to create an account.
+      assert :error =
+               Phoenix.Router.route_info(FanfarrWeb.Router, "GET", "/register", "example.com")
+
+      assert :error = Phoenix.Router.route_info(FanfarrWeb.Router, "GET", "/reset", "example.com")
     end
   end
 
