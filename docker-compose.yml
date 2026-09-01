@@ -41,7 +41,10 @@ services:
       - "${PORT:-7373}:${PORT:-7373}"
     volumes:
       # Database, generated secret, and cached posters.
-      - ./config:/config
+      # Named ./appdata rather than ./config so it cannot be confused with the
+      # application's own config/ directory -- they would otherwise collide in
+      # the Docker build context.
+      - ./appdata:/config
 
       # Media, mounted at the IDENTICAL path the host uses.
       #

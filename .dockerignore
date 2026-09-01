@@ -9,10 +9,15 @@ deps/
 priv/static/assets/
 priv/static/cache_manifest.json
 
-# Local databases must never reach the image.
+# Local runtime state must never reach the image. Note this is NOT `/config/`:
+# that is the application's own Elixir configuration directory, and excluding it
+# strips config.exs and runtime.exs from the build context. The container's
+# /config volume is bind-mounted from ./appdata on the host precisely so the two
+# cannot be confused.
 *.db
 *.db-*
-/config/
+/appdata/
+secret_key_base
 
 .git/
 .github/

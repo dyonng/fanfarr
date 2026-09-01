@@ -45,7 +45,7 @@ npm-debug.log
 *.db-*
 
 
-# Config volume created by the example docker-compose.yml.
-/config/
+# Runtime state volume created by the example docker-compose.yml.
+/appdata/
 # BEAM crash dumps.
 erl_crash.dump
