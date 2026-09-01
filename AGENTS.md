@@ -163,6 +163,23 @@ cache 404s too. Details in `docs/themerrdb.md`.
     poster/art convention; we have not yet uploaded a theme and read it back.
     Confirm on the first real upload and update `Fanfarr.Plex.ThemeOrigin`.
 - `selected="1"` marks the active one; an item may carry several.
+- **The JSON key is not the XML element name.** In XML the element is `<Track>`;
+  in JSON the array is `"Metadata"`, and `selected` is a real boolean, not `"1"`.
+  Anything written by reading the XML output will parse nothing. Confirmed:
+
+      {"MediaContainer":{"size":1,...,"Metadata":[
+        {"key":"/library/metadata/45870/file?url=...",
+         "ratingKey":"metadata://themes/tv.plex.agents.series_b008...",
+         "selected":true}]}}
+
+- **Plex does honour `Accept: application/json`** (PMS 1.43.4.10903). The app
+  parses JSON everywhere; this was the last unverified assumption in the read
+  path and it holds.
+- **The listing's own `theme` attribute does NOT encode origin.** It is
+  `theme="/library/metadata/45870/theme/1788156492"` -- a timestamped URL. This
+  is why sync makes a second call to `/themes`; there is no shortcut.
+- These responses are pinned verbatim in `test/fanfarr/plex/http_client_test.exs`
+  and run through the real `HTTPClient` via `Req.Test`, not a parallel parser.
 - This is what makes "already has a theme, but it is only Plex's stock one"
   answerable, which was the operator's stated main use case.
 - Cost: origin needs one request per item, so sync asks **only about items the
@@ -245,8 +262,8 @@ against `deps/ash_sqlite/lib/` rather than assuming parity.
 Done: scaffold, SQLite tuning, containerisation + GHCR, path mapping, root
 folder resolution, vendored UI, deployment docs, resource model, auth
 (single-user, password only, no mailer), Plex client behaviour + HTTP impl
-(read paths surveyed against the real server 2026-09-01; **write paths --
-upload_theme, lock_theme -- still UNVERIFIED**), sync/ThemerrDB Oban workers,
+(**read paths verified** against PMS 1.43.4 and pinned as captured-response
+tests; **write paths -- upload_theme, lock_theme -- still UNVERIFIED**), sync/ThemerrDB Oban workers,
 dashboard (Library, Item, Activity, Settings), theme origin detection.
 CLAUDE.md carries operational notes.
 

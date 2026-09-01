@@ -3,10 +3,15 @@ defmodule Fanfarr.Plex.HTTPClient do
   The real Plex Media Server client, over its HTTP API.
 
   Plex answers in JSON when asked with an Accept header, which spares us its
-  XML. Endpoint shapes follow what python-plexapi uses, since that is the
-  implementation the old plugin ecosystem proved out -- but they are treated as
-  unverified until exercised against a live server (phase 1), and every parse
-  tolerates missing fields rather than crashing on a server that reports less.
+  XML. Confirmed against Plex Media Server 1.43.4: a request carrying
+  `Accept: application/json` comes back as JSON.
+
+  **The JSON key is not the XML element name.** `/themes` returns `<Track>`
+  elements in XML but a `"Metadata"` array in JSON, and `selected` is a real
+  boolean there rather than `"1"`. Read paths are verified against a live
+  server; `upload_theme/3` and `lock_theme/3` are still unexercised, and every
+  parse tolerates missing fields rather than crashing on a server that reports
+  less.
 
   `includeGuids=1` is load-bearing on the listing call: without it Plex omits
   the per-provider Guid entries, and those IDs are how ThemerrDB is keyed.
@@ -171,13 +176,17 @@ defmodule Fanfarr.Plex.HTTPClient do
 
   defp request(%{base_url: base_url, token: token}, method, path, data) do
     req =
-      Req.new(
+      [
         base_url: base_url,
         headers: [{"X-Plex-Token", token}, {"Accept", "application/json"}],
         retry: :transient,
         max_retries: 2,
         receive_timeout: 30_000
-      )
+      ]
+      # Lets the test suite serve captured real responses through this exact
+      # function, rather than testing a parser that production does not call.
+      |> Keyword.merge(Application.get_env(:fanfarr, :req_options, []))
+      |> Req.new()
 
     result =
       case method do

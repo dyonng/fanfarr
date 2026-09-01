@@ -76,9 +76,15 @@ through.
 ## Current state / not yet built
 
 Built: resource model, auth, dashboard (Library / Item / Activity / Settings),
-sync + ThemerrDB workers, Plex HTTP client (**read** paths surveyed against the
-real server 2026-09-01; **write** paths -- `upload_theme`, `lock_theme` -- are
-still unverified), theme origin detection.
+sync + ThemerrDB workers, Plex HTTP client (**read** paths verified against PMS
+1.43.4 and pinned as captured-response tests in
+`test/fanfarr/plex/http_client_test.exs`; **write** paths -- `upload_theme`,
+`lock_theme` -- are still unverified), theme origin detection.
+
+**Plex JSON gotcha:** `/themes` returns `<Track>` in XML but a `"Metadata"`
+array in JSON, and `selected` is a boolean there, not `"1"`. Plex does honour
+`Accept: application/json`. Set `config :fanfarr, req_options: [plug: ...]` to
+serve captured responses through the real client in tests.
 
 **Theme origin.** Plex sends no `provider` field. Origin comes from the theme's
 `ratingKey` scheme -- `metadata://themes/<agent>_<sha>` for agent-supplied
