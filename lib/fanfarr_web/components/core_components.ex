@@ -101,11 +101,22 @@ defmodule FanfarrWeb.CoreComponents do
   slot :inner_block, required: true
 
   def button(%{rest: rest} = assigns) do
-    variants = %{"primary" => "btn-primary", nil => "btn-primary btn-soft"}
+    # daisyUI is not used; these map onto the design tokens registered in
+    # app.css. See lib/fanfarr_web/components/vendor for the fuller component
+    # set -- this stays for the generated components that still call it.
+    base =
+      "inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm " <>
+        "font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 " <>
+        "focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+
+    variants = %{
+      "primary" => "bg-primary text-primary-foreground hover:bg-primary/90",
+      nil => "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+    }
 
     assigns =
       assign_new(assigns, :class, fn ->
-        ["btn", Map.fetch!(variants, assigns[:variant])]
+        [base, Map.fetch!(variants, assigns[:variant])]
       end)
 
     if rest[:href] || rest[:navigate] || rest[:patch] do
@@ -326,7 +337,7 @@ defmodule FanfarrWeb.CoreComponents do
         <h1 class="text-lg font-semibold leading-8">
           {render_slot(@inner_block)}
         </h1>
-        <p :if={@subtitle != []} class="text-sm text-base-content/70">
+        <p :if={@subtitle != []} class="text-sm text-muted-foreground">
           {render_slot(@subtitle)}
         </p>
       </div>
