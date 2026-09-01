@@ -57,7 +57,8 @@ defmodule Fanfarr.Library.MediaItem do
         :tvdb_id,
         :plex_thumb_key,
         :plex_theme_url,
-        :plex_theme_provider,
+        :plex_theme_origin,
+        :plex_theme_agent,
         :theme_locked,
         :added_at
       ]
@@ -120,14 +121,26 @@ defmodule Fanfarr.Library.MediaItem do
       description "The theme Plex currently has, if any."
     end
 
-    attribute :plex_theme_provider, :string do
+    attribute :plex_theme_origin, :atom do
       public? true
+      allow_nil? false
+      default :none
+      constraints one_of: [:none, :plex_agent, :uploaded, :unknown]
 
       description """
-      Plex reports 'local' for a theme.mp3 found on disk, and nil for one that
-      was uploaded or supplied by an agent. Not sufficient on its own to tell
-      our uploads from Plex's own, which is why we keep an application log.
+      Where the theme Plex is serving came from, read from the ratingKey scheme
+      on /library/metadata/<id>/themes. Plex sends no `provider` field -- an
+      earlier version of this read one and it was always nil.
+
+      :plex_agent is the case the dashboard exists to surface: a title that
+      looks "done" but only carries Plex's own stock theme.
       """
+    end
+
+    attribute :plex_theme_agent, :string do
+      public? true
+
+      description "The agent that supplied the theme, e.g. tv.plex.agents.series."
     end
 
     attribute :theme_locked, :boolean, default: false, public?: true

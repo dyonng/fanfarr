@@ -71,7 +71,7 @@ defmodule FanfarrWeb.ItemLive.Show do
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Theme on server</dt>
-                <dd>{if @item.plex_theme_url, do: "yes", else: "none"}</dd>
+                <dd class="text-right">{theme_origin_label(@item)}</dd>
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Theme locked</dt>
@@ -171,4 +171,19 @@ defmodule FanfarrWeb.ItemLive.Show do
     </Layouts.app>
     """
   end
+
+  # "yes" is not a useful answer here. A title carrying Plex's own stock theme
+  # looks identical to one someone chose on purpose, and telling those apart is
+  # the reason this page exists.
+  defp theme_origin_label(%{plex_theme_url: url}) when url in [nil, ""], do: "none"
+
+  defp theme_origin_label(%{plex_theme_origin: :plex_agent} = item) do
+    case item.plex_theme_agent do
+      nil -> "yes — Plex default"
+      agent -> "yes — Plex default (#{agent})"
+    end
+  end
+
+  defp theme_origin_label(%{plex_theme_origin: :uploaded}), do: "yes — uploaded"
+  defp theme_origin_label(_item), do: "yes — origin unknown"
 end

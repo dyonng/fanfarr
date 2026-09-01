@@ -61,11 +61,15 @@ defmodule Fanfarr.Plex.HTTPClient do
         body
         |> containers(["Photo", "Track", "Metadata"])
         |> Enum.map(fn t ->
+          rating_key = t["ratingKey"] && to_string(t["ratingKey"])
+
           %{
-            rating_key: t["ratingKey"] && to_string(t["ratingKey"]),
+            rating_key: rating_key,
             key: t["key"],
             selected: t["selected"] in [true, 1, "1"],
-            provider: t["provider"]
+            # Plex sends no `provider`; the ratingKey scheme carries it.
+            origin: Fanfarr.Plex.ThemeOrigin.classify(rating_key),
+            agent: Fanfarr.Plex.ThemeOrigin.agent(rating_key)
           }
         end)
 

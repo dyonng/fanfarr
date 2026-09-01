@@ -72,9 +72,16 @@ defmodule FanfarrWeb.DashboardTest do
       end
 
       item.(%{title: "One Piece", year: 1999})
-      item.(%{title: "Fleabag", year: 2016, plex_theme_url: "/library/metadata/2/theme/1"})
 
-      %{section: section}
+      item.(%{
+        title: "Fleabag",
+        year: 2016,
+        plex_theme_url: "/library/metadata/2/theme/1",
+        plex_theme_origin: :plex_agent,
+        plex_theme_agent: "tv.plex.agents.series"
+      })
+
+      %{section: section, item: item}
     end
 
     test "lists items with their status", %{conn: conn} do
@@ -111,6 +118,24 @@ defmodule FanfarrWeb.DashboardTest do
       assert html =~ item.title
       assert html =~ "History"
       assert html =~ "cannot be undone"
+    end
+
+    test "an item page names a stock Plex theme rather than just saying yes",
+         %{conn: conn} do
+      item = Enum.find(Fanfarr.Library.list_media_items!(), &(&1.title == "Fleabag"))
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+
+      # "yes" would hide the distinction the whole product turns on.
+      assert html =~ "Plex default"
+      assert html =~ "tv.plex.agents.series"
+    end
+
+    test "an item page says none when there is no theme at all", %{conn: conn} do
+      item = Enum.find(Fanfarr.Library.list_media_items!(), &(&1.title == "One Piece"))
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+
+      assert html =~ "Theme on server"
+      refute html =~ "Plex default"
     end
   end
 

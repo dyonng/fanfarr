@@ -35,11 +35,14 @@ defmodule Fanfarr.Plex.Client do
           added_at: DateTime.t() | nil
         }
 
+  # Plex reports no `provider` field; origin is derived from the ratingKey's
+  # URI scheme instead. See Fanfarr.Plex.ThemeOrigin.
   @type theme :: %{
           rating_key: String.t() | nil,
           key: String.t() | nil,
           selected: boolean(),
-          provider: String.t() | nil
+          origin: Fanfarr.Plex.ThemeOrigin.t(),
+          agent: String.t() | nil
         }
 
   @doc "Server identity; doubles as the connection test for Settings."

@@ -101,6 +101,100 @@ defmodule Fanfarr.Workers.SyncTest do
     assert length(Fanfarr.Library.list_media_items!()) == 1
   end
 
+  describe "theme origin" do
+    setup do
+      expect(Fanfarr.PlexClientMock, :sections, fn _ -> {:ok, [section()]} end)
+      assert :ok = perform_job(Fanfarr.Workers.SyncLibrary, %{})
+      [s] = Fanfarr.Library.list_sections!()
+      %{section: s}
+    end
+
+    defp themed(over \\ %{}) do
+      Map.merge(
+        %{
+          rating_key: "metadata://themes/tv.plex.agents.series_b00837223037c5e21ab3a908",
+          key: "/library/metadata/101/file?url=...",
+          selected: true,
+          origin: :plex_agent,
+          agent: "tv.plex.agents.series"
+        },
+        over
+      )
+    end
+
+    test "an item with no theme costs no extra request", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{theme: nil})]}
+      end)
+
+      # No :themes expectation is declared. verify_on_exit! turns any call
+      # into a failure, which is the assertion: 2,168 un-themed items must not
+      # each cost a round trip.
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      [item] = Fanfarr.Library.list_media_items!()
+      assert item.plex_theme_origin == :none
+      assert item.plex_theme_agent == nil
+    end
+
+    test "an agent-supplied theme is recorded as such", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{theme: "/library/metadata/101/theme/1786914632"})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :themes, fn _config, "101" -> {:ok, [themed()]} end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      [item] = Fanfarr.Library.list_media_items!()
+      assert item.plex_theme_origin == :plex_agent
+      assert item.plex_theme_agent == "tv.plex.agents.series"
+      assert Ash.load!(item, :theme_status).theme_status == :plex_supplied
+    end
+
+    test "the selected theme wins when Plex offers several", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{theme: "/library/metadata/101/theme/1"})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :themes, fn _config, "101" ->
+        {:ok,
+         [
+           themed(%{selected: false}),
+           themed(%{
+             rating_key: "upload://themes/deadbeef",
+             selected: true,
+             origin: :uploaded,
+             agent: nil
+           })
+         ]}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      [item] = Fanfarr.Library.list_media_items!()
+      assert item.plex_theme_origin == :uploaded
+    end
+
+    test "a failed origin lookup degrades instead of failing the sync",
+         %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{theme: "/library/metadata/101/theme/1"})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :themes, fn _config, "101" ->
+        {:error, :timeout}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      [item] = Fanfarr.Library.list_media_items!()
+      # Still present, still counted as having a theme -- just unattributed.
+      assert item.plex_theme_origin == :unknown
+      assert Ash.load!(item, :theme_status).theme_status == :plex_supplied
+    end
+  end
+
   test "an unconfigured Plex cancels rather than retries" do
     Fanfarr.Settings.list_settings!() |> Enum.each(&Fanfarr.Settings.delete_setting!/1)
     System.delete_env("PLEX_URL")

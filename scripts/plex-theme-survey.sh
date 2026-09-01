@@ -41,19 +41,46 @@ fi
 echo "Token loaded (${#TOKEN} chars, not printed)."
 
 q() { curl -sS --max-time 30 -H "X-Plex-Token: $TOKEN" "$PLEX_URL$1"; }
+# Same request the app makes: Plex answers in JSON when asked to. Everything in
+# Fanfarr.Plex.HTTPClient parses JSON, so this is the shape that actually matters.
+qj() { curl -sS --max-time 30 -H "X-Plex-Token: $TOKEN" -H "Accept: application/json" "$PLEX_URL$1"; }
+
+# The XML declaration is itself `<?xml version="1.0"?>`, so a naive grep for
+# version= finds that instead of the server's. Drop it before matching.
+nodecl() { sed 's/<?xml[^>]*?>//'; }
+
+attr() { grep -oE "$1=\"[^\"]*\"" | head -1 | cut -d'"' -f2; }
 
 rule "Server"
-q "/" | grep -oE 'friendlyName="[^"]*"|version="[^"]*"|platform="[^"]*"' | head -3
+SERVER="$(q "/" | nodecl)"
+printf '  name:     %s\n' "$(printf '%s' "$SERVER" | attr friendlyName)"
+printf '  version:  %s\n' "$(printf '%s' "$SERVER" | attr version)"
+printf '  platform: %s\n' "$(printf '%s' "$SERVER" | attr platform)"
+
+rule "Does Plex answer in JSON?"
+# Unverified until now, and load-bearing: if this is not JSON, every parse in
+# the app silently returns empty rather than failing loudly.
+JSON="$(qj "/library/sections")"
+case "$JSON" in
+  \{*) echo "  YES -- responses start with '{'. The app's JSON parsing is correct." ;;
+  "<"*) echo "  NO  -- Plex returned XML despite Accept: application/json." ;;
+  *)    echo "  UNCLEAR -- response starts: $(printf '%s' "$JSON" | cut -c1-40)" ;;
+esac
 
 rule "Libraries"
-q "/library/sections" \
-  | grep -oE '<Directory[^>]*>' \
-  | grep -oE 'key="[0-9]+"|type="[a-z]+"|title="[^"]*"' \
-  | paste - - - 2>/dev/null
+SECTIONS="$(q "/library/sections")"
+printf '%s' "$SECTIONS" | grep -oE '<Directory[^>]*>' | while read -r DIR; do
+  printf '  key=%-3s type=%-8s title=%s\n' \
+    "$(printf '%s' "$DIR" | attr key)" \
+    "$(printf '%s' "$DIR" | attr type)" \
+    "$(printf '%s' "$DIR" | attr title)"
+done
 
 # --- coverage per library ---------------------------------------------------
-for KEY in $(q "/library/sections" | grep -oE '<Directory[^>]*type="(show|movie)"[^>]*>' | grep -oE 'key="[0-9]+"' | cut -d'"' -f2); do
-  TITLE="$(q "/library/sections/$KEY" | grep -oE 'librarySectionTitle="[^"]*"' | head -1 | cut -d'"' -f2)"
+for KEY in $(printf '%s' "$SECTIONS" | grep -oE '<Directory[^>]*type="(show|movie)"[^>]*>' | grep -oE 'key="[0-9]+"' | cut -d'"' -f2); do
+  # Take the title from the section list we already have, rather than a second
+  # request for librarySectionTitle that came back empty.
+  TITLE="$(printf '%s' "$SECTIONS" | grep -oE "<Directory[^>]*key=\"$KEY\"[^>]*>" | attr title)"
   [ -z "$TITLE" ] && TITLE="section $KEY"
 
   ALL="/tmp/plex-section-$KEY.xml"
@@ -85,15 +112,26 @@ for f in /tmp/plex-section-*.xml; do
 done
 
 if [ -n "$SAMPLE" ]; then
-  NAME="$(q "/library/metadata/$SAMPLE" | grep -oE 'title="[^"]*"' | head -1 | cut -d'"' -f2)"
+  NAME="$(q "/library/metadata/$SAMPLE" | nodecl | attr title)"
   echo "Sampling: $NAME (ratingKey $SAMPLE)"
+
   echo
+  echo "-- the listing's own theme attribute (does it encode origin?):"
+  grep -oE "<(Directory|Video)[^>]* ratingKey=\"$SAMPLE\"[^>]*>" /tmp/plex-section-*.xml \
+    | grep -oE 'theme="[^"]*"' | head -1 | sed 's/^/     /'
+
+  echo
+  echo "-- /themes as XML:"
   q "/library/metadata/$SAMPLE/themes"
+
   echo
-  echo "-- provider values seen across this sample:"
-  q "/library/metadata/$SAMPLE/themes" | grep -oE 'provider="[^"]*"' | sort -u | sed 's/^/     /'
-  echo "   (no output above means Plex reports no provider -- we then cannot"
-  echo "    distinguish its own themes from uploads, and must rely on our log)"
+  echo "-- /themes as JSON (what the app actually parses):"
+  qj "/library/metadata/$SAMPLE/themes"
+
+  echo
+  echo "-- ratingKey schemes seen (this is where origin lives):"
+  q "/library/metadata/$SAMPLE/themes" | grep -oE 'ratingKey="[^"]*"' | cut -d'"' -f2 \
+    | sed 's/^/     /'
 else
   echo "No item with a theme found, so there is nothing to sample."
 fi

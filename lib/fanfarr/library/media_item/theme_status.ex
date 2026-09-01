@@ -23,7 +23,7 @@ defmodule Fanfarr.Library.MediaItem.ThemeStatus do
 
   @impl true
   def load(_query, _opts, _context) do
-    [:local_theme_present, :plex_theme_url, :plex_theme_provider]
+    [:local_theme_present, :plex_theme_url, :plex_theme_origin]
   end
 
   @impl true
@@ -67,9 +67,18 @@ defmodule Fanfarr.Library.MediaItem.ThemeStatus do
 
       # A theme.mp3 beside the media. Durable, survives anything Plex does to
       # its API, and not ours to claim credit for.
-      item.local_theme_present or item.plex_theme_provider == "local" ->
+      item.local_theme_present ->
         :local_file
 
+      # Plex's own agent put this here. Verified against a live server: the
+      # theme's ratingKey is metadata://themes/<agent-id>_<sha>. This is the
+      # state worth surfacing -- the title looks finished but is running stock
+      # Plex audio, and is a candidate for replacement.
+      item.plex_theme_origin == :plex_agent ->
+        :plex_supplied
+
+      # A theme is present but not one we can attribute -- an upload from
+      # before Fanfarr, or a scheme we do not recognise yet.
       is_binary(item.plex_theme_url) and item.plex_theme_url != "" ->
         :plex_supplied
 

@@ -81,9 +81,27 @@ defmodule Fanfarr.Library.ThemeStatusTest do
     assert status(item) == :local_file
   end
 
-  test "Plex reporting provider 'local' also counts as a local file", %{section: section} do
-    item = item(section, %{plex_theme_url: "x", plex_theme_provider: "local"})
-    assert status(item) == :local_file
+  test "an agent-supplied theme reads as Plex-supplied", %{section: section} do
+    item =
+      item(section, %{
+        plex_theme_url: "/library/metadata/45870/theme/1786914632",
+        plex_theme_origin: :plex_agent,
+        plex_theme_agent: "tv.plex.agents.series"
+      })
+
+    assert status(item) == :plex_supplied
+  end
+
+  test "a theme of unknown origin still reads as present, not missing",
+       %{section: section} do
+    item = item(section, %{plex_theme_url: "x", plex_theme_origin: :unknown})
+    assert status(item) == :plex_supplied
+  end
+
+  test "no theme anywhere is missing, whatever the origin column says",
+       %{section: section} do
+    item = item(section, %{plex_theme_origin: :none})
+    assert status(item) == :missing
   end
 
   test "a succeeded application means we applied it", %{section: section} do

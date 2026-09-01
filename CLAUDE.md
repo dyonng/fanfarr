@@ -76,17 +76,27 @@ through.
 ## Current state / not yet built
 
 Built: resource model, auth, dashboard (Library / Item / Activity / Settings),
-sync + ThemerrDB workers, Plex HTTP client (UNVERIFIED against a real server).
+sync + ThemerrDB workers, Plex HTTP client (**read** paths surveyed against the
+real server 2026-09-01; **write** paths -- `upload_theme`, `lock_theme` -- are
+still unverified), theme origin detection.
+
+**Theme origin.** Plex sends no `provider` field. Origin comes from the theme's
+`ratingKey` scheme -- `metadata://themes/<agent>_<sha>` for agent-supplied
+(verified), `upload://` for uploaded (inferred, confirm on first upload). See
+`Fanfarr.Plex.ThemeOrigin` and the AGENTS.md section. Sync fetches origin only
+for items the listing says already have a theme, so it costs ~396 requests on
+the reference library rather than 2,564.
+
+**Reference coverage:** Movies 0/1785, TV 396/742, Sets 0/37. Movies at zero is
+correct -- Plex's movie agent supplies no themes at all.
 
 Not built yet, in intended order:
-1. Phase-1 verification of the Plex client against the real server
-   (`scripts/plex-theme-survey.sh` output pending from the operator).
-2. yt-dlp resolver + theme file writer (EXDEV fallback REQUIRED -- reference
+1. yt-dlp resolver + theme file writer (EXDEV fallback REQUIRED -- reference
    host pools use category.create=mfs; see AGENTS.md).
-3. ApplyTheme worker: intent -> resolve -> upload/local-write -> outcome, with
+2. ApplyTheme worker: intent -> resolve -> upload/local-write -> outcome, with
    dry-run default ON.
-4. Poster caching (never hotlink 2,550 thumbs from Plex).
-5. Health checks panel; codec detection/transcoding (Opus vs Apple TV);
+3. Poster caching (never hotlink 2,550 thumbs from Plex).
+4. Health checks panel; codec detection/transcoding (Opus vs Apple TV);
    season themes research.
 
 ## Testing notes

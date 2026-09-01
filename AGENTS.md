@@ -58,6 +58,25 @@ Host `serve-the-dy`, Ubuntu 24.04.
 - Everything owned `1000:1000` (dyonng). TZ `America/Toronto`.
 - Docker network `vpn_network`. Config convention `/home/dyonng/docker/<app>:/config`.
 - Library size: ~1,800 movies, ~750 series. **Zero** existing `theme.mp3` files.
+- Sections, as surveyed: `1` Movies (movie), `2` TV Shows (show), `3` Sets
+  (movie), `5` Music (artist, correctly ignored -- we filter to show/movie).
+- **"Sets" is 37 concert/DJ recordings with scene-release filenames**
+  (`Anyma.Coachella.2026...VP9-sidmonster`). It is typed `movie` and will sync,
+  but nothing in it will ever match ThemerrDB. Per-library enable/disable is
+  what saves the operator here; sections default to disabled already.
+
+## Theme coverage, surveyed 2026-09-01
+
+| Section | Items | With theme | Coverage |
+|---|---|---|---|
+| Movies | 1785 | 0 | **0%** |
+| TV Shows | 742 | 396 | 53% |
+| Sets | 37 | 0 | 0% |
+
+**Movies being flat zero is correct, not a bug in the survey.** Plex's movie
+agent supplies no themes at all; only the TV agent does. That gap is the entire
+reason Themerr-plex existed and is the bulk of Fanfarr's job: 1,785 movies from
+nothing, plus 346 shows.
 
 ## Deployment decisions
 
@@ -127,6 +146,30 @@ Response is a **full TMDB metadata object** (~32-38 keys) with five
 known**, so a cold sync of this library is ~2,550 requests. Cache aggressively,
 cache 404s too. Details in `docs/themerrdb.md`.
 
+## What Plex reports about a theme (verified 2026-09-01)
+
+`/library/metadata/<id>/themes` returns `<Track>` elements. Verbatim:
+
+    <Track key="/library/metadata/45870/file?url=metadata%3A%2F%2Fthemes%2F..."
+           ratingKey="metadata://themes/tv.plex.agents.series_b00837223037c5e21ab3a908018b4aed41791a2f"
+           selected="1" />
+
+- **There is no `provider` attribute.** Do not add code that reads one; a
+  previous version did and it was silently always `nil`.
+- **Origin lives in the `ratingKey`'s URI scheme**, the same convention Plex
+  uses for posters and art:
+  - `metadata://themes/<agent-id>_<sha>` -- supplied by that agent. VERIFIED.
+  - `upload://themes/<sha>` -- uploaded via the API. **INFERRED** from the
+    poster/art convention; we have not yet uploaded a theme and read it back.
+    Confirm on the first real upload and update `Fanfarr.Plex.ThemeOrigin`.
+- `selected="1"` marks the active one; an item may carry several.
+- This is what makes "already has a theme, but it is only Plex's stock one"
+  answerable, which was the operator's stated main use case.
+- Cost: origin needs one request per item, so sync asks **only about items the
+  listing already says have a theme** -- 396 requests, not 2,564.
+- Titles come back with XML entities (`9&#189; Weeks`, `Above &amp; Beyond`).
+  Irrelevant to the app, which parses JSON, but it bites shell tooling.
+
 ## Mistakes already made -- do not repeat
 
 - `.dockerignore` had `/config/`, which collided with Elixir's own `config/`
@@ -149,6 +192,20 @@ cache 404s too. Details in `docs/themerrdb.md`.
 - The generated auth pages shipped with the Ash Framework logo, hot-linked
   from ash-hq.org -- wrong branding, and unreachable on an isolated network.
   `FanfarrWeb.AuthOverrides` clears it.
+- `Fanfarr.Plex.HTTPClient` was written to read a `provider` field on themes,
+  and `MediaItem.plex_theme_provider` carried a confident docstring saying Plex
+  "reports 'local' for a theme.mp3 found on disk". Both were invented. Plex
+  sends no such field, nothing ever wrote the column, and a test asserted the
+  fabricated behaviour. **A plausible-looking field that is always nil fails by
+  reading as "no data" rather than as an error.** Replaced by
+  `plex_theme_origin`, derived from the ratingKey and pinned to a real sample
+  in `test/fanfarr/plex/theme_origin_test.exs`.
+- `scripts/plex-theme-survey.sh` grepped `version="[^"]*"` out of raw XML and
+  matched the `<?xml version="1.0"?>` declaration, so it reported the server
+  version as `1.0` on every run. It also surveyed only the XML API while the
+  app parses JSON -- **a diagnostic that exercises a different code path than
+  the program is worth very little.** It now probes `Accept: application/json`
+  explicitly.
 - The generator's `force_ssl` in `config/prod.exs` made the dashboard
   unreachable over LAN, redirecting everything except `localhost` to https.
   The healthcheck kept passing because it requested `localhost` -- the one
@@ -188,12 +245,14 @@ against `deps/ash_sqlite/lib/` rather than assuming parity.
 Done: scaffold, SQLite tuning, containerisation + GHCR, path mapping, root
 folder resolution, vendored UI, deployment docs, resource model, auth
 (single-user, password only, no mailer), Plex client behaviour + HTTP impl
-(UNVERIFIED against a real server), sync/ThemerrDB Oban workers, dashboard
-(Library, Item, Activity, Settings). CLAUDE.md carries operational notes.
+(read paths surveyed against the real server 2026-09-01; **write paths --
+upload_theme, lock_theme -- still UNVERIFIED**), sync/ThemerrDB Oban workers,
+dashboard (Library, Item, Activity, Settings), theme origin detection.
+CLAUDE.md carries operational notes.
 
-Next: verify the Plex client against the real server (survey script output
-pending), then the yt-dlp resolver and theme writer (EXDEV fallback required),
-then the ApplyTheme worker with dry-run defaulting on.
+Next: the yt-dlp resolver and theme writer (EXDEV fallback required), then the
+ApplyTheme worker with dry-run defaulting on. The first real upload also
+settles the `upload://` ratingKey shape above.
 
 ---
 
