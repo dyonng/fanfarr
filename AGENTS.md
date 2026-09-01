@@ -141,6 +141,29 @@ cache 404s too. Details in `docs/themerrdb.md`.
   raises on a missing ETS table at render time.
 - Advice has flip-flopped on mount layout. It is settled above: *arr-style
   numbered mounts.
+- The generator's `force_ssl` in `config/prod.exs` made the dashboard
+  unreachable over LAN, redirecting everything except `localhost` to https.
+  The healthcheck kept passing because it requested `localhost` -- the one
+  excluded host. **A healthcheck that cannot fail the way users fail is worse
+  than none.** Guarded by `test/prod_config_test.exs`.
+
+## AshSqlite limitations found the hard way
+
+The data layer is 0.2.x and genuinely less capable than AshPostgres. Verify
+against `deps/ash_sqlite/lib/` rather than assuming parity.
+
+- **No resource-level aggregates at all.** `can?({:aggregate, _})` returns
+  false (`data_layer.ex:472`), so a `first`/`count` block in a resource will
+  not compile. Only ad-hoc query aggregates work. `ThemeStatus` therefore
+  queries the application log itself, batched once per load, rather than
+  denormalising the log's state onto the item where it could drift.
+- **`ago/2` is not implemented.** AshSqlite ships only `like` and `ilike` as
+  custom functions, and an unsupported one fails by *matching nothing* rather
+  than raising -- a refresh job would quietly do no work. Compute time cutoffs
+  in Elixir and filter on the resulting datetime.
+- **`belongs_to` foreign keys are private by default**, so `accept :*` silently
+  excludes them and every create fails on a missing relationship. Set
+  `attribute_public? true`.
 
 ## Conventions
 

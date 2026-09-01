@@ -101,7 +101,7 @@ config :fanfarr, Fanfarr.Repo,
 config :fanfarr,
   ecto_repos: [Fanfarr.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: []
+  ash_domains: [Fanfarr.Library, Fanfarr.Themes, Fanfarr.Settings]
 
 # Configure the endpoint
 config :fanfarr, FanfarrWeb.Endpoint,
