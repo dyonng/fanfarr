@@ -220,6 +220,43 @@ order:
 3. Neither being decisive, it still picks one but marks the item **ambiguous**,
    and the dashboard says so rather than choosing silently.
 
+## Network: do not route yt-dlp through a VPN by default
+
+Fanfarr resolves themes from YouTube with yt-dlp, and the obvious instinct in an
+*arr stack is to send that through the same VPN as the download client. Don't.
+
+YouTube bot-checks datacenter and VPN exit addresses aggressively -- they are
+shared by thousands of users and heavily flagged -- so yt-dlp through one draws
+`Sign in to confirm you're not a bot`, HTTP 429 and throttling far more often
+than a residential address does. Theme resolution either works or it doesn't,
+and this is the single biggest factor in which.
+
+The reason a VPN is there for the download client does not extend to this. Torrent
+traffic is peer-visible, actively monitored, and generates notices. A yt-dlp fetch
+is an ordinary HTTPS request to Google, indistinguishable from watching YouTube in
+a browser from the same address. The volume is trivial besides: a few thousand
+short audio fetches on first sync, then almost nothing.
+
+There is also a trap in the workaround. When YouTube does start refusing anonymous
+requests, the documented fix is a cookie file -- but cookies *plus* a VPN is the
+worst combination available, because YouTube then sees the account authenticating
+from a datacenter address, which reads as account compromise and invites a
+security challenge. Cookies want to come from the same address the account
+normally uses.
+
+### Routing only yt-dlp, when you want to
+
+This need not be a container-wide decision. `YTDLP_PROXY` sends yt-dlp through a
+proxy while everything else -- Plex on the LAN, ThemerrDB -- goes direct:
+
+```
+YTDLP_PROXY=http://gluetun:8888
+```
+
+gluetun provides that proxy with `HTTPPROXY=on`. Empty by default, which means
+no proxy. The setting exists so that a home address hitting rate limits is a
+config change rather than a rebuild of the stack's network topology.
+
 ## Read-only mounts
 
 The library mount cannot be read-only if you use local theme output -- that
