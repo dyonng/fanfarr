@@ -178,6 +178,48 @@ mergerfs passes ownership through to the underlying branches, so `PUID`/`PGID`
 matter exactly as much as with a plain mount. Set them to the user that owns
 your media, or Plex will not be able to read the themes Fanfarr writes.
 
+## Root folders
+
+Fanfarr can be told about the individual drives behind a pool, the way Sonarr
+and Radarr are. It is optional, and it changes only *where a theme physically
+lands*, never whether Plex can see it.
+
+With no root folders configured, Fanfarr writes to the path Plex reported. On a
+pool that is the pool path, which is correct -- the file appears there for
+anything reading the pool -- but the pool's create policy decides which disk
+holds the bytes, and under `mfs` that is usually not the disk holding the show.
+
+Configure the underlying drives as root folders and Fanfarr resolves the pool
+path to the real drive before writing:
+
+```
+/media/the-biggest-one/MorePlex/TV
+/media/red-10-redemption/TV
+/media/thiccer-than-your-average/Plexifer/TV
+/media/omg-david/TV
+/media/big-stinky/TV
+```
+
+Three things follow:
+
+- The theme lands on the same disk as its episodes.
+- The temporary-file rename becomes atomic again, because source and
+  destination are on one filesystem. The `EXDEV` fallback stays for the
+  unconfigured case but stops being the normal path.
+- It works for anyone with libraries on separate mounts, pool or no pool.
+
+### When a show is on more than one drive
+
+A pool creates a show's directory on whichever branch a new episode landed on,
+so the same show can exist on several drives at once. Fanfarr picks in this
+order:
+
+1. The drive that already holds a `theme.mp3`, so an update replaces the
+   existing file rather than creating a second one elsewhere.
+2. The drive holding the most files for that show.
+3. Neither being decisive, it still picks one but marks the item **ambiguous**,
+   and the dashboard says so rather than choosing silently.
+
 ## Read-only mounts
 
 The library mount cannot be read-only if you use local theme output -- that
