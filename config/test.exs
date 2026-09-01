@@ -1,4 +1,6 @@
 import Config
+config :fanfarr, token_signing_secret: "o8cnUUkYDa/PB6VPPGgjIhoRZFy6E2nK"
+config :bcrypt_elixir, log_rounds: 1
 config :fanfarr, Oban, testing: :manual
 config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 

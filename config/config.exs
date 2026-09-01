@@ -20,7 +20,9 @@ config :ash_oban, pro?: false
 config :fanfarr, Oban,
   engine: Oban.Engines.Lite,
   notifier: Oban.Notifiers.PG,
-  queues: [default: 10],
+  # :themerrdb is deliberately narrow -- ~2,550 cold-sync requests against a
+  # community-run static host deserve restraint, not throughput.
+  queues: [default: 10, sync: 3, themerrdb: 2],
   lifeline: [rescue_after: {2, :hours}],
   pruner: [max_age: {1, :day}],
   repo: Fanfarr.Repo,
@@ -50,6 +52,9 @@ config :spark,
     remove_parens?: true,
     "Ash.Resource": [
       section_order: [
+        :authentication,
+        :token,
+        :user_identity,
         :json_api,
         :resource,
         :code_interface,
@@ -101,7 +106,7 @@ config :fanfarr, Fanfarr.Repo,
 config :fanfarr,
   ecto_repos: [Fanfarr.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: [Fanfarr.Library, Fanfarr.Themes, Fanfarr.Settings]
+  ash_domains: [Fanfarr.Accounts, Fanfarr.Library, Fanfarr.Themes, Fanfarr.Settings]
 
 # Configure the endpoint
 config :fanfarr, FanfarrWeb.Endpoint,

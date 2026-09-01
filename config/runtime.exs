@@ -130,4 +130,27 @@ if config_env() == :prod do
       port: port
     ],
     secret_key_base: secret_key_base
+
+  # Signs authentication tokens. Same treatment as SECRET_KEY_BASE above: an
+  # appliance must not require the operator to mint secrets, so one is
+  # generated on first boot and persisted beside the database. Setting the
+  # env var explicitly still wins; rotating it signs everyone out.
+  token_signing_secret =
+    System.get_env("TOKEN_SIGNING_SECRET") ||
+      (
+        secret_path = Path.join(config_dir, "token_signing_secret")
+
+        case File.read(secret_path) do
+          {:ok, existing} when byte_size(existing) >= 32 ->
+            String.trim(existing)
+
+          _ ->
+            generated = 32 |> :crypto.strong_rand_bytes() |> Base.encode64()
+            File.write!(secret_path, generated)
+            File.chmod!(secret_path, 0o600)
+            generated
+        end
+      )
+
+  config :fanfarr, token_signing_secret: token_signing_secret
 end

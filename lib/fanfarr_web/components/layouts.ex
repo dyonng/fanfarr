@@ -27,57 +27,90 @@ defmodule FanfarrWeb.Layouts do
   """
   attr :flash, :map, required: true, doc: "the map of flash messages"
 
-  attr :current_scope, :map,
+  attr :current_path, :atom,
     default: nil,
-    doc: "the current [scope](https://phoenix.hexdocs.pm/scopes.html)"
+    doc: "which sidebar entry to highlight: :library, :activity or :settings"
+
+  attr :current_user, :map, default: nil, doc: "the signed-in user, when there is one"
 
   slot :inner_block, required: true
 
   def app(assigns) do
     ~H"""
-    <header class="flex items-center gap-2 border-b border-border bg-background px-4 py-3 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
+    <div class="flex min-h-screen bg-background text-foreground">
+      <%!-- Sidebar: the *arr convention -- persistent, dark, icon + label. --%>
+      <aside class="fixed inset-y-0 left-0 z-40 flex w-52 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
+        <a href={~p"/"} class="flex h-14 items-center gap-2 border-b border-border px-4">
+          <span class="text-lg" aria-hidden="true">🎺</span>
+          <span class="text-base font-semibold tracking-tight">Fanfarr</span>
         </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a
-              href="https://phoenixframework.org/"
-              class="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-foreground/80 hover:bg-accent hover:text-accent-foreground transition-colors"
-            >Website</a>
-          </li>
-          <li>
-            <a
-              href="https://github.com/phoenixframework/phoenix"
-              class="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-foreground/80 hover:bg-accent hover:text-accent-foreground transition-colors"
-            >GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a
-              href="https://phoenix.hexdocs.pm/overview.html"
-              class="inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
-      </div>
-    </header>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8 bg-background text-foreground min-h-screen">
-      <div class="mx-auto max-w-2xl space-y-4">
-        {render_slot(@inner_block)}
+        <nav class="flex-1 space-y-1 px-2 py-3">
+          <.nav_link
+            navigate={~p"/"}
+            icon="hero-film"
+            label="Library"
+            current={@current_path == :library}
+          />
+          <.nav_link
+            navigate={~p"/activity"}
+            icon="hero-bolt"
+            label="Activity"
+            current={@current_path == :activity}
+          />
+          <.nav_link
+            navigate={~p"/settings"}
+            icon="hero-cog-6-tooth"
+            label="Settings"
+            current={@current_path == :settings}
+          />
+        </nav>
+
+        <div class="border-t border-border p-2">
+          <div class="flex items-center justify-between px-2 py-1">
+            <.theme_toggle />
+            <a
+              :if={assigns[:current_user]}
+              href={~p"/sign-out"}
+              class="rounded-md p-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              title="Sign out"
+            >
+              <.icon name="hero-arrow-right-start-on-rectangle" class="size-4" />
+            </a>
+          </div>
+        </div>
+      </aside>
+
+      <div class="flex flex-1 flex-col pl-52">
+        <main class="flex-1 px-6 py-6">
+          {render_slot(@inner_block)}
+        </main>
       </div>
-    </main>
+    </div>
 
     <.flash_group flash={@flash} />
+    """
+  end
+
+  attr :navigate, :string, required: true
+  attr :icon, :string, required: true
+  attr :label, :string, required: true
+  attr :current, :boolean, default: false
+
+  defp nav_link(assigns) do
+    ~H"""
+    <.link
+      navigate={@navigate}
+      class={[
+        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+        @current && "bg-sidebar-accent text-sidebar-accent-foreground",
+        !@current &&
+          "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+      ]}
+    >
+      <.icon name={@icon} class="size-4" />
+      {@label}
+    </.link>
     """
   end
 

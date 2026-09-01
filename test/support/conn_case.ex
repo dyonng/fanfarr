@@ -31,6 +31,29 @@ defmodule FanfarrWeb.ConnCase do
     end
   end
 
+  @doc """
+  Registers the single user and signs the conn in as them.
+
+      setup :register_and_log_in_user
+  """
+  def register_and_log_in_user(%{conn: conn}) do
+    user =
+      Fanfarr.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_password, %{
+        email: "operator@fanfarr.test",
+        password: "a-long-password",
+        password_confirmation: "a-long-password"
+      })
+      |> Ash.create!(authorize?: false)
+
+    conn =
+      conn
+      |> Phoenix.ConnTest.init_test_session(%{})
+      |> AshAuthentication.Plug.Helpers.store_in_session(user)
+
+    %{conn: conn, user: user}
+  end
+
   setup tags do
     Fanfarr.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}

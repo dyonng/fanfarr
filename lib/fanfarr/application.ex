@@ -27,7 +27,8 @@ defmodule Fanfarr.Application do
       # Start to serve requests, typically the last entry
       {DNSCluster, query: Application.get_env(:fanfarr, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Fanfarr.PubSub},
-      FanfarrWeb.Endpoint
+      FanfarrWeb.Endpoint,
+      {AshAuthentication.Supervisor, [otp_app: :fanfarr]}
     ]
 
     # See https://elixir.hexdocs.pm/Supervisor.html

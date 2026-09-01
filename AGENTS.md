@@ -178,11 +178,14 @@ against `deps/ash_sqlite/lib/` rather than assuming parity.
 ## State
 
 Done: scaffold, SQLite tuning, containerisation + GHCR, path mapping, root
-folder resolution, vendored UI, deployment docs, mergerfs upgrade tooling.
+folder resolution, vendored UI, deployment docs, resource model, auth
+(single-user, password only, no mailer), Plex client behaviour + HTTP impl
+(UNVERIFIED against a real server), sync/ThemerrDB Oban workers, dashboard
+(Library, Item, Activity, Settings). CLAUDE.md carries operational notes.
 
-Next: Ash resource model (Section, MediaItem, RootFolder, ThemerrEntry,
-ThemeApplication, Setting), then the Plex client behind an interface, then
-Phase 1 -- prove the pipeline end to end against the real server.
+Next: verify the Plex client against the real server (survey script output
+pending), then the yt-dlp resolver and theme writer (EXDEV fallback required),
+then the ApplyTheme worker with dry-run defaulting on.
 
 ---
 

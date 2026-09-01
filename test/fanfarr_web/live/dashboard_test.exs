@@ -1,0 +1,150 @@
+defmodule FanfarrWeb.DashboardTest do
+  use FanfarrWeb.ConnCase, async: false
+
+  import Phoenix.LiveViewTest
+
+  describe "authentication" do
+    test "every dashboard page requires sign-in", %{conn: conn} do
+      for path <- ["/", "/activity", "/settings"] do
+        assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, path)
+      end
+    end
+
+    test "the first registration succeeds and the second is refused", %{conn: _conn} do
+      register = fn email ->
+        Fanfarr.Accounts.User
+        |> Ash.Changeset.for_create(:register_with_password, %{
+          email: email,
+          password: "a-long-password",
+          password_confirmation: "a-long-password"
+        })
+        |> Ash.create(authorize?: false)
+      end
+
+      assert {:ok, _user} = register.("first@fanfarr.test")
+
+      # Single-user appliance: once the operator exists, the register form is
+      # a locked door, not an invitation to whoever can reach the port.
+      assert {:error, error} = register.("second@fanfarr.test")
+      assert Exception.message(error) =~ "registration is disabled"
+    end
+  end
+
+  describe "library" do
+    setup :register_and_log_in_user
+
+    setup do
+      section =
+        Fanfarr.Library.sync_section_from_plex!(%{plex_key: "1", title: "TV Shows", kind: :show})
+
+      item = fn attrs ->
+        Fanfarr.Library.MediaItem
+        |> Ash.Changeset.for_create(
+          :create,
+          Map.merge(
+            %{
+              plex_rating_key: "rk-#{System.unique_integer([:positive])}",
+              title: "Untitled",
+              kind: :show,
+              section_id: section.id
+            },
+            attrs
+          )
+        )
+        |> Ash.create!()
+      end
+
+      item.(%{title: "One Piece", year: 1999})
+      item.(%{title: "Fleabag", year: 2016, plex_theme_url: "/library/metadata/2/theme/1"})
+
+      %{section: section}
+    end
+
+    test "lists items with their status", %{conn: conn} do
+      {:ok, _view, html} = live(conn, "/")
+
+      assert html =~ "One Piece"
+      assert html =~ "Fleabag"
+      # One item has nothing, the other has a Plex-supplied theme.
+      assert html =~ "Missing"
+      assert html =~ "Plex"
+      assert html =~ "1 without a theme"
+    end
+
+    test "the status filter narrows the table", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/?status=missing")
+
+      html = render(view)
+      assert html =~ "One Piece"
+      refute html =~ "Fleabag"
+    end
+
+    test "search narrows by title", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/?q=flea")
+
+      html = render(view)
+      assert html =~ "Fleabag"
+      refute html =~ "One Piece"
+    end
+
+    test "an item page shows its history section", %{conn: conn} do
+      [item | _] = Fanfarr.Library.list_media_items!()
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+
+      assert html =~ item.title
+      assert html =~ "History"
+      assert html =~ "cannot be undone"
+    end
+  end
+
+  describe "settings" do
+    setup :register_and_log_in_user
+
+    test "saving the Plex connection stores overrides", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> element("form[phx-submit=save_plex]")
+      |> render_submit(%{"plex_url" => "http://plex.local:32400", "plex_token" => "tok123"})
+
+      assert Fanfarr.Config.get("plex_url") == "http://plex.local:32400"
+      assert Fanfarr.Config.get("plex_token") == "tok123"
+    end
+
+    test "an empty token field keeps the stored token", %{conn: conn} do
+      Fanfarr.Settings.put_setting!("plex_token", "keep-me")
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> element("form[phx-submit=save_plex]")
+      |> render_submit(%{"plex_url" => "http://plex.local:32400", "plex_token" => ""})
+
+      assert Fanfarr.Config.get("plex_token") == "keep-me"
+    end
+
+    test "root folders can be added and are health-checked on the spot", %{conn: conn} do
+      dir = Path.join(System.tmp_dir!(), "fanfarr-rf-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> element("form[phx-submit=add_root_folder]")
+      |> render_submit(%{"path" => dir, "label" => "test drive", "kind" => "show"})
+
+      [rf] = Fanfarr.Library.list_root_folders!()
+      assert rf.path == dir
+      assert rf.accessible
+      assert render(view) =~ "accessible"
+    end
+
+    test "toggling a library flips enabled", %{conn: conn} do
+      s = Fanfarr.Library.sync_section_from_plex!(%{plex_key: "9", title: "Anime", kind: :show})
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view |> element(~s(button[phx-value-id="#{s.id}"])) |> render_click()
+      assert Fanfarr.Library.get_section!(s.id).enabled == true
+    end
+  end
+end

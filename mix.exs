@@ -41,6 +41,10 @@ defmodule Fanfarr.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:bcrypt_elixir, "~> 3.0"},
+      {:simple_sat, "~> 0.1"},
+      {:ash_authentication, "~> 4.0"},
+      {:ash_authentication_phoenix, "~> 2.0"},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:open_api_spex, "~> 3.0"},
       {:oban, "~> 2.0"},
@@ -51,6 +55,7 @@ defmodule Fanfarr.MixProject do
       {:ash, "~> 3.0"},
       # Runtime dep of the vendored SaladUI components (lib/fanfarr_web/components/vendor).
       {:tw_merge, "~> 0.1"},
+      {:mox, "~> 1.2", only: :test},
       {:igniter, "~> 0.6", only: [:dev, :test]},
       {:phoenix, "~> 1.8.13"},
       {:phoenix_ecto, "~> 4.5"},

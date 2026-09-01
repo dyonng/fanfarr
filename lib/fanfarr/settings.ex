@@ -10,6 +10,10 @@ defmodule Fanfarr.Settings do
   use Ash.Domain, otp_app: :fanfarr, extensions: [AshJsonApi.Domain]
 
   resources do
-    resource Fanfarr.Settings.Setting
+    resource Fanfarr.Settings.Setting do
+      define :list_settings, action: :read
+      define :put_setting, action: :put, args: [:key, :value]
+      define :delete_setting, action: :destroy
+    end
   end
 end

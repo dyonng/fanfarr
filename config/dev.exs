@@ -51,7 +51,7 @@ config :fanfarr, FanfarrWeb.Endpoint,
 # different ports.
 
 # Enable dev routes for dashboard and mailbox
-config :fanfarr, dev_routes: true
+config :fanfarr, dev_routes: true, token_signing_secret: "WJphNWdVIp1pxrpNPVzOmxzmY/ElA3wN"
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

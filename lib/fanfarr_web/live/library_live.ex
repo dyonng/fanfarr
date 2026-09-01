@@ -1,0 +1,282 @@
+defmodule FanfarrWeb.LibraryLive.Index do
+  @moduledoc """
+  The default view: every show and movie, with theme status front and centre.
+
+  Follows the Sonarr table register -- dense rows, status colour semantics,
+  filters that narrow rather than navigate. Served entirely from the SQLite
+  mirror; Plex is never queried to render this page.
+  """
+  use FanfarrWeb, :live_view
+
+  on_mount {FanfarrWeb.LiveUserAuth, :live_user_required}
+
+  require Ash.Query
+
+  alias Fanfarr.Library.MediaItem
+
+  @page_size 50
+
+  @impl true
+  def mount(_params, _session, socket) do
+    if connected?(socket), do: Phoenix.PubSub.subscribe(Fanfarr.PubSub, "library")
+
+    {:ok,
+     socket
+     |> assign(:sections, Fanfarr.Library.list_sections!())
+     |> assign(:page_title, "Library")}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    filters = %{
+      status: params["status"],
+      kind: params["kind"],
+      section: params["section"],
+      q: params["q"],
+      page: max(String.to_integer(params["page"] || "1"), 1)
+    }
+
+    {:noreply, socket |> assign(:filters, filters) |> load_items()}
+  end
+
+  @impl true
+  def handle_event("filter", params, socket) do
+    query =
+      %{
+        "status" => params["status"],
+        "kind" => params["kind"],
+        "section" => params["section"],
+        "q" => params["q"]
+      }
+      |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
+      |> Map.new()
+
+    {:noreply, push_patch(socket, to: ~p"/?#{query}")}
+  end
+
+  def handle_event("sync", _params, socket) do
+    case Fanfarr.Workers.SyncLibrary.new(%{}) |> Oban.insert() do
+      {:ok, _job} -> {:noreply, put_flash(socket, :info, "Library sync queued")}
+      {:error, _} -> {:noreply, put_flash(socket, :error, "Could not queue the sync")}
+    end
+  end
+
+  @impl true
+  def handle_info({:section_synced, _id}, socket) do
+    {:noreply, load_items(socket)}
+  end
+
+  # Filtering happens in the query where AshSqlite supports it (kind, section,
+  # title search); theme_status is a calculation that reads the application
+  # log, so the status filter applies after load. The page is capped either
+  # way, so the post-filter never scans more than one page's worth beyond need.
+  defp load_items(%{assigns: %{filters: filters}} = socket) do
+    query =
+      MediaItem
+      |> Ash.Query.load(:theme_status)
+      |> Ash.Query.sort(title: :asc)
+
+    query =
+      case filters.kind do
+        "show" -> Ash.Query.filter(query, kind == :show)
+        "movie" -> Ash.Query.filter(query, kind == :movie)
+        _ -> query
+      end
+
+    query =
+      case filters.section do
+        nil -> query
+        "" -> query
+        id -> Ash.Query.filter(query, section_id == ^id)
+      end
+
+    query =
+      case filters.q do
+        nil -> query
+        "" -> query
+        q -> Ash.Query.filter(query, contains(string_downcase(title), ^String.downcase(q)))
+      end
+
+    items = Ash.read!(query, authorize?: false)
+
+    items =
+      case filters.status do
+        nil -> items
+        "" -> items
+        status -> Enum.filter(items, &(to_string(&1.theme_status) == status))
+      end
+
+    total = length(items)
+    pages = max(ceil(total / @page_size), 1)
+    page = min(filters.page, pages)
+
+    socket
+    |> assign(:items, Enum.slice(items, (page - 1) * @page_size, @page_size))
+    |> assign(:total, total)
+    |> assign(:page, page)
+    |> assign(:pages, pages)
+    |> assign(:counts, Enum.frequencies_by(items, & &1.theme_status))
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <Layouts.app flash={@flash} current_path={:library} current_user={@current_user}>
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-tight">Library</h1>
+            <p class="text-sm text-muted-foreground">
+              {@total} items · {Map.get(@counts, :missing, 0)} without a theme
+            </p>
+          </div>
+          <button
+            phx-click="sync"
+            class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <.icon name="hero-arrow-path" class="size-4" /> Sync library
+          </button>
+        </div>
+
+        <form id="library-filters" phx-change="filter" class="flex flex-wrap items-end gap-2">
+          <input
+            type="search"
+            name="q"
+            value={@filters.q}
+            placeholder="Search titles…"
+            phx-debounce="300"
+            class="h-9 w-56 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <select name="status" class="h-9 rounded-md border border-input bg-background px-2 text-sm">
+            <option value="all" selected={@filters.status in [nil, "", "all"]}>Any status</option>
+            <option value="missing" selected={@filters.status == "missing"}>Missing</option>
+            <option value="failed" selected={@filters.status == "failed"}>Failed</option>
+            <option value="plex_supplied" selected={@filters.status == "plex_supplied"}>
+              Plex theme
+            </option>
+            <option value="fanfarr_applied" selected={@filters.status == "fanfarr_applied"}>
+              Fanfarr theme
+            </option>
+            <option value="local_file" selected={@filters.status == "local_file"}>Local file</option>
+          </select>
+          <select name="kind" class="h-9 rounded-md border border-input bg-background px-2 text-sm">
+            <option value="all" selected={@filters.kind in [nil, "", "all"]}>Shows & movies</option>
+            <option value="show" selected={@filters.kind == "show"}>Shows</option>
+            <option value="movie" selected={@filters.kind == "movie"}>Movies</option>
+          </select>
+          <select name="section" class="h-9 rounded-md border border-input bg-background px-2 text-sm">
+            <option value="" selected={@filters.section in [nil, ""]}>All libraries</option>
+            <option :for={s <- @sections} value={s.id} selected={@filters.section == s.id}>
+              {s.title}
+            </option>
+          </select>
+        </form>
+
+        <div :if={@items == []} class="rounded-lg border border-dashed border-border p-10 text-center">
+          <p class="text-sm text-muted-foreground">
+            Nothing here yet. Configure Plex under Settings, enable a library, then Sync.
+          </p>
+        </div>
+
+        <div :if={@items != []} class="overflow-x-auto rounded-lg border border-border">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-border bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th class="px-3 py-2 font-medium">Title</th>
+                <th class="px-3 py-2 font-medium">Year</th>
+                <th class="px-3 py-2 font-medium">Type</th>
+                <th class="px-3 py-2 font-medium">Theme</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                :for={item <- @items}
+                class="border-b border-border/60 transition-colors hover:bg-muted/40"
+              >
+                <td class="px-3 py-2">
+                  <.link navigate={~p"/library/#{item.id}"} class="font-medium hover:underline">
+                    {item.title}
+                  </.link>
+                </td>
+                <td class="px-3 py-2 text-muted-foreground">{item.year}</td>
+                <td class="px-3 py-2 text-muted-foreground">
+                  {if item.kind == :show, do: "Series", else: "Movie"}
+                </td>
+                <td class="px-3 py-2"><.status_badge status={item.theme_status} /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div :if={@pages > 1} class="flex items-center justify-between text-sm text-muted-foreground">
+          <span>Page {@page} of {@pages}</span>
+          <div class="flex gap-2">
+            <.link
+              :if={@page > 1}
+              patch={~p"/?#{filter_params(@filters, @page - 1)}"}
+              class="rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
+            >
+              Previous
+            </.link>
+            <.link
+              :if={@page < @pages}
+              patch={~p"/?#{filter_params(@filters, @page + 1)}"}
+              class="rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
+            >
+              Next
+            </.link>
+          </div>
+        </div>
+      </div>
+    </Layouts.app>
+    """
+  end
+
+  defp filter_params(filters, page) do
+    %{
+      "status" => filters.status,
+      "kind" => filters.kind,
+      "section" => filters.section,
+      "q" => filters.q,
+      "page" => page
+    }
+    |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
+    |> Map.new()
+  end
+
+  attr :status, :atom, required: true
+
+  # The *arr colour vocabulary: red demands action, green is settled, blue is
+  # informational. Failed gets the loudest treatment because it is the only
+  # state that asks the operator to do something.
+  def status_badge(assigns) do
+    {label, classes} =
+      case assigns.status do
+        :missing ->
+          {"Missing", "bg-destructive/15 text-destructive"}
+
+        :failed ->
+          {"Failed", "bg-destructive text-destructive-foreground"}
+
+        :plex_supplied ->
+          {"Plex", "bg-primary/15 text-primary"}
+
+        :fanfarr_applied ->
+          {"Fanfarr", "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"}
+
+        :local_file ->
+          {"Local file", "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"}
+
+        _ ->
+          {"Unknown", "bg-muted text-muted-foreground"}
+      end
+
+    assigns = assign(assigns, label: label, classes: classes)
+
+    ~H"""
+    <span class={["inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", @classes]}>
+      {@label}
+    </span>
+    """
+  end
+end

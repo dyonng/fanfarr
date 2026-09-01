@@ -10,7 +10,18 @@ defmodule Fanfarr.Themes do
   use Ash.Domain, otp_app: :fanfarr, extensions: [AshJsonApi.Domain]
 
   resources do
-    resource Fanfarr.Themes.ThemerrEntry
-    resource Fanfarr.Themes.ThemeApplication
+    resource Fanfarr.Themes.ThemerrEntry do
+      define :record_themerr_lookup, action: :record_lookup
+      define :list_stale_themerr_entries, action: :stale
+      define :list_themerr_entries, action: :read
+    end
+
+    resource Fanfarr.Themes.ThemeApplication do
+      define :record_theme_intent, action: :record_intent
+      define :record_theme_outcome, action: :record_outcome
+      define :theme_history_for_item, action: :for_item, args: [:media_item_id]
+      define :list_theme_failures, action: :failures
+      define :list_theme_applications, action: :read
+    end
   end
 end

@@ -1,6 +1,10 @@
 defmodule FanfarrWeb.Router do
   use FanfarrWeb, :router
 
+  use AshAuthentication.Phoenix.Router
+
+  import AshAuthentication.Plug.Helpers
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -8,10 +12,47 @@ defmodule FanfarrWeb.Router do
     plug :put_root_layout, html: {FanfarrWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug :load_from_session
   end
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug :load_from_bearer
+    plug :set_actor, :user
+  end
+
+  scope "/", FanfarrWeb do
+    pipe_through [:browser]
+    auth_routes AuthController, Fanfarr.Accounts.User, path: "/auth"
+
+    sign_out_route AuthController, "/sign-out",
+      overrides: [FanfarrWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
+
+    # Remove these if you'd like to use your own authentication views
+    sign_in_route register_path: "/register",
+                  reset_path: "/reset",
+                  auth_routes_prefix: "/auth",
+                  on_mount: [{FanfarrWeb.LiveUserAuth, :live_no_user}],
+                  overrides: [
+                    FanfarrWeb.AuthOverrides,
+                    AshAuthentication.Phoenix.Overrides.Default
+                  ]
+
+    # No reset, confirmation or magic-link routes: those strategies need a
+    # mailer this appliance deliberately does not have. A lost password is
+    # recovered from the machine itself -- see "Resetting a lost password" in
+    # the README.
+  end
+
+  scope "/", FanfarrWeb do
+    pipe_through :browser
+
+    ash_authentication_live_session :authenticated_routes do
+      live "/", LibraryLive.Index, :index
+      live "/library/:id", ItemLive.Show, :show
+      live "/activity", ActivityLive.Index, :index
+      live "/settings", SettingsLive.Index, :index
+    end
   end
 
   scope "/api/json" do
@@ -28,12 +69,6 @@ defmodule FanfarrWeb.Router do
     pipe_through :api
 
     get "/health", HealthController, :show
-  end
-
-  scope "/", FanfarrWeb do
-    pipe_through :browser
-
-    get "/", PageController, :home
   end
 
   # Other scopes may use custom stacks.

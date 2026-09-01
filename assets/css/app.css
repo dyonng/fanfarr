@@ -2,6 +2,7 @@
    https://tailwindcss.com/docs/configuration */
 
 @import "tailwindcss" source(none);
+@source "../../deps/ash_authentication_phoenix";
 @import "phoenix-colocated/fanfarr/colocated.css";
 @source "../css";
 @source "../js";
