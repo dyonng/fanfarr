@@ -47,53 +47,69 @@ Nothing errors. The library simply looks empty, and there is no hint as to why.
 `:rslave` propagates the nested mounts through, and additionally means a pool
 remounted on the host is reflected in the container rather than going stale.
 
-## Recommended: make the paths identical
+## Mounts: one per library location, *arr style
 
-Mount your library at the **same container path in both Plex and Fanfarr**:
+Mount each library location separately, with container paths of your choosing,
+exactly as Sonarr and Radarr do:
 
 ```yaml
-# in your Plex service
 volumes:
-  - /mnt/storage:/data
-
-# in Fanfarr
-volumes:
-  - /mnt/storage:/data
+  - /path/to/docker/fanfarr:/config
+  - /media/the-biggest-one/MorePlex/TV:/tv1
+  - /media/red-10-redemption/TV:/tv2
+  - /media/thiccer-than-your-average/Plexifer/TV:/tv3
+  - /media/omg-david/TV:/tv4
+  - /media/big-stinky/TV:/tv5
+  - /media/the-biggest-one/MorePlex/Movies:/movies1
+  # ...and so on
 ```
 
-No configuration, no translation, and it scales to any number of libraries
-because Fanfarr never needs to know what is underneath. This is the layout the
-TRaSH guides recommend for the *arr stack generally, and it is worth adopting
-even if you only run Fanfarr.
+There is no fixed number of mounts and no required naming. Add as many as you
+have. Then register those same container paths as **root folders** in Settings.
 
-Once paths match, adding a library is purely a Plex concern.
+### How Fanfarr finds anything
 
-## Fallback: path mapping
+Plex reports paths in *its* view of the filesystem, which will not match the
+container paths above -- and does not need to. Fanfarr locates an item by
+matching its **directory name** across the configured root folders:
 
-When the paths cannot match -- Plex on bare metal, or an existing stack you do
-not want to re-plumb -- set `PATH_MAPPINGS`. Pairs are `plex_prefix:local_prefix`,
-separated by `;` or newlines:
+```
+Plex reports:  /media/merged-storage/TV/Fleabag (2016)
+                                        └──────┬──────┘
+                          searched for under each root folder
+                                               ↓
+Found at:      /tv2/Fleabag (2016)
+```
+
+So Fanfarr never needs the library mounted at Plex's own path, and never needs
+to be told which drive holds which show. Root folders are what make the
+numbered-mount layout work.
+
+They also decide *placement*. Writing to a resolved drive rather than through a
+pool keeps a theme on the same disk as its episodes, and makes the temp-file
+rename atomic because source and destination share a filesystem.
+
+### `PATH_MAPPINGS`, for what root folders cannot cover
+
+Where a Plex-reported prefix needs translating directly to a container path,
+set pairs of `plex_prefix:local_prefix`, separated by `;` or newlines:
 
 ```bash
-PATH_MAPPINGS=/data:/media
+PATH_MAPPINGS=/media/merged-storage/TV:/tv;/media/merged-storage/Movies:/movies
 ```
 
-```bash
-# Multiple libraries, and a specific exception. The longest matching prefix
-# wins, so the anime rule beats the general one.
-PATH_MAPPINGS=/data:/media;/data/anime:/mnt/anime-ssd
-```
+Longest prefix wins, so a general rule and a specific exception coexist.
+Matching is on path segments, so `/data/tv` never matches `/data/tv-4k`.
+Trailing slashes are insignificant, an unmatched path passes through unchanged,
+and a malformed entry is discarded rather than failing startup.
 
-Notes:
+### The zero-config shortcut
 
-- Matching is on path segments. `/data/tv` will never match `/data/tv-4k`.
-- Trailing slashes are insignificant.
-- An unmapped path is used as-is, so a mapping is only needed where views differ.
-- A malformed entry is discarded rather than failing startup.
-
-If a library's root does not resolve to a readable directory after mapping,
-Fanfarr reports it rather than silently doing nothing. A local theme mode that
-quietly writes nowhere is the worst possible failure here.
+Mounting a path at *itself* (`- /media:/media:rslave`) makes Fanfarr's view
+identical to Plex's, so neither root folders nor `PATH_MAPPINGS` are needed to
+find anything. It works, and it is the least to configure, but it grants
+broader access than the explicit layout and hides which locations are actually
+in use. Prefer the numbered mounts above.
 
 ## mergerfs
 

@@ -1,3 +1,168 @@
+# Fanfarr
+
+Self-hosted service that manages theme music for a Plex library, with an
+*arr-style web dashboard. Successor in spirit to LizardByte's Themerr-plex,
+which died with Plex's plugin framework.
+
+**This top section is the decision record. Read it before changing anything
+architectural. Everything below "Phoenix/Elixir guidelines" is generated
+framework boilerplate.**
+
+---
+
+## Non-negotiables
+
+These come from the project brief and are not open for re-litigation.
+
+1. **Theme uploads are irreversible through Plex's API.** `deleteTheme()` raises
+   `NotImplementedError`. Every upload is append-only, so: be idempotent (check
+   before uploading, never blind-upload on a scan cycle), and dry-run must exist
+   from the start and default **on**.
+2. **Never hold a database transaction open across an HTTP call.** SQLite has a
+   single writer; a yt-dlp fetch or Plex upload takes minutes and would block
+   every other write. Write intent, commit, do the IO, write the outcome.
+3. **Do not build a Plex plugin.** The framework is gone.
+4. **Do not manage posters, artwork or collections.** Kometa owns that lane.
+5. **Do not bundle or redistribute theme audio.** Resolve and apply only.
+6. **Keep the Plex client behind an interface.** Jellyfin is out of scope for
+   v1 but must not be made impossible.
+
+## Stack, and why
+
+| Choice | Reason |
+|---|---|
+| Elixir + Ash + SQLite | One container, no external services, real concurrency for scan/resolve/upload fan-out |
+| Phoenix LiveView | Deletes the SPA layer entirely; the live Activity/job view is near-free |
+| Oban with `Engines.Lite` + `Notifiers.PG` | Job queue in the same SQLite file; no Postgres LISTEN/NOTIFY needed |
+| SaladUI, **vendored** into `lib/fanfarr_web/components/vendor` | shadcn/ui is React and cannot run under LiveView. The hex package declares `igniter`/`sourceror` as runtime deps, which would pollute the release; the components themselves never reference them |
+| daisyUI **removed** | Phoenix ships it by default, but its themes and shadcn's CSS variables define overlapping tokens and fight; shadcn is also closer to *arr chrome |
+| yt-dlp as a standalone binary | YouTube breaks it often; its version must move independently of ours |
+
+Single user. No authentication framework needed. Outside contributors are not
+a goal, so Elixir's smaller talent pool is an accepted cost.
+
+## The reference deployment (verified, not assumed)
+
+Host `serve-the-dy`, Ubuntu 24.04.
+
+- **Plex runs on BARE METAL**, not in a container. It therefore reports *host*
+  paths. This is the single most consequential fact about this deployment.
+- Five ext4 drives under `/media`, pooled by **mergerfs 2.42.0** into
+  `/media/merged-storage/{TV,Movies,Music,Sets}`.
+- Pool options: `defaults,nonempty,allow_other,use_ino,category.create=mfs,minfreespace=20G`
+- **`category.create=mfs` is NOT path-preserving.** Given the spread of free
+  space, new files land on whichever drive has most room -- usually not the one
+  holding the show.
+- Sonarr and Radarr write to the individual drives (`/tv1`..`/tv5`,
+  `/movies1`..`/movies5`); Plex reads the pool. Both describe the same files.
+- Everything owned `1000:1000` (dyonng). TZ `America/Toronto`.
+- Docker network `vpn_network`. Config convention `/home/dyonng/docker/<app>:/config`.
+- Library size: ~1,800 movies, ~750 series. **Zero** existing `theme.mp3` files.
+
+## Deployment decisions
+
+**Mounts follow *arr convention: one numbered mount per library location.**
+`/tv1`, `/tv2`, `/movies1`... exactly as Sonarr and Radarr do it. This is a
+product decision, not a technical one -- Fanfarr is named to sit in the *arr
+stack and should feel native in it. Users get one mount per location and full
+control over container paths.
+
+A previous revision of this file recommended a single `/media:/media` mount.
+That was wrong for this project. It works, and it is still the zero-config
+shortcut, but it is not the documented shape.
+
+**Root folders are how items are located.** Resolution matches an item by its
+**directory name** across the configured root folders -- it does not need the
+library mounted at Plex's own path, and it does not need to be told which drive
+holds which show. This is why numbered mounts are fine: an earlier claim that
+they "would break Fanfarr" was incorrect.
+
+Root folders also decide *placement*: writing to a resolved drive rather than
+through the pool keeps a theme on the same disk as its episodes and makes the
+temp-file rename atomic.
+
+**`PATH_MAPPINGS`** translates Plex-reported prefixes to container paths, for
+cases root folders alone cannot cover. Longest prefix wins; matching is on
+segment boundaries so `/data/tv` never matches `/data/tv-4k`.
+
+**`:rslave` is required on any mount that contains other mounts** -- a mergerfs
+pool, or a directory with drives underneath. Without it the container sees an
+empty directory where the nested mount should be, with **no error**. This is
+the single most confusing failure mode in this deployment.
+
+**`EXDEV` handling is mandatory, not defensive.** Under `mfs` the temp file and
+its target routinely land on different drives, so `rename` fails. The writer
+must fall back to copy-then-unlink.
+
+**yt-dlp does not go through the VPN by default.** YouTube bot-checks
+datacenter addresses far harder than residential ones, and the cookie-file
+fallback is *worse* over a VPN (reads as account compromise). `YTDLP_PROXY`
+exists as the opt-in escape hatch.
+
+## Design decisions in the code
+
+- **Theme status is a calculation, never a stored column.** The five states
+  (missing / failed / local file / Fanfarr-applied / Plex-supplied) are
+  conclusions drawn from facts already held. A stored status would be a sixth
+  fact that eventually disagrees with the other five.
+- **Sections default to disabled.** A newly discovered Plex library is opt-in,
+  because uploads cannot be undone.
+- **Sync never re-enables what an operator disabled** -- `enabled` is not in the
+  accepted fields of `sync_from_plex`.
+- **The ThemerrDB cache persists `youtube_theme_edited`.** It is a change key: if
+  it has not moved, nothing needs re-resolving regardless of TTL. Upstream
+  ignores this field; it is the backbone of the health/drift feature.
+- **The health endpoint is deliberately shallow** -- app up, database reachable.
+  Plex or YouTube being down belongs in the dashboard, not in a check that
+  restarts the container.
+
+## ThemerrDB
+
+```
+https://app.lizardbyte.dev/ThemerrDB/{movies|tv_shows}/{imdb|themoviedb}/{id}.json
+```
+
+Response is a **full TMDB metadata object** (~32-38 keys) with five
+`youtube_theme_*` fields grafted on. 3-23 KB each. **No bulk endpoint is
+known**, so a cold sync of this library is ~2,550 requests. Cache aggressively,
+cache 404s too. Details in `docs/themerrdb.md`.
+
+## Mistakes already made -- do not repeat
+
+- `.dockerignore` had `/config/`, which collided with Elixir's own `config/`
+  directory and stripped it from the build context. `test/dockerfile_context_test.exs`
+  guards this now.
+- `assets.deploy` ran tailwind before `compile`, but LiveView generates
+  colocated CSS *during* compilation. Fixed in `mix.exs`.
+- Phoenix generates an IPv6 bind, which dies with `:eafnosupport` wherever IPv6
+  is off -- including many Docker daemons. Default is IPv4; `BIND_IPV6=true`
+  opts back in.
+- `TwMerge.Cache` must be in the supervision tree or every vendored component
+  raises on a missing ETS table at render time.
+- Advice has flip-flopped on mount layout. It is settled above: *arr-style
+  numbered mounts.
+
+## Conventions
+
+- Run `mix precommit` before finishing (compile --warnings-as-errors, unused
+  deps, format, test).
+- Commit messages: what changed and *why it matters*, in prose. No model names,
+  no emoji.
+- Verify claims about libraries against source in `deps/` rather than memory.
+- CI publishes `ghcr.io/dyonng/fanfarr:latest` on push to `main`. The package
+  is public.
+
+## State
+
+Done: scaffold, SQLite tuning, containerisation + GHCR, path mapping, root
+folder resolution, vendored UI, deployment docs, mergerfs upgrade tooling.
+
+Next: Ash resource model (Section, MediaItem, RootFolder, ThemerrEntry,
+ThemeApplication, Setting), then the Plex client behind an interface, then
+Phase 1 -- prove the pipeline end to end against the real server.
+
+---
+
 This is a web application written using the Phoenix web framework.
 
 ## Project guidelines

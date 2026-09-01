@@ -5,30 +5,34 @@ services:
     restart: unless-stopped
     environment:
       # Ownership of files Fanfarr writes. Match these to the user that owns
-      # your media library, or the theme.mp3 files it writes into the library
-      # will be unreadable by Plex and unwritable by everything else.
+      # your media, or the theme.mp3 files written into the library will be
+      # unreadable by Plex and unwritable by everything else.
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       - TZ=${TZ:-UTC}
 
       - PORT=${PORT:-7373}
 
-      # Plex Media Server. Use the host IP if Plex runs on baremetal, or the
-      # container name if it shares this network.
+      # Plex Media Server. Use host.docker.internal if Plex runs on bare metal,
+      # or the container name if it shares this network.
       - PLEX_URL=${PLEX_URL}
       - PLEX_TOKEN=${PLEX_TOKEN}
 
-      # Reverse proxy support. Leave unset when reaching Fanfarr directly by IP.
-      # PHX_HOST/URL_SCHEME fix generated links; BASE_PATH is for hosting under
-      # a subpath rather than its own hostname.
+      # Only needed when a library is mounted somewhere Fanfarr cannot work out
+      # from the root folders alone -- see docs/deployment.md. With the mounts
+      # below configured as root folders, this stays empty.
+      - PATH_MAPPINGS=${PATH_MAPPINGS:-}
+
+      # Sends only yt-dlp through a proxy, leaving Plex and ThemerrDB direct.
+      # Empty means no proxy, which is the recommended default: YouTube
+      # bot-checks datacenter addresses far more aggressively than residential
+      # ones. Read docs/deployment.md before routing this through a VPN.
+      - YTDLP_PROXY=${YTDLP_PROXY:-}
+
+      # Reverse proxy support. Leave unset when reaching Fanfarr by IP.
       - PHX_HOST=${PHX_HOST:-}
       - URL_SCHEME=${URL_SCHEME:-http}
       - BASE_PATH=${BASE_PATH:-}
-
-      # Only needed when Plex and Fanfarr see the library at different paths.
-      # Pairs of plex_prefix:local_prefix, separated by ; -- see
-      # docs/deployment.md. Leave empty when the mounts above match Plex's.
-      - PATH_MAPPINGS=${PATH_MAPPINGS:-}
 
       - LOG_LEVEL=${LOG_LEVEL:-info}
     # Cap Docker's capture of stdout so months of logs can't fill the disk.
@@ -38,28 +42,32 @@ services:
         max-size: "10m"
         max-file: "3"
     ports:
-      - "${PORT:-7373}:${PORT:-7373}"
+      - "${PORT:-7373}:${PORT:-7373}/tcp"
     volumes:
       # Database, generated secret, and cached posters.
-      # Named ./appdata rather than ./config so it cannot be confused with the
-      # application's own config/ directory -- they would otherwise collide in
-      # the Docker build context.
-      - ./appdata:/config
+      - /path/to/docker/fanfarr:/config
 
-      # Media, mounted at the IDENTICAL path the host uses.
+      # Media, mounted exactly as Sonarr and Radarr do it: one numbered mount
+      # per library location, container paths of your choosing. Add as many as
+      # you have -- there is no fixed number and no required naming.
       #
-      # Plex runs on bare metal here, so it reports host paths -- /media/... as
-      # the host sees them. Mounting /media at /media makes Fanfarr's view match
-      # Plex's exactly, so no translation is needed and PATH_MAPPINGS stays
-      # empty. It also survives adding a library on a new drive later.
-      #
-      # :rslave is REQUIRED, not decorative. The mergerfs pools under
-      # /media/merged-storage are separate mount points, and a plain bind mount
-      # does not carry nested mounts through -- the container would see
-      # /media/merged-storage as an empty directory, with no error and no clue
-      # why the library looks empty. :rslave propagates them, and also means a
-      # pool remounted on the host is picked up rather than going stale.
-      - /media:/media:rslave
+      # Register these same container paths as root folders in Settings.
+      # Fanfarr locates an item by matching its directory name across the root
+      # folders, so it does not need to be told which drive holds which show,
+      # and it never needs the library mounted at Plex's own path.
+      - /path/to/tv-drive-1:/tv1
+      - /path/to/tv-drive-2:/tv2
+      - /path/to/movie-drive-1:/movies1
+      - /path/to/movie-drive-2:/movies2
+
+      # Mounting a union filesystem (mergerfs, unionfs) rather than the drives
+      # underneath it? Add :rslave, or the container sees an empty directory
+      # where the pool should be, with no error to explain why:
+      #   - /path/to/pool/TV:/tv:rslave
+    extra_hosts:
+      # Lets PLEX_URL be http://host.docker.internal:32400 when Plex runs on
+      # the host rather than in a container.
+      - host.docker.internal:host-gateway
     networks:
       - media-stack
 
