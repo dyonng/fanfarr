@@ -112,6 +112,27 @@ if config_env() == :prod do
       value -> "/" <> String.trim(value, "/")
     end
 
+  # WebSocket origin checking.
+  #
+  # Phoenix defaults to validating the browser's Origin against `url: [host:]`
+  # above. For a LAN appliance that is wrong: the same server is legitimately
+  # reached by IP, by hostname, over Tailscale, and through a reverse proxy,
+  # and no single configured host covers them. The symptom is brutal and
+  # unobvious -- the page renders statically but the LiveView socket is
+  # refused, so nothing is interactive and the browser retries forever.
+  #
+  # Disabled by default, which is what self-hosted services in this class do.
+  # Operators who terminate TLS at a known domain can pin it:
+  #   CHECK_ORIGIN=https://fanfarr.example.com,//fanfarr.lan
+  check_origin =
+    case System.get_env("CHECK_ORIGIN") do
+      nil -> false
+      "" -> false
+      "false" -> false
+      "true" -> true
+      list -> list |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+    end
+
   config :fanfarr, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :fanfarr, FanfarrWeb.Endpoint,
@@ -129,6 +150,7 @@ if config_env() == :prod do
       ip: bind_address,
       port: port
     ],
+    check_origin: check_origin,
     secret_key_base: secret_key_base
 
   # Signs authentication tokens. Same treatment as SECRET_KEY_BASE above: an

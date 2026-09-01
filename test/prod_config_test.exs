@@ -30,6 +30,37 @@ defmodule ProdConfigTest do
     """
   end
 
+  test "production does not pin the websocket origin to a single host" do
+    runtime = File.read!("config/runtime.exs")
+
+    assert String.contains?(runtime, "check_origin:"), """
+    config/runtime.exs does not set check_origin.
+
+    Phoenix then validates the browser Origin against `url: [host:]`, which for
+    this appliance defaults to "localhost". Reaching the server by LAN IP,
+    hostname or Tailscale name is refused, and the failure is quiet and
+    confusing: the page renders statically, the LiveView socket never
+    connects, and the browser retries forever.
+    """
+
+    # And it must not be hardcoded true -- that reintroduces the same failure.
+    refute Regex.match?(~r/check_origin:\s*true/, runtime),
+           "check_origin is hardcoded true, which pins the socket to one host again"
+  end
+
+  test "the auth pages do not carry Ash Framework branding" do
+    overrides = File.read!("lib/fanfarr_web/auth_overrides.ex")
+
+    assert String.contains?(overrides, "Components.Banner"), """
+    The banner is not overridden, so the sign-in page shows the Ash Framework
+    logo -- fetched from ash-hq.org, which an appliance on a private network
+    may not even be able to reach.
+    """
+
+    assert String.contains?(overrides, "set :image_url, nil"),
+           "the off-site default logo must be cleared, not merely restyled"
+  end
+
   test "the container healthcheck does not rely on an SSL-excluded host" do
     dockerfile = File.read!("Dockerfile")
 

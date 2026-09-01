@@ -141,6 +141,14 @@ cache 404s too. Details in `docs/themerrdb.md`.
   raises on a missing ETS table at render time.
 - Advice has flip-flopped on mount layout. It is settled above: *arr-style
   numbered mounts.
+- `check_origin` defaulted to Phoenix's behaviour of validating against
+  `url: [host:]`, i.e. "localhost". Reaching the server by LAN IP was refused
+  at the socket, so pages rendered statically and nothing was interactive
+  while the browser retried forever. A LAN appliance has no single legitimate
+  origin; it is off by default now, pinnable via `CHECK_ORIGIN`.
+- The generated auth pages shipped with the Ash Framework logo, hot-linked
+  from ash-hq.org -- wrong branding, and unreachable on an isolated network.
+  `FanfarrWeb.AuthOverrides` clears it.
 - The generator's `force_ssl` in `config/prod.exs` made the dashboard
   unreachable over LAN, redirecting everything except `localhost` to https.
   The healthcheck kept passing because it requested `localhost` -- the one
