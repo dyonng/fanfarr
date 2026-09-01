@@ -71,15 +71,15 @@ defmodule FanfarrWeb.CoreComponents do
         @kind == :info && "alert-info",
         @kind == :error && "alert-error"
       ]}>
-        <.icon :if={@kind == :info} name="hero-information-circle" class="size-5 shrink-0" />
-        <.icon :if={@kind == :error} name="hero-exclamation-circle" class="size-5 shrink-0" />
+        <.icon :if={@kind == :info} name="lucide-info" class="size-5 shrink-0" />
+        <.icon :if={@kind == :error} name="lucide-circle-alert" class="size-5 shrink-0" />
         <div>
           <p :if={@title} class="font-semibold">{@title}</p>
           <p>{msg}</p>
         </div>
         <div class="flex-1" />
         <button type="button" class="group self-start cursor-pointer" aria-label={gettext("close")}>
-          <.icon name="hero-x-mark" class="size-5 opacity-40 group-hover:opacity-70" />
+          <.icon name="lucide-x" class="size-5 opacity-40 group-hover:opacity-70" />
         </button>
       </div>
     </div>
@@ -317,7 +317,7 @@ defmodule FanfarrWeb.CoreComponents do
   defp error(assigns) do
     ~H"""
     <p class="mt-1.5 flex gap-2 items-center text-sm text-error">
-      <.icon name="hero-exclamation-circle" class="size-5" />
+      <.icon name="lucide-circle-alert" class="size-5" />
       {render_slot(@inner_block)}
     </p>
     """
@@ -437,27 +437,24 @@ defmodule FanfarrWeb.CoreComponents do
   end
 
   @doc """
-  Renders a [Heroicon](https://heroicons.com).
+  Renders a [Lucide](https://lucide.dev) icon.
 
-  Heroicons come in three styles – outline, solid, and mini.
-  By default, the outline style is used, but solid and mini may
-  be applied by using the `-solid` and `-mini` suffix.
+  Icons are rendered as a CSS mask on a span, so they take their colour from
+  `currentColor` and cost no runtime JavaScript. Only the icons actually
+  referenced in the codebase end up in the stylesheet.
 
-  You can customize the size and colors of the icons by setting
-  width, height, and background color classes.
-
-  Icons are extracted from the `deps/heroicons` directory and bundled within
-  your compiled app.css by the plugin in `assets/vendor/heroicons.js`.
+  Lucide rather than Heroicons because the components are shadcn's, and Lucide
+  is the set those are drawn against.
 
   ## Examples
 
-      <.icon name="hero-x-mark" />
-      <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
+      <.icon name="lucide-x" />
+      <.icon name="lucide-refresh-cw" class="size-4 animate-spin" />
   """
   attr :name, :string, required: true
-  attr :class, :any, default: "size-4"
+  attr :class, :any, default: nil
 
-  def icon(%{name: "hero-" <> _} = assigns) do
+  def icon(%{name: "lucide-" <> _} = assigns) do
     ~H"""
     <span class={[@name, @class]} />
     """

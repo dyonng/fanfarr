@@ -48,19 +48,19 @@ defmodule FanfarrWeb.Layouts do
         <nav class="flex-1 space-y-1 px-2 py-3">
           <.nav_link
             navigate={~p"/"}
-            icon="hero-film"
+            icon="lucide-clapperboard"
             label="Library"
             current={@current_path == :library}
           />
           <.nav_link
             navigate={~p"/activity"}
-            icon="hero-bolt"
+            icon="lucide-zap"
             label="Activity"
             current={@current_path == :activity}
           />
           <.nav_link
             navigate={~p"/settings"}
-            icon="hero-cog-6-tooth"
+            icon="lucide-settings"
             label="Settings"
             current={@current_path == :settings}
           />
@@ -75,7 +75,7 @@ defmodule FanfarrWeb.Layouts do
               class="rounded-md p-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               title="Sign out"
             >
-              <.icon name="hero-arrow-right-start-on-rectangle" class="size-4" />
+              <.icon name="lucide-log-out" class="size-4" />
             </a>
           </div>
         </div>
@@ -142,7 +142,7 @@ defmodule FanfarrWeb.Layouts do
         hidden
       >
         {gettext("Attempting to reconnect")}
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
+        <.icon name="lucide-refresh-cw" class="ml-1 size-3 motion-safe:animate-spin" />
       </.flash>
 
       <.flash
@@ -157,7 +157,7 @@ defmodule FanfarrWeb.Layouts do
         hidden
       >
         {gettext("Attempting to reconnect")}
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
+        <.icon name="lucide-refresh-cw" class="ml-1 size-3 motion-safe:animate-spin" />
       </.flash>
     </div>
     """
@@ -178,7 +178,7 @@ defmodule FanfarrWeb.Layouts do
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="system"
       >
-        <.icon name="hero-computer-desktop-micro" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="lucide-monitor" class="size-4 opacity-75 hover:opacity-100" />
       </button>
 
       <button
@@ -186,7 +186,7 @@ defmodule FanfarrWeb.Layouts do
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
       >
-        <.icon name="hero-sun-micro" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="lucide-sun" class="size-4 opacity-75 hover:opacity-100" />
       </button>
 
       <button
@@ -194,7 +194,7 @@ defmodule FanfarrWeb.Layouts do
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
       >
-        <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="lucide-moon" class="size-4 opacity-75 hover:opacity-100" />
       </button>
     </div>
     """

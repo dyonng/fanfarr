@@ -18,6 +18,15 @@ defmodule FanfarrWeb.DashboardTest do
       end
     end
 
+    test "with no operator account the sign-in page redirects to the dashboard",
+         %{conn: conn} do
+      # Authentication is optional. A form asking for credentials that were
+      # never configured is a dead end, so it should not be reachable.
+      refute Fanfarr.Accounts.AuthMode.required?()
+
+      assert {:error, {:redirect, %{to: "/"}}} = live(conn, "/sign-in")
+    end
+
     test "with no operator account the dashboard is open", %{conn: conn} do
       # AUTH_USERNAME/AUTH_PASSWORD unset means no account, which means no
       # login -- the way Sonarr and Radarr start. Redirecting to a form nobody

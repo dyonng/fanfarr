@@ -129,7 +129,7 @@ defmodule SaladUI.Command do
   def command_input(assigns) do
     ~H"""
     <div data-part="input-wrapper" class="flex items-center border-b border-border px-3">
-      <.icon name="hero-magnifying-glass" />
+      <.icon name="lucide-search" />
       <input
         type="text"
         data-part="input"

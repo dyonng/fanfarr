@@ -134,7 +134,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
             phx-click="sync"
             class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
-            <.icon name="hero-arrow-path" class="size-4" /> Sync library
+            <.icon name="lucide-refresh-cw" class="size-4" /> Sync library
           </button>
         </div>
 

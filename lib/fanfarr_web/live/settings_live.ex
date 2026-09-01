@@ -245,7 +245,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
                 data-confirm={"Remove #{rf.path}?"}
                 class="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               >
-                <.icon name="hero-trash" class="size-4" />
+                <.icon name="lucide-trash-2" class="size-4" />
               </button>
             </li>
           </ul>

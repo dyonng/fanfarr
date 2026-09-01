@@ -68,13 +68,12 @@ defmodule Fanfarr.MixProject do
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.5", runtime: Mix.env() == :dev},
-      {:heroicons,
-       github: "tailwindlabs/heroicons",
-       tag: "v2.2.0",
-       sparse: "optimized",
-       app: false,
-       compile: false,
-       depth: 1},
+      # Lucide, not Heroicons: the UI is built on shadcn components and Lucide
+      # is the set they are drawn against. Sparse-checked out and never
+      # compiled -- the Tailwind plugin in assets/vendor/lucide.js reads the
+      # SVGs directly and emits only the icons actually referenced.
+      {:lucide,
+       github: "lucide-icons/lucide", sparse: "icons", app: false, compile: false, depth: 1},
       {:daisyui,
        github: "saadeghi/daisyui",
        tag: "v5.5.20",

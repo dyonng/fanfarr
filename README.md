@@ -86,9 +86,11 @@ start. Change the password by editing compose and restarting — which is also
 how you recover a forgotten one. Renaming `AUTH_USERNAME` removes the old
 account rather than leaving a second login behind.
 
-Both unset: the dashboard is open to anyone who can reach the port, the same
-default Sonarr and Radarr ship with. Reasonable on a trusted LAN, unwise if
-the port is exposed. It is warned about in the logs on every boot.
+Both unset: authentication is off entirely. Every page is reachable without
+signing in and the sign-in route redirects to the dashboard, since there are
+no credentials to enter. This is the same default Sonarr and Radarr ship with
+-- reasonable on a trusted LAN, unwise if the port is exposed -- and it is
+warned about in the logs on every boot.
 
 ## Development
 

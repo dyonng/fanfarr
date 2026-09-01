@@ -10,9 +10,9 @@
 /* Required for Tailwind to automatically pick up changes in colocated CSS files in dev */
 @source "../../_build/dev/phoenix-colocated/fanfarr/*/";
 
-/* A Tailwind plugin that makes "hero-#{ICON}" classes available.
-   The heroicons installation itself is managed by your mix.exs */
-@plugin "../vendor/heroicons";
+/* Makes "lucide-#{ICON}" classes available. The icon set itself is a sparse
+   git dependency managed in mix.exs. */
+@plugin "../vendor/lucide";
 
 /* Design tokens for the vendored SaladUI components, and component-level CSS
    they rely on (scroll areas, indeterminate progress animation).

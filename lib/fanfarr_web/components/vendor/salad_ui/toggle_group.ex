@@ -10,13 +10,13 @@ defmodule SaladUI.ToggleGroup do
 
     <.toggle_group name="style" type="single" value="bold">
       <.toggle_group_item value="bold" builder={builder} aria-label="Toggle bold">
-        <.icon name="hero-bold" class="h-4 w-4" />
+        <.icon name="lucide-bold" class="h-4 w-4" />
       </.toggle_group_item>
       <.toggle_group_item value="italic" builder={builder} aria-label="Toggle italic">
-        <.icon name="hero-italic" class="h-4 w-4" />
+        <.icon name="lucide-italic" class="h-4 w-4" />
       </.toggle_group_item>
       <.toggle_group_item value="underline" builder={builder} aria-label="Toggle underline">
-        <.icon name="hero-underline" class="h-4 w-4" />
+        <.icon name="lucide-underline" class="h-4 w-4" />
       </.toggle_group_item>
     </.toggle_group>
   """

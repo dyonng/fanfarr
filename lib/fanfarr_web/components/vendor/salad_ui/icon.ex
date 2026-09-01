@@ -1,20 +1,15 @@
 defmodule SaladUI.Icon do
   @moduledoc """
-  Renders a [Heroicon](https://heroicons.com).
+  Renders a [Lucide](https://lucide.dev) icon.
 
-  Heroicons come in three styles – outline, solid, and mini.
-  By default, the outline style is used, but solid and mini may
-  be applied by using the `-solid` and `-mini` suffix.
-
-  You can customize the size and colors of the icons by setting
-  width, height, and background color classes.
-
-  Icons are extracted from your `assets/vendor/heroicons` directory and bundled
-  within your compiled app.css by the icon plugin in your Tailwind config.
+  Vendored change: upstream renders Heroicons. This project uses Lucide, the
+  set shadcn's components are drawn against, so the clause matches `lucide-`
+  names instead. Icons come from the Tailwind plugin in
+  `assets/vendor/lucide.js`, which emits a CSS mask per referenced icon.
 
   ## Examples
-      <.icon name="hero-x-mark-solid" />
-      <.icon name="hero-arrow-path" class="ml-1 w-3 h-3 animate-spin" />
+      <.icon name="lucide-x" />
+      <.icon name="lucide-refresh-cw" class="ml-1 w-3 h-3 animate-spin" />
   """
 
   use SaladUI, :component
@@ -22,7 +17,7 @@ defmodule SaladUI.Icon do
   attr :name, :string, required: true
   attr :class, :string, default: ""
 
-  def icon(%{name: "hero-" <> _} = assigns) do
+  def icon(%{name: "lucide-" <> _} = assigns) do
     ~H"""
     <span class={[@name, @class]}></span>
     """

@@ -57,6 +57,19 @@ through.
   compile time -- which is how a broken `:set_password` shipped once.
 - **Secrets**: SECRET_KEY_BASE and TOKEN_SIGNING_SECRET both auto-generate on
   first boot and persist under /config. Env vars win if set.
+- **Icons: Lucide**, not Heroicons. The components are shadcn's and Lucide is
+  the set they are drawn against. Delivered the same way the generator
+  delivered Heroicons: a sparse git dep (`deps/lucide/icons`) plus a Tailwind
+  plugin (`assets/vendor/lucide.js`) emitting one CSS mask per referenced icon.
+  `mask-size: contain` is load-bearing -- Lucide draws on a 24px grid and is
+  clipped in a `size-4` box without it. Names drift between Lucide releases
+  (`help-circle` is now `circle-question-mark`); `test/icons_test.exs` fails on
+  a name with no SVG, because Tailwind emits nothing and the icon silently
+  disappears.
+- **Authentication is optional.** No `AUTH_USERNAME`/`AUTH_PASSWORD` means no
+  account, which means no login: dashboard pages render for anyone and
+  `/sign-in` redirects to `/` rather than presenting a form for credentials
+  that do not exist.
 - **Dark is the default theme** (`root.html.heex` falls back to "dark", not
   "system") because the product sits beside Sonarr and Radarr.
 

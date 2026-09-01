@@ -131,7 +131,7 @@ defmodule SaladUI.Toast do
 
   attr :icons, :map,
     default: %{},
-    doc: ~S(toaster-wide icon overrides, e.g. %{success: "hero-sparkles"})
+    doc: ~S(toaster-wide icon overrides, e.g. %{success: "lucide-sparkles"})
 
   attr :colors, :map,
     default: %{},
