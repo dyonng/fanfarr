@@ -16,6 +16,8 @@ defmodule Fanfarr.Diagnostics do
   alias Fanfarr.Library
   alias Fanfarr.Themes.Downloader
 
+  @theme_filename "theme.mp3"
+
   @doc "Everything about this install that does not depend on Plex being up."
   @spec environment() :: String.t()
   def environment do
@@ -214,22 +216,47 @@ defmodule Fanfarr.Diagnostics do
         {:error, reason} -> "unresolved: #{inspect(reason)}"
       end
 
-    target =
-      case Fanfarr.Library.RootFolders.resolve(local, roots) do
-        {:ok, dir, _} -> dir
-        _ -> nil
-      end
+    # The same call the worker makes, so this cannot report "would write here"
+    # about a destination the worker would refuse.
+    verdict = Fanfarr.Workers.ApplyTheme.destination_dir(item)
+    target = with {:ok, dir} <- verdict, do: dir, else: (_ -> nil)
 
     """
       Plex says      #{item.plex_path}
       after mapping  #{local}#{if local == item.plex_path, do: "  (unchanged)", else: ""}
-      exists here    #{File.dir?(local)}
+      exists here    #{File.dir?(local)}#{host_path_note(local, verdict)}
       root folders   #{if roots == [], do: "(none configured)", else: Enum.join(roots, ", ")}
       resolves to    #{resolved}
       writable       #{writable(target)}
-      would write    #{if target, do: Path.join(target, "theme.mp3"), else: "(nowhere)"}
+      would write    #{if target, do: Path.join(target, @theme_filename), else: "(nowhere)"}
+
+      verdict        #{verdict_line(verdict)}
     """
   end
+
+  # Plex runs on the host and reports host paths; the container mounts the same
+  # drives under whatever names the operator chose. So a reported path that
+  # does not exist here is the normal case, not the fault -- root folders are
+  # what bridge it, and saying so stops this line reading as the problem.
+  defp host_path_note(_local, {:ok, _dir}), do: "  (expected: root folders bridge this)"
+  defp host_path_note(_local, _error), do: ""
+
+  defp verdict_line({:ok, dir}), do: "ready -- a theme would be written under #{dir}"
+
+  defp verdict_line({:error, :no_plex_path}),
+    do: "blocked -- Plex reported no path for this item"
+
+  defp verdict_line({:error, {:no_matching_root, path}}),
+    do:
+      "blocked -- no root folder contains a directory named " <>
+        "#{inspect(Path.basename(path))}. Add the drive that holds it under Settings."
+
+  defp verdict_line({:error, {:destination_missing, dir}}),
+    do:
+      "blocked -- #{dir} does not exist in this container. Add root folders for " <>
+        "the drives your libraries are mounted at, or add a path mapping."
+
+  defp verdict_line({:error, reason}), do: "blocked -- #{inspect(reason)}"
 
   defp writable(nil), do: "n/a"
 

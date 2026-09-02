@@ -140,29 +140,65 @@ defmodule Fanfarr.Workers.ApplyTheme do
   defp source_atom("youtube", _), do: :youtube
   defp source_atom(_, default), do: default
 
-  defp destination_dir(%{plex_path: nil}), do: {:error, :no_plex_path}
-  defp destination_dir(%{plex_path: ""}), do: {:error, :no_plex_path}
+  @doc """
+  The directory a theme for this item would be written to, or why not.
 
-  defp destination_dir(item) do
+  Public so the System page's item trace reports the same answer the worker
+  acts on. A diagnostic that can disagree with the code it is diagnosing is
+  worse than no diagnostic.
+  """
+  @spec destination_dir(Fanfarr.Library.MediaItem.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def destination_dir(%{plex_path: nil}), do: {:error, :no_plex_path}
+  def destination_dir(%{plex_path: ""}), do: {:error, :no_plex_path}
+
+  # The order here is the whole point of root folders, and an earlier version
+  # had it backwards: it checked that the path Plex reported existed inside
+  # this container and gave up when it did not.
+  #
+  # It usually does not. Plex runs on the host and reports host paths like
+  # /media/red-10-redemption/TV/One Pace; the container mounts the same drives
+  # wherever the operator chose, as /tv1../tv5. Root folders exist precisely to
+  # bridge that, by matching the item's directory name across them. Demanding
+  # that the reported path resolve first rejected every item the mechanism was
+  # built to handle.
+  #
+  # So: resolve first, then check the directory we would actually write to.
+  def destination_dir(item) do
     # to_local/2 returns the path unchanged when nothing matches, because the
-    # common case is that Plex and Fanfarr see the library identically. So a
-    # mapping never fails; what fails is the result not existing, which is the
-    # symptom of a missing mount or a wrong mapping and is worth its own error.
+    # common case is that Plex and Fanfarr see the library identically.
     local = Fanfarr.PathMapping.to_local(item.plex_path, Fanfarr.Config.path_mappings())
+    roots = Library.root_paths(item.kind)
 
-    if Fanfarr.PathMapping.resolvable?(local) do
-      resolve_root(local, item.kind)
-    else
-      {:error, {:path_not_resolvable, local}}
+    case Fanfarr.Library.RootFolders.resolve(local, roots) do
+      {:ok, dir, how} ->
+        warn_if_ambiguous(item, dir, how)
+
+        if File.dir?(dir) do
+          {:ok, dir}
+        else
+          {:error, {:destination_missing, dir}}
+        end
+
+      {:error, :not_found} ->
+        {:error, {:no_matching_root, local}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp resolve_root(local_dir, kind) do
-    case Fanfarr.Library.RootFolders.resolve(local_dir, Library.root_paths(kind)) do
-      {:ok, dir, _how} -> {:ok, dir}
-      {:error, reason} -> {:error, reason}
-    end
+  # Several roots hold a directory of this name and the tiebreaks did not
+  # separate them. A directory is still returned and writing to it is better
+  # than refusing, but it is worth saying out loud.
+  defp warn_if_ambiguous(item, dir, :ambiguous) do
+    Logger.warning(
+      "[fanfarr] #{item.title}: several root folders hold a directory by that " <>
+        "name; writing to #{dir}"
+    )
   end
+
+  defp warn_if_ambiguous(_item, _dir, _how), do: :ok
 
   # --- execution --------------------------------------------------------------
 

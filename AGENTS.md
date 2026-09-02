@@ -248,6 +248,16 @@ cache 404s too. Details in `docs/themerrdb.md`.
   and crops.
 - Icons are linked at their plain paths with a `?v=` query, never through `~p`,
   which rewrites them to the digested filename. See root.html.heex.
+- **`ApplyTheme` checked that the path Plex reported existed inside the
+  container, and gave up when it did not.** It usually does not: Plex runs on
+  the host and reports host paths (`/media/red-10-redemption/TV/One Pace`),
+  while the container mounts the same drives as `/tv1..5`. **Root folders exist
+  precisely to bridge that**, so the guard rejected every item the mechanism
+  was built for. Resolve first, then check the directory you would actually
+  write to -- which is what `Fanfarr.Health.path_resolution/0` had been doing
+  correctly all along. The two now share
+  `Fanfarr.Workers.ApplyTheme.destination_dir/1`, because a diagnostic that can
+  disagree with the code it diagnoses is worse than none.
 - **`{:skip, reason}` is not a valid return from an ExUnit `setup` callback.**
   A setup may return only `:ok`, a keyword or a map; anything else raises. Two
   mount-dependent tests "skipped gracefully" in CI for four runs this way --
@@ -336,6 +346,10 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
   supplies no themes at all, and whether Plex reads a local theme file for a
   movie is UNVERIFIED. This is the next thing to test on the real server; do
   not implement it from memory.
+- Destination resolution order is **map, resolve, then verify**: run the Plex
+  path through the mappings, resolve it against the root folders, and check
+  existence and writability on the *resolved* directory. Never require the
+  reported path to exist locally; on the reference deployment it never does.
 - `Fanfarr.Themes.Writer` stages into the destination directory and renames.
   **EXDEV is the expected case on the reference pool**, not an edge case:
   `category.create=mfs` puts a new file on whichever branch has most room, so

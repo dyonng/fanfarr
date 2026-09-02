@@ -286,6 +286,78 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
   end
 
+  describe "a host path the container cannot see" do
+    # The reported case. Plex runs on the host and says
+    # /media/red-10-redemption/TV/One Pace. That path does not exist in the
+    # container, which mounts the same drives as /tv1../tv5. Root folders are
+    # the whole mechanism for this, and an earlier version rejected the item
+    # before consulting them.
+    setup ctx do
+      drives = for n <- 1..5, do: Path.join(ctx.root, "tv#{n}")
+      Enum.each(drives, &File.mkdir_p!/1)
+      # Only one drive actually holds the show.
+      File.mkdir_p!(Path.join(ctx.root, "tv2/One Pace"))
+      Enum.each(drives, &Fanfarr.Library.create_root_folder!(%{path: &1, kind: :show}))
+
+      %{drives: drives}
+    end
+
+    test "resolves through the root folders and writes there", ctx do
+      item =
+        item(ctx, %{
+          title: "One Pace",
+          plex_path: "/media/red-10-redemption/TV/One Pace"
+        })
+
+      item =
+        Fanfarr.Library.set_manual_theme!(item, %{
+          manual_theme_url: "https://www.youtube.com/watch?v=VHxeuLf_eRs",
+          manual_theme_title: "ANGEL & DEVIL"
+        })
+
+      refute File.dir?("/media/red-10-redemption/TV/One Pace"),
+             "the premise: the reported path is not visible here"
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir ->
+        assert url == "https://www.youtube.com/watch?v=VHxeuLf_eRs"
+        file = Path.join(dir, "theme.mp3")
+        File.write!(file, "the-audio")
+        {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 90.0}}
+      end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+
+      written = Path.join([ctx.root, "tv2/One Pace", "theme.mp3"])
+      assert File.read!(written) == "the-audio"
+
+      [outcome | _] = history(item)
+      assert outcome.status == :succeeded
+      assert outcome.destination_path == written
+    end
+
+    test "a dry run reports the resolved destination, not the reported path", ctx do
+      item = item(ctx, %{title: "One Pace", plex_path: "/media/red-10-redemption/TV/One Pace"})
+      Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/abc12345678"})
+
+      assert :ok = run(item)
+
+      [outcome | _] = history(item)
+      assert outcome.status == :succeeded
+      assert outcome.destination_path == Path.join([ctx.root, "tv2/One Pace", "theme.mp3"])
+    end
+
+    test "a show no root folder holds says so, naming the path", ctx do
+      item = item(ctx, %{title: "Nowhere", plex_path: "/media/red-10-redemption/TV/Nowhere"})
+      Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/abc12345678"})
+
+      assert {:cancel, {:no_matching_root, "/media/red-10-redemption/TV/Nowhere"}} = run(item)
+
+      [outcome | _] = history(item)
+      assert outcome.status == :skipped
+      assert outcome.error =~ "no_matching_root"
+    end
+  end
+
   describe "with root folders configured" do
     # The case that crashed in the dev server: every earlier test ran with no
     # root folders and so never reached resolve/2 with a non-empty list.
@@ -343,11 +415,20 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       assert {:cancel, :movies_not_supported_yet} = run(item, %{"dry_run" => false})
     end
 
-    test "an unmapped path is a configuration problem, not a retry", ctx do
+    test "an item Plex gave no path at all is a configuration problem, not a retry", ctx do
       themerr_hit()
       item = item(ctx, %{plex_path: nil})
 
       assert {:cancel, :no_plex_path} = run(item, %{"dry_run" => false})
+    end
+
+    test "with no root folders, a path the container cannot see is named", ctx do
+      themerr_hit()
+      item = item(ctx, %{plex_path: "/media/red-10-redemption/TV/One Pace"})
+
+      # Nothing configured to bridge host paths to container mounts.
+      assert {:cancel, {:destination_missing, "/media/red-10-redemption/TV/One Pace"}} =
+               run(item, %{"dry_run" => false})
     end
   end
 end
