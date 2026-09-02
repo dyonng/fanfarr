@@ -388,7 +388,13 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
   # Transient conditions are worth another attempt; a rejected URL or an
   # unwritable directory will fail identically forever.
-  defp retry_or_stop(reason) when reason in [:timeout, :unavailable], do: {:error, reason}
+  #
+  # A video YouTube has taken down, age-gated or geo-blocked is in the second
+  # group, not the first. Retrying one costs five attempts with backoff to
+  # arrive at the answer the first attempt already had, and leaves the item
+  # sitting in the queue looking like work in progress. :unavailable used to
+  # retry, which is what made a deleted video look like a flaky download.
+  defp retry_or_stop(:timeout), do: {:error, :timeout}
   defp retry_or_stop({:exit, _, _} = reason), do: {:error, reason}
   defp retry_or_stop(reason), do: {:cancel, reason}
 
@@ -424,6 +430,52 @@ defmodule Fanfarr.Workers.ApplyTheme do
     })
   end
 
+  @doc """
+  Turns a failure into a sentence the operator can act on.
+
+  The history row is the only place most failures are ever read, and an
+  inspected tuple is not a reason -- `{:exit, 1, "[youtube] Extracting URL:
+  ..."}` reads as a crash when it means YouTube took the video down. Anything
+  unrecognised still falls through to `inspect/1`, because a wrong sentence is
+  worse than an ugly one.
+  """
+  @spec explain(term()) :: String.t()
+  def explain(:unavailable),
+    do: "YouTube no longer has this video — removed, private, or taken down. Pick another."
+
+  def explain(:age_restricted),
+    do: "YouTube wants an account to watch this one, so it cannot be downloaded. Pick another."
+
+  def explain(:geo_blocked),
+    do: "YouTube blocks this video in this server's region. Pick another."
+
+  def explain(:not_installed),
+    do: "yt-dlp is not installed in this container, so nothing can be downloaded. See System."
+
+  def explain(:timeout), do: "The download did not finish in time."
+
+  def explain(:no_plex_path),
+    do: "Plex reports no folder for this item, so there is nowhere to write."
+
+  def explain(:theme_locked), do: "This item's theme is locked in Plex."
+
+  def explain(:no_themerrdb_entry),
+    do: "ThemerrDB has no theme for this title, and no pick is set."
+
+  def explain(:plex_not_configured), do: "Plex is not configured."
+
+  def explain({:no_matching_root, path}),
+    do: "No root folder holds #{path}. Add the drive under Settings, or check the path mappings."
+
+  def explain({:not_in_own_folder, dir}),
+    do:
+      "#{dir} is a library root, not this title's own folder — a theme there would apply to everything beside it."
+
+  def explain({:destination_missing, dir}), do: "#{dir} does not exist on this side of the mount."
+  def explain({:write_failed, reason}), do: "Writing the file failed: #{inspect(reason)}"
+  def explain({:exit, code, output}), do: "yt-dlp exited #{code}: #{String.trim(output)}"
+  def explain(other), do: inspect(other)
+
   defp record_outcome(item, plan, dry_run, status, reason, download \\ %{}) do
     Themes.record_theme_outcome!(%{
       media_item_id: item.id,
@@ -433,7 +485,7 @@ defmodule Fanfarr.Workers.ApplyTheme do
       destination_path: plan[:path],
       dry_run: dry_run,
       status: status,
-      error: reason && inspect(reason),
+      error: reason && explain(reason),
       codec: download[:codec],
       bytes: download[:bytes],
       loudness_lufs: download[:loudness_lufs]

@@ -4,6 +4,52 @@ defmodule Fanfarr.Themes.DownloaderTest do
   alias Fanfarr.Themes.Downloader
   alias Fanfarr.Themes.Downloader.YtDlp
 
+  describe "classify_failure/1" do
+    # Verbatim from a live run. yt-dlp says "This video is not available" here,
+    # not "Video unavailable" -- the pattern only had the latter, so this came
+    # back as a raw exit code and the queue retried a dead video five times.
+    @observed """
+    [youtube] Extracting URL: https://www.youtube.com/watch?v=HeOOgQVmi8o
+    [youtube] HeOOgQVmi8o: Downloading webpage
+    [youtube] HeOOgQVmi8o: Downloading visionos player API JSON
+    ERROR: [youtube] HeOOgQVmi8o: This video is not available
+    """
+
+    test "the wording a live yt-dlp actually produced reads as gone" do
+      assert YtDlp.classify_failure(@observed) == :unavailable
+    end
+
+    test "yt-dlp's other ways of saying gone" do
+      for output <- [
+            "ERROR: Video unavailable",
+            "ERROR: Private video. Sign in if you've been granted access",
+            "ERROR: This video has been removed by the uploader",
+            "ERROR: The account associated with this video has been terminated"
+          ] do
+        assert YtDlp.classify_failure(output) == :unavailable, output
+      end
+    end
+
+    test "restrictions are told apart from removals" do
+      assert YtDlp.classify_failure("ERROR: Sign in to confirm your age") == :age_restricted
+
+      assert YtDlp.classify_failure(
+               "ERROR: The uploader has not made this video available in your country"
+             ) ==
+               :geo_blocked
+    end
+
+    test "a bare \"age\" inside another word is not an age restriction" do
+      # /age/ alone matched "message", "package", "storage".
+      assert {:exit, 1, _} = YtDlp.classify_failure("ERROR: unable to parse the storage message")
+    end
+
+    test "anything unrecognised keeps its output rather than being guessed at" do
+      assert {:exit, 1, output} = YtDlp.classify_failure("ERROR: something new and strange")
+      assert output =~ "something new and strange"
+    end
+  end
+
   describe "youtube_url?/1" do
     test "accepts the hosts YouTube actually uses" do
       for url <- [

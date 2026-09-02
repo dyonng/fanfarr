@@ -135,19 +135,38 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
 
   # yt-dlp reports why it could not fetch a video on stderr; the distinctions
   # that matter to an operator are "gone", "needs an account" and "blocked".
-  defp classify_failure(output) do
+  #
+  # The wordings are yt-dlp's own and it has several for the same condition --
+  # "Video unavailable" and "This video is not available" are both it saying
+  # the video is gone, and matching only the first left the second as a raw
+  # exit code that the queue then retried five times.
+  @gone ~r/
+    Private\svideo
+    |video\sis\snot\savailable
+    |Video\sunavailable
+    |has\sbeen\sremoved
+    |does\snot\sexist
+    |account\sassociated\swith\sthis\svideo\shas\sbeen\sterminated
+    |removed\sby\sthe\suploader
+    |unavailable\sin\syour\slocation
+  /xi
+
+  @doc false
+  # Public only so the suite can pin the exact wordings a live yt-dlp emits.
+  # A bare /age/ matched inside ordinary words, so anything mentioning a
+  # "message" or a "package" read as age-gated.
+  @restricted ~r/age[-\s]?restrict|confirm\syour\sage|Sign\sin\sto\sconfirm/i
+
+  # yt-dlp phrases this several ways, and none of them contain the literal
+  # "not available in your country" the first pattern demanded.
+  @blocked ~r/available\sin\syour\s(country|location|region)|geo[-\s]?block|blocked\sit\son\scopyright/i
+
+  def classify_failure(output) do
     cond do
-      output =~ ~r/Private video|Video unavailable|has been removed|does not exist/i ->
-        :unavailable
-
-      output =~ ~r/age|Sign in to confirm/i ->
-        :age_restricted
-
-      output =~ ~r/not available in your country|geo/i ->
-        :geo_blocked
-
-      true ->
-        {:exit, 1, String.slice(output, 0, 300)}
+      output =~ @gone -> :unavailable
+      output =~ @restricted -> :age_restricted
+      output =~ @blocked -> :geo_blocked
+      true -> {:exit, 1, String.slice(output, 0, 300)}
     end
   end
 
@@ -196,6 +215,10 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
     case run([@binary | args], @timeout_ms) do
       {:ok, output} -> collect(work, dir, output)
       {:error, :enoent} -> {:error, :not_installed}
+      # Same classification the probe gets. Without it a download failure came
+      # back as a raw exit code carrying the whole transcript, which read as a
+      # crash rather than "YouTube took this video down".
+      {:error, {:exit, _code, output}} -> {:error, classify_failure(output)}
       {:error, reason} -> {:error, reason}
     end
   end

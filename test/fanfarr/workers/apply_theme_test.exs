@@ -183,12 +183,15 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:error, :unavailable}
       end)
 
-      assert {:error, :unavailable} = run(item, %{"dry_run" => false})
+      # Cancelled, not retried: a video YouTube has taken down answers the same
+      # way on every attempt, and five tries with backoff only keep the item
+      # sitting in the queue looking like work in progress.
+      assert {:cancel, :unavailable} = run(item, %{"dry_run" => false})
 
       refute File.exists?(Path.join(ctx.media, "theme.mp3"))
       [outcome | _] = history(item)
       assert outcome.status == :failed
-      assert outcome.error =~ "unavailable"
+      assert outcome.error =~ "YouTube no longer has this video"
     end
 
     test "a rejected URL is cancelled rather than retried forever", ctx do
@@ -569,7 +572,11 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
       [outcome | _] = history(item)
       assert outcome.status == :skipped
-      assert outcome.error =~ "no_matching_root"
+
+      # The history row is where this is read, so it is a sentence naming the
+      # path rather than an inspected tuple.
+      assert outcome.error =~ "No root folder holds"
+      assert outcome.error =~ "/media/red-10-redemption/TV/Nowhere"
     end
   end
 
