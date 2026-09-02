@@ -53,6 +53,7 @@ defmodule FanfarrWeb.Router do
       live "/library/:id", ItemLive.Show, :show
       live "/activity", ActivityLive.Index, :index
       live "/settings", SettingsLive.Index, :index
+      live "/system", SystemLive.Index, :index
     end
   end
 
@@ -70,6 +71,22 @@ defmodule FanfarrWeb.Router do
     pipe_through :api
 
     get "/health", HealthController, :show
+  end
+
+  # Images for the dashboard. Session-aware so an operator login gates them
+  # the same as the pages that show them, but no CSRF: it is a GET for an
+  # image, and the endpoint's static plug does not run this early anyway.
+  pipeline :images do
+    plug :accepts, ["html", "*/*"]
+    plug :fetch_session
+    plug :load_from_session
+    plug FanfarrWeb.RequireUserPlug
+  end
+
+  scope "/", FanfarrWeb do
+    pipe_through :images
+
+    get "/posters/:id", PosterController, :show
   end
 
   # Other scopes may use custom stacks.

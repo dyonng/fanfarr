@@ -14,6 +14,21 @@ defmodule Fanfarr.Library do
   """
   use Ash.Domain, otp_app: :fanfarr, extensions: [AshJsonApi.Domain]
 
+  @doc """
+  The enabled root folder paths that may hold an item of this kind, in the
+  shape `Fanfarr.Library.RootFolders.resolve/2` takes: plain paths.
+
+  Both callers of resolve/2 once passed it the folder records instead, which
+  crashed the first time a root folder was actually configured -- the tests
+  had only ever run with none. This is the one place the conversion happens.
+  """
+  @spec root_paths(:show | :movie | :any) :: [String.t()]
+  def root_paths(kind) do
+    list_enabled_root_folders!()
+    |> Enum.filter(&(&1.kind == :any or kind == :any or &1.kind == kind))
+    |> Enum.map(& &1.path)
+  end
+
   resources do
     resource Fanfarr.Library.Section do
       define :list_sections, action: :read
@@ -28,6 +43,7 @@ defmodule Fanfarr.Library do
       define :media_items_in_section, action: :by_section, args: [:section_id]
       define :sync_media_item_from_plex, action: :sync_from_plex
       define :record_local_theme, action: :record_local_theme
+      define :set_manual_theme, action: :set_manual_theme
     end
 
     resource Fanfarr.Library.RootFolder do

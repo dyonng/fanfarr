@@ -21,6 +21,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
      |> assign(:page_title, "Settings")
      |> assign(:test_result, nil)
      |> assign(:testing, false)
+     |> assign(:browser, nil)
+     |> assign(:folder_path, "")
      |> load()}
   end
 
@@ -103,7 +105,9 @@ defmodule FanfarrWeb.SettingsLive.Index do
              }) do
           {:ok, folder} ->
             check_root_folder(folder)
-            {:noreply, socket |> load() |> put_flash(:info, "Root folder added")}
+
+            {:noreply,
+             socket |> assign(:folder_path, "") |> load() |> put_flash(:info, "Root folder added")}
 
           {:error, _error} ->
             {:noreply,
@@ -115,6 +119,37 @@ defmodule FanfarrWeb.SettingsLive.Index do
   def handle_event("delete_root_folder", %{"id" => id}, socket) do
     id |> Fanfarr.Library.get_root_folder!() |> Fanfarr.Library.delete_root_folder!()
     {:noreply, socket |> load() |> put_flash(:info, "Root folder removed")}
+  end
+
+  # --- folder browser --------------------------------------------------------
+  #
+  # Browse the container's filesystem to the mount, Sonarr-style, instead of
+  # typing a path and finding out on the first write that it was wrong.
+
+  def handle_event("browse", params, socket) do
+    path = params["path"] || socket.assigns.folder_path
+
+    path =
+      case String.trim(path || "") do
+        "" -> "/"
+        p -> p
+      end
+
+    browser =
+      case Fanfarr.FileBrowser.list(path) do
+        {:ok, listing} -> Map.put(listing, :error, nil)
+        {:error, reason} -> %{path: path, parent: Path.dirname(path), dirs: [], error: reason}
+      end
+
+    {:noreply, assign(socket, :browser, browser)}
+  end
+
+  def handle_event("pick_folder", %{"path" => path}, socket) do
+    {:noreply, socket |> assign(:folder_path, path) |> assign(:browser, nil)}
+  end
+
+  def handle_event("close_browser", _params, socket) do
+    {:noreply, assign(socket, :browser, nil)}
   end
 
   def handle_event("recheck_root_folders", _params, socket) do
@@ -325,12 +360,24 @@ defmodule FanfarrWeb.SettingsLive.Index do
             phx-submit="add_root_folder"
             class="mt-3 flex flex-wrap items-end gap-2"
           >
-            <input
-              type="text"
-              name="path"
-              placeholder="/tv1"
-              class="h-9 w-40 rounded-md border border-input bg-background px-3 font-mono text-sm"
-            />
+            <div class="flex">
+              <input
+                type="text"
+                name="path"
+                value={@folder_path}
+                placeholder="/tv1"
+                class="h-9 w-44 rounded-l-md border border-input bg-background px-3 font-mono text-sm"
+              />
+              <button
+                type="button"
+                phx-click="browse"
+                phx-value-path={@folder_path}
+                class="h-9 rounded-r-md border border-l-0 border-input px-2 text-xs hover:bg-accent hover:text-accent-foreground"
+                title="Browse the container's filesystem"
+              >
+                <.icon name="lucide-folder-open" class="size-4" />
+              </button>
+            </div>
             <input
               type="text"
               name="label"
@@ -367,6 +414,76 @@ defmodule FanfarrWeb.SettingsLive.Index do
             </button>
           </form>
         </section>
+      </div>
+
+      <div
+        :if={@browser}
+        id="folder-browser"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        phx-window-keydown="close_browser"
+        phx-key="Escape"
+      >
+        <div class="w-full max-w-lg rounded-lg border border-border bg-card shadow-lg">
+          <div class="flex items-center justify-between border-b border-border px-4 py-3">
+            <div class="min-w-0">
+              <h3 class="text-sm font-semibold">Choose a folder</h3>
+              <p class="truncate font-mono text-xs text-muted-foreground" title={@browser.path}>
+                {@browser.path}
+              </p>
+            </div>
+            <button
+              phx-click="close_browser"
+              class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              aria-label="Close"
+            >
+              <.icon name="lucide-x" class="size-4" />
+            </button>
+          </div>
+          <p :if={@browser.error} class="px-4 py-3 text-sm text-destructive">
+            Cannot read {@browser.path}: {inspect(@browser.error)}
+          </p>
+          <ul class="max-h-80 overflow-y-auto py-1 text-sm">
+            <li :if={@browser.parent}>
+              <button
+                phx-click="browse"
+                phx-value-path={@browser.parent}
+                class="flex w-full items-center gap-2 px-4 py-1.5 text-left text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon name="lucide-corner-left-up" class="size-4" /> ..
+              </button>
+            </li>
+            <li :for={dir <- @browser.dirs}>
+              <button
+                phx-click="browse"
+                phx-value-path={dir.path}
+                class="flex w-full items-center gap-2 px-4 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon name="lucide-folder" class="size-4 text-muted-foreground" /> {dir.name}
+              </button>
+            </li>
+            <li
+              :if={@browser.dirs == [] and is_nil(@browser.error)}
+              class="px-4 py-3 text-muted-foreground"
+            >
+              No subfolders.
+            </li>
+          </ul>
+          <div class="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+            <button
+              phx-click="close_browser"
+              class="h-8 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              phx-click="pick_folder"
+              phx-value-path={@browser.path}
+              class="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Use this folder
+            </button>
+          </div>
+        </div>
       </div>
     </Layouts.app>
     """

@@ -75,35 +75,34 @@ through.
 
 ## Current state / not yet built
 
-Built: resource model, auth, dashboard (Library / Item / Activity / Settings),
-sync + ThemerrDB workers, Plex HTTP client (**read** paths verified against PMS
-1.43.4 and pinned as captured-response tests in
-`test/fanfarr/plex/http_client_test.exs`; **write** paths -- `upload_theme`,
-`lock_theme` -- are still unverified), theme origin detection.
+Built: resource model, auth, dashboard (Library with posters and bulk actions /
+Item with YouTube search, inline preview and manual picks / Activity / Settings
+with a folder browser / System with health checks), sync + ThemerrDB workers,
+Plex HTTP client (**read** paths verified against PMS 1.43.4 and pinned as
+captured-response tests; **write** paths -- `upload_theme`, `lock_theme` -- are
+unused and unverified), theme origin detection, yt-dlp download and search,
+EXDEV-safe writer, ApplyTheme worker (dry run default, local theme.mp3 only,
+movies refused), poster cache, health monitor.
 
 **Plex JSON gotcha:** `/themes` returns `<Track>` in XML but a `"Metadata"`
 array in JSON, and `selected` is a boolean there, not `"1"`. Plex does honour
 `Accept: application/json`. Set `config :fanfarr, req_options: [plug: ...]` to
 serve captured responses through the real client in tests.
 
-**Theme origin.** Plex sends no `provider` field. Origin comes from the theme's
-`ratingKey` scheme -- `metadata://themes/<agent>_<sha>` for agent-supplied
-(verified), `upload://` for uploaded (inferred, confirm on first upload). See
-`Fanfarr.Plex.ThemeOrigin` and the AGENTS.md section. Sync fetches origin only
-for items the listing says already have a theme, so it costs ~396 requests on
-the reference library rather than 2,564.
-
 **Reference coverage:** Movies 0/1785, TV 396/742, Sets 0/37. Movies at zero is
 correct -- Plex's movie agent supplies no themes at all.
 
+**Precedence when applying:** URL passed with the job > `manual_theme_url` on
+the item > ThemerrDB entry. Oban uniqueness is per item *and* dry-run flag;
+with only the item as key, a queued dry run swallowed the apply after it.
+
 Not built yet, in intended order:
-1. yt-dlp resolver + theme file writer (EXDEV fallback REQUIRED -- reference
-   host pools use category.create=mfs; see AGENTS.md).
-2. ApplyTheme worker: intent -> resolve -> upload/local-write -> outcome, with
-   dry-run default ON.
-3. Poster caching (never hotlink 2,550 thumbs from Plex).
-4. Health checks panel; codec detection/transcoding (Opus vs Apple TV);
-   season themes research.
+1. **Movies.** Verify on the real server whether Plex reads a local theme.mp3
+   for a movie. Until then `ApplyTheme` refuses `:movie` items. Do not guess.
+2. `/photo/:/transcode` is what the poster cache asks Plex for; verified in use
+   only once the operator sees posters. Falls back to the raw thumb key.
+3. Codec detection/transcoding (Opus vs Apple TV). Everything is MP3 today.
+4. Per-season themes: Plex has none. Documented as not applicable in README.
 
 ## Testing notes
 

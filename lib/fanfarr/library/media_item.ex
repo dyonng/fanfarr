@@ -71,6 +71,13 @@ defmodule Fanfarr.Library.MediaItem do
       change set_attribute(:local_theme_checked_at, &DateTime.utc_now/0)
     end
 
+    # The operator's own pick, chosen from a YouTube search or pasted in. It
+    # outranks ThemerrDB from then on, so a re-apply after a Plex refresh
+    # reuses the choice rather than reverting to the database's suggestion.
+    update :set_manual_theme do
+      accept [:manual_theme_url, :manual_theme_title]
+    end
+
     read :by_section do
       argument :section_id, :uuid, allow_nil?: false
       filter expr(section_id == ^arg(:section_id))
@@ -144,6 +151,21 @@ defmodule Fanfarr.Library.MediaItem do
     end
 
     attribute :theme_locked, :boolean, default: false, public?: true
+
+    attribute :manual_theme_url, :string do
+      public? true
+
+      description """
+      A theme the operator chose by hand -- from the in-app YouTube search or
+      pasted in. When set, this is what gets applied; ThemerrDB is only the
+      fallback for items with no manual pick.
+      """
+    end
+
+    attribute :manual_theme_title, :string do
+      public? true
+      description "The video title at the time it was picked, for the dashboard."
+    end
 
     attribute :local_theme_present, :boolean do
       allow_nil? false

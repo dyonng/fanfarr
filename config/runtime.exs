@@ -53,6 +53,11 @@ if config_env() == :prod do
   database_path = System.get_env("DATABASE_PATH") || Path.join(config_dir, "fanfarr.db")
   File.mkdir_p!(Path.dirname(database_path))
 
+  # Derived artefacts -- cached posters -- live beside the database so they
+  # survive restarts and are lost together with everything else when the
+  # volume is, which is the right coupling.
+  config :fanfarr, cache_dir: Path.join(Path.dirname(database_path), "cache")
+
   config :fanfarr, Fanfarr.Repo,
     database: database_path,
     # SQLite serialises writes regardless of pool size; the pool exists so

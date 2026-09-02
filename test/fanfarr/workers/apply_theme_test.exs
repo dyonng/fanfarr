@@ -206,6 +206,123 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
   end
 
+  describe "which URL gets applied" do
+    test "the operator's pick outranks ThemerrDB", ctx do
+      themerr_hit("https://www.youtube.com/watch?v=fromthemerr")
+      item = item(ctx)
+
+      item =
+        Fanfarr.Library.set_manual_theme!(item, %{
+          manual_theme_url: "https://youtu.be/mypick00000",
+          manual_theme_title: "My pick"
+        })
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir ->
+        assert url == "https://youtu.be/mypick00000"
+        file = Path.join(dir, "theme.mp3")
+        File.write!(file, "x")
+        {:ok, %{path: file, bytes: 1, codec: "mp3", duration: 1.0}}
+      end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+      [outcome | _] = history(item)
+      assert outcome.source == :youtube
+      assert outcome.theme_url == "https://youtu.be/mypick00000"
+    end
+
+    test "a URL passed with the job outranks both", ctx do
+      themerr_hit()
+      item = item(ctx)
+      Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/mypick00000"})
+
+      assert :ok =
+               run(item, %{"theme_url" => "https://youtu.be/explicit000", "source" => "youtube"})
+
+      [outcome | _] = history(item)
+      assert outcome.theme_url == "https://youtu.be/explicit000"
+      assert outcome.dry_run
+    end
+
+    test "with no pick and no entry, it is skipped with a reason", ctx do
+      item = item(ctx)
+      assert {:cancel, :no_themerrdb_entry} = run(item)
+    end
+  end
+
+  describe "enqueue/2" do
+    test "defaults to a dry run and carries an explicit URL", ctx do
+      item = item(ctx)
+      assert {:ok, %Oban.Job{}} = ApplyTheme.enqueue(item)
+
+      assert {:ok, %Oban.Job{}} =
+               ApplyTheme.enqueue(item.id,
+                 dry_run: false,
+                 theme_url: "https://youtu.be/abc",
+                 source: :youtube
+               )
+
+      # Read back from the database: string keys, and proof that the second
+      # insert was not deduplicated against the first.
+      [dry, real] =
+        Fanfarr.Repo.all(Oban.Job)
+        |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
+        |> Enum.sort_by(& &1.id)
+
+      assert dry.args["dry_run"] == true
+      assert real.args["dry_run"] == false
+      assert real.args["theme_url"] == "https://youtu.be/abc"
+      assert real.args["source"] == "youtube"
+    end
+
+    test "a queued dry run does not swallow the apply that follows it", ctx do
+      item = item(ctx)
+      {:ok, first} = ApplyTheme.enqueue(item, dry_run: true)
+      {:ok, second} = ApplyTheme.enqueue(item, dry_run: false)
+
+      refute second.conflict?, "the apply was deduplicated against the dry run"
+      assert first.id != second.id
+    end
+  end
+
+  describe "with root folders configured" do
+    # The case that crashed in the dev server: every earlier test ran with no
+    # root folders and so never reached resolve/2 with a non-empty list.
+    test "the item is located by directory name under the matching root", ctx do
+      pool = Path.join(ctx.root, "pool")
+      drive = Path.join(ctx.root, "tv2")
+      File.mkdir_p!(Path.join(pool, "One Piece (1999)"))
+      File.mkdir_p!(Path.join(drive, "One Piece (1999)"))
+      Fanfarr.Library.create_root_folder!(%{path: drive, kind: :show})
+      Fanfarr.Library.create_root_folder!(%{path: Path.join(ctx.root, "movies1"), kind: :movie})
+
+      themerr_hit()
+      item = item(ctx, %{plex_path: Path.join(pool, "One Piece (1999)")})
+
+      assert :ok = run(item)
+
+      [outcome | _] = history(item)
+      assert outcome.status == :succeeded
+      # Written to the drive that holds the show, not the pool path Plex reported.
+      assert outcome.destination_path == Path.join([drive, "One Piece (1999)", "theme.mp3"])
+    end
+
+    test "a movies-only root is ignored for a show, which falls back to the reported path", ctx do
+      pool = Path.join(ctx.root, "pool")
+      movies = Path.join(ctx.root, "movies1")
+      File.mkdir_p!(Path.join(pool, "One Piece (1999)"))
+      File.mkdir_p!(Path.join(movies, "One Piece (1999)"))
+      Fanfarr.Library.create_root_folder!(%{path: movies, kind: :movie})
+
+      themerr_hit()
+      item = item(ctx, %{plex_path: Path.join(pool, "One Piece (1999)")})
+
+      assert :ok = run(item)
+      [outcome | _] = history(item)
+      # Not the movies drive, even though a same-named directory exists there.
+      assert outcome.destination_path == Path.join([pool, "One Piece (1999)", "theme.mp3"])
+    end
+  end
+
   describe "refusals" do
     test "a locked theme is never touched", ctx do
       themerr_hit()

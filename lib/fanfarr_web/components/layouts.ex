@@ -29,7 +29,7 @@ defmodule FanfarrWeb.Layouts do
 
   attr :current_path, :atom,
     default: nil,
-    doc: "which sidebar entry to highlight: :library, :activity or :settings"
+    doc: "which sidebar entry to highlight: :library, :activity, :settings or :system"
 
   attr :current_user, :map, default: nil, doc: "the signed-in user, when there is one"
 
@@ -73,6 +73,13 @@ defmodule FanfarrWeb.Layouts do
             label="Settings"
             current={@current_path == :settings}
           />
+          <.nav_link
+            navigate={~p"/system"}
+            icon="lucide-activity"
+            label="System"
+            current={@current_path == :system}
+            badge={health_badge()}
+          />
         </nav>
 
         <div class="border-t border-border p-2">
@@ -111,6 +118,7 @@ defmodule FanfarrWeb.Layouts do
   attr :icon, :string, required: true
   attr :label, :string, required: true
   attr :current, :boolean, default: false
+  attr :badge, :atom, default: nil, doc: "a health level to flag: :warning or :error"
 
   defp nav_link(assigns) do
     ~H"""
@@ -124,9 +132,27 @@ defmodule FanfarrWeb.Layouts do
       ]}
     >
       <.icon name={@icon} class="size-4" />
-      {@label}
+      <span class="flex-1">{@label}</span>
+      <span
+        :if={@badge in [:warning, :error]}
+        class={[
+          "size-2 rounded-full",
+          @badge == :error && "bg-destructive",
+          @badge == :warning && "bg-amber-500"
+        ]}
+        title={if @badge == :error, do: "Something is not working", else: "Something needs attention"}
+      />
     </.link>
     """
+  end
+
+  # The sidebar badge reads the monitor's last snapshot: nil before the first
+  # run and when the monitor is idle (the test suite), which means no badge.
+  defp health_badge do
+    case Fanfarr.Health.Monitor.latest() do
+      %{results: results} -> Fanfarr.Health.worst(results)
+      _ -> nil
+    end
   end
 
   @doc """

@@ -248,6 +248,15 @@ cache 404s too. Details in `docs/themerrdb.md`.
   and crops.
 - Icons are linked at their plain paths with a `?v=` query, never through `~p`,
   which rewrites them to the digested filename. See root.html.heex.
+- "Test connection" appeared to reload the page. Two causes with one symptom:
+  a URL without a scheme makes Req **raise**, crashing the LiveView (client
+  remounts, form clears); and an unreachable host blocks `handle_event` past
+  the client's 30s push timeout, and the client rejoins. Long or fallible work
+  in a LiveView goes through `start_async`; anything a person types gets
+  normalised before it reaches a library that raises on it.
+- `ApplyTheme` was unique on `media_item_id` only, so a queued dry run
+  silently swallowed the real apply queued after it -- for five minutes, and
+  in exactly the order an operator does them. Uniqueness includes the mode.
 - `pkill -f "rel/fanfarr/bin"` kills the shell running it, because the pattern
   matches that shell's own command line. Kill by port (`fuser -k 7452/tcp`).
 - The generator's `force_ssl` in `config/prod.exs` made the dashboard
@@ -316,6 +325,32 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
   ten-hour video is downloading it onto someone's media drive. yt-dlp exits 0
   when a match-filter rejects a video, so "success with no file" is the normal
   shape of "too long".
+
+## Finding a theme: YouTube search
+
+- `Fanfarr.Themes.Downloader.search/2` runs `yt-dlp "ytsearchN:query"
+  --dump-json --flat-playlist`. No API key, no quota; one process per search.
+- The item page previews with a `youtube-nocookie.com/embed/<id>` iframe. The
+  id is validated against `^[A-Za-z0-9_-]{11}$` before it goes near an iframe
+  src. Pasted URLs go through the same host allowlist as downloads.
+- Picking saves `manual_theme_url` on the item, which outranks ThemerrDB for
+  every later apply. Applying does not happen on pick: pick, then Apply.
+
+## Posters
+
+- `/posters/:id` serves from `<config>/cache/posters/`, fetching from Plex on
+  a miss via `/photo/:/transcode` (falls back to the raw key). The browser
+  never sees a Plex URL or the token. Filenames carry a digest of the thumb
+  key, so a new poster is a new file. Failed fetches are not cached.
+- Route is session-aware and behind `FanfarrWeb.RequireUserPlug`: posters are
+  gated like the pages that show them.
+
+## Health
+
+- `Fanfarr.Health` is plain functions; `Fanfarr.Health.Monitor` runs them every
+  10 minutes and on demand and holds the last snapshot. The sidebar dot reads
+  the snapshot; nil means no dot. Off in tests (`health_monitor: false`).
+- Probes use the same 5-second, no-retry options as the settings test button.
 
 ## Conventions
 

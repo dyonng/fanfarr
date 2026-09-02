@@ -64,6 +64,17 @@ defmodule Fanfarr.Plex.Client do
   @callback lock_theme(config, rating_key :: String.t(), library_type_id :: integer()) ::
               :ok | {:error, term()}
 
+  @doc """
+  Fetches a poster (or any image key Plex reported) as bytes.
+
+  Goes through the server's transcoder for a bounded size, since the raw
+  poster is often a megabyte and the dashboard shows it at a few hundred
+  pixels. The token stays server-side: the browser only ever sees our own
+  cached copy, never a Plex URL with a token in it.
+  """
+  @callback fetch_image(config, key :: String.t(), opts :: keyword()) ::
+              {:ok, {content_type :: String.t(), binary()}} | {:error, term()}
+
   @doc "The configured implementation. Tests set :plex_client to the Mox mock."
   def impl, do: Application.get_env(:fanfarr, :plex_client, Fanfarr.Plex.HTTPClient)
 end

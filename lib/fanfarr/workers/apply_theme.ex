@@ -32,10 +32,17 @@ defmodule Fanfarr.Workers.ApplyTheme do
   leaves evidence rather than silence. No database transaction spans the
   download.
   """
+  # Unique per item *and* mode: with only the item as the key, a queued dry
+  # run silently swallowed the real apply that followed it for five minutes,
+  # which is precisely the order an operator does them in.
   use Oban.Worker,
     queue: :apply,
     max_attempts: 3,
-    unique: [period: 300, keys: [:media_item_id], states: [:available, :scheduled, :executing]]
+    unique: [
+      period: 300,
+      keys: [:media_item_id, :dry_run, :theme_url],
+      states: [:available, :scheduled, :executing]
+    ]
 
   require Logger
 
@@ -49,7 +56,7 @@ defmodule Fanfarr.Workers.ApplyTheme do
     dry_run = Map.get(args, "dry_run", true)
     item = Library.get_media_item!(item_id)
 
-    case plan(item) do
+    case plan(item, args) do
       {:ok, plan} ->
         record_intent(item, plan, dry_run)
         execute(item, plan, dry_run)
@@ -62,13 +69,35 @@ defmodule Fanfarr.Workers.ApplyTheme do
     end
   end
 
+  @doc """
+  Queues this worker for an item.
+
+  `:dry_run` defaults to true. `:theme_url` applies that URL instead of the
+  item's manual pick or ThemerrDB entry -- used by "apply this one" from a
+  search result, where the URL was just previewed.
+  """
+  @spec enqueue(Fanfarr.Library.MediaItem.t() | String.t(), keyword()) ::
+          {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(item_or_id, opts \\ []) do
+    id = if is_binary(item_or_id), do: item_or_id, else: item_or_id.id
+
+    %{media_item_id: id, dry_run: Keyword.get(opts, :dry_run, true)}
+    |> maybe_put(:theme_url, opts[:theme_url])
+    |> maybe_put(:source, opts[:source])
+    |> new()
+    |> Oban.insert()
+  end
+
+  defp maybe_put(map, _k, nil), do: map
+  defp maybe_put(map, k, v), do: Map.put(map, k, v)
+
   # --- planning ---------------------------------------------------------------
 
-  defp plan(item) do
+  defp plan(item, args) do
     with :ok <- check_eligible(item),
-         {:ok, url} <- theme_url(item),
+         {:ok, url, source} <- theme_url(item, args),
          {:ok, dir} <- destination_dir(item) do
-      {:ok, %{url: url, dir: dir, path: Path.join(dir, @theme_filename)}}
+      {:ok, %{url: url, source: source, dir: dir, path: Path.join(dir, @theme_filename)}}
     end
   end
 
@@ -78,9 +107,20 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
   defp check_eligible(_item), do: :ok
 
-  # ThemerrDB is keyed by external id, so the entry is looked up the same way
-  # LookupTheme wrote it.
-  defp theme_url(item) do
+  # Precedence: a URL passed with the job (just previewed in the UI), then the
+  # operator's stored pick, then ThemerrDB. The operator's choice outranks the
+  # database's because it was made looking at this specific title.
+  defp theme_url(_item, %{"theme_url" => url} = args) when is_binary(url) and url != "" do
+    {:ok, url, source_atom(args["source"], :youtube)}
+  end
+
+  defp theme_url(%{manual_theme_url: url}, _args) when is_binary(url) and url != "" do
+    {:ok, url, :youtube}
+  end
+
+  defp theme_url(item, _args) do
+    # ThemerrDB is keyed by external id, so the entry is looked up the same way
+    # LookupTheme wrote it.
     item_type = if item.kind == :show, do: :tv_shows, else: :movies
 
     [imdb: item.imdb_id, themoviedb: item.tmdb_id]
@@ -88,13 +128,17 @@ defmodule Fanfarr.Workers.ApplyTheme do
     |> Enum.find_value({:error, :no_themerrdb_entry}, fn {db, id} ->
       case Themes.themerr_entry_for(item_type, db, id) do
         {:ok, %{found: true, youtube_theme_url: url}} when is_binary(url) and url != "" ->
-          {:ok, url}
+          {:ok, url, :themerrdb}
 
         _ ->
           nil
       end
     end)
   end
+
+  defp source_atom("themerrdb", _), do: :themerrdb
+  defp source_atom("youtube", _), do: :youtube
+  defp source_atom(_, default), do: default
 
   defp destination_dir(%{plex_path: nil}), do: {:error, :no_plex_path}
   defp destination_dir(%{plex_path: ""}), do: {:error, :no_plex_path}
@@ -107,18 +151,14 @@ defmodule Fanfarr.Workers.ApplyTheme do
     local = Fanfarr.PathMapping.to_local(item.plex_path, Fanfarr.Config.path_mappings())
 
     if Fanfarr.PathMapping.resolvable?(local) do
-      resolve_root(local)
+      resolve_root(local, item.kind)
     else
       {:error, {:path_not_resolvable, local}}
     end
   end
 
-  defp resolve_root(local_dir) do
-    roots =
-      Library.list_enabled_root_folders!()
-      |> Enum.map(&%{id: &1.id, path: &1.path, kind: &1.kind})
-
-    case Fanfarr.Library.RootFolders.resolve(local_dir, roots) do
+  defp resolve_root(local_dir, kind) do
+    case Fanfarr.Library.RootFolders.resolve(local_dir, Library.root_paths(kind)) do
       {:ok, dir, _how} -> {:ok, dir}
       {:error, reason} -> {:error, reason}
     end
@@ -197,12 +237,12 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
   # --- logging ----------------------------------------------------------------
 
-  defp blank_plan, do: %{url: nil, path: nil}
+  defp blank_plan, do: %{url: nil, path: nil, source: :themerrdb}
 
   defp record_intent(item, plan, dry_run) do
     Themes.record_theme_intent!(%{
       media_item_id: item.id,
-      source: :themerrdb,
+      source: plan.source,
       method: :local_file,
       theme_url: plan.url,
       destination_path: plan.path,
@@ -211,9 +251,12 @@ defmodule Fanfarr.Workers.ApplyTheme do
   end
 
   defp record_outcome(item, plan, dry_run, status, reason, download \\ %{}) do
+    # The item page is subscribed; a finished job shows up without a reload.
+    Phoenix.PubSub.broadcast(Fanfarr.PubSub, "item:#{item.id}", {:item_updated, item.id})
+
     Themes.record_theme_outcome!(%{
       media_item_id: item.id,
-      source: :themerrdb,
+      source: plan[:source] || :themerrdb,
       method: :local_file,
       theme_url: plan[:url],
       destination_path: plan[:path],

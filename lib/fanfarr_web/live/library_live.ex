@@ -23,6 +23,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
     {:ok,
      socket
      |> assign(:sections, Fanfarr.Library.list_sections!())
+     |> assign(:selected, MapSet.new())
      |> assign(:page_title, "Library")}
   end
 
@@ -59,6 +60,65 @@ defmodule FanfarrWeb.LibraryLive.Index do
       {:ok, _job} -> {:noreply, put_flash(socket, :info, "Library sync queued")}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Could not queue the sync")}
     end
+  end
+
+  # --- selection and bulk actions -------------------------------------------
+  #
+  # The *arr "mass edit" pattern: tick rows, act on all of them. Selection
+  # lives in the socket rather than the URL, so it survives paging and filter
+  # changes within a visit and is gone on reload.
+
+  def handle_event("toggle_select", %{"id" => id}, socket) do
+    selected = socket.assigns.selected
+
+    selected =
+      if MapSet.member?(selected, id),
+        do: MapSet.delete(selected, id),
+        else: MapSet.put(selected, id)
+
+    {:noreply, assign(socket, :selected, selected)}
+  end
+
+  def handle_event("select_page", _params, socket) do
+    page_ids = Enum.map(socket.assigns.items, & &1.id)
+    selected = socket.assigns.selected
+
+    selected =
+      if Enum.all?(page_ids, &MapSet.member?(selected, &1)),
+        do: MapSet.difference(selected, MapSet.new(page_ids)),
+        else: MapSet.union(selected, MapSet.new(page_ids))
+
+    {:noreply, assign(socket, :selected, selected)}
+  end
+
+  def handle_event("select_all_matching", _params, socket) do
+    {:noreply, assign(socket, :selected, MapSet.new(socket.assigns.all_ids))}
+  end
+
+  def handle_event("clear_selection", _params, socket) do
+    {:noreply, assign(socket, :selected, MapSet.new())}
+  end
+
+  def handle_event("bulk", %{"action" => action}, socket) do
+    ids = MapSet.to_list(socket.assigns.selected)
+
+    {queued, label} =
+      case action do
+        "preview" -> {Enum.count(ids, &enqueue_apply(&1, dry_run: true)), "dry runs"}
+        "apply" -> {Enum.count(ids, &enqueue_apply(&1, dry_run: false)), "theme writes"}
+        "lookup" -> {Enum.count(ids, &enqueue_lookup/1), "ThemerrDB lookups"}
+      end
+
+    {:noreply,
+     socket
+     |> assign(:selected, MapSet.new())
+     |> put_flash(:info, "Queued #{queued} #{label}")}
+  end
+
+  defp enqueue_apply(id, opts), do: match?({:ok, _}, Fanfarr.Workers.ApplyTheme.enqueue(id, opts))
+
+  defp enqueue_lookup(id) do
+    match?({:ok, _}, %{media_item_id: id} |> Fanfarr.Workers.LookupTheme.new() |> Oban.insert())
   end
 
   @impl true
@@ -112,6 +172,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
     socket
     |> assign(:items, Enum.slice(items, (page - 1) * @page_size, @page_size))
+    |> assign(:all_ids, Enum.map(items, & &1.id))
     |> assign(:total, total)
     |> assign(:page, page)
     |> assign(:pages, pages)
@@ -178,10 +239,61 @@ defmodule FanfarrWeb.LibraryLive.Index do
           </p>
         </div>
 
+        <div
+          :if={MapSet.size(@selected) > 0}
+          id="bulk-bar"
+          class="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+        >
+          <span class="font-medium">{MapSet.size(@selected)} selected</span>
+          <button
+            :if={MapSet.size(@selected) < @total}
+            phx-click="select_all_matching"
+            class="text-primary hover:underline"
+          >
+            select all {@total} matching
+          </button>
+          <span class="flex-1" />
+          <button
+            phx-click="bulk"
+            phx-value-action="preview"
+            class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
+          >
+            <.icon name="lucide-flask-conical" class="size-3.5" /> Preview (dry run)
+          </button>
+          <button
+            phx-click="bulk"
+            phx-value-action="lookup"
+            class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
+          >
+            <.icon name="lucide-database" class="size-3.5" /> Look up ThemerrDB
+          </button>
+          <button
+            phx-click="bulk"
+            phx-value-action="apply"
+            data-confirm={"Write theme.mp3 for #{MapSet.size(@selected)} items? Each file can be deleted to undo, but this is a lot of writes -- run a dry run first."}
+            class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <.icon name="lucide-music" class="size-3.5" /> Apply themes
+          </button>
+          <button phx-click="clear_selection" class="text-xs text-muted-foreground hover:underline">
+            clear
+          </button>
+        </div>
+
         <div :if={@items != []} class="overflow-x-auto rounded-lg border border-border">
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-border bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th class="w-8 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    phx-click="select_page"
+                    checked={@items != [] and Enum.all?(@items, &MapSet.member?(@selected, &1.id))}
+                    aria-label="Select this page"
+                    class="size-4 rounded border-input"
+                  />
+                </th>
+                <th class="w-10 px-1 py-2"></th>
                 <th class="px-3 py-2 font-medium">Title</th>
                 <th class="px-3 py-2 font-medium">Year</th>
                 <th class="px-3 py-2 font-medium">Type</th>
@@ -191,12 +303,40 @@ defmodule FanfarrWeb.LibraryLive.Index do
             <tbody>
               <tr
                 :for={item <- @items}
-                class="border-b border-border/60 transition-colors hover:bg-muted/40"
+                class={[
+                  "border-b border-border/60 transition-colors hover:bg-muted/40",
+                  MapSet.member?(@selected, item.id) && "bg-primary/5"
+                ]}
               >
+                <td class="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    phx-click="toggle_select"
+                    phx-value-id={item.id}
+                    checked={MapSet.member?(@selected, item.id)}
+                    aria-label={"Select #{item.title}"}
+                    class="size-4 rounded border-input"
+                  />
+                </td>
+                <td class="px-1 py-1">
+                  <img
+                    src={~p"/posters/#{item.id}"}
+                    alt=""
+                    loading="lazy"
+                    class="h-12 w-8 rounded bg-muted object-cover"
+                  />
+                </td>
                 <td class="px-3 py-2">
                   <.link navigate={~p"/library/#{item.id}"} class="font-medium hover:underline">
                     {item.title}
                   </.link>
+                  <span
+                    :if={item.manual_theme_url not in [nil, ""]}
+                    class="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground"
+                    title="A theme was picked by hand for this item"
+                  >
+                    picked
+                  </span>
                 </td>
                 <td class="px-3 py-2 text-muted-foreground">{item.year}</td>
                 <td class="px-3 py-2 text-muted-foreground">

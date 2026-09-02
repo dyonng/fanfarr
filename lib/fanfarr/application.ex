@@ -30,6 +30,9 @@ defmodule Fanfarr.Application do
       {Task, &Fanfarr.Accounts.Seed.run/0},
       {DNSCluster, query: Application.get_env(:fanfarr, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Fanfarr.PubSub},
+      # Periodic health checks for the System page and the sidebar badge.
+      # Disabled in the test suite, where checks run explicitly.
+      {Fanfarr.Health.Monitor, auto: Application.get_env(:fanfarr, :health_monitor, true)},
       FanfarrWeb.Endpoint,
       {AshAuthentication.Supervisor, [otp_app: :fanfarr]}
     ]

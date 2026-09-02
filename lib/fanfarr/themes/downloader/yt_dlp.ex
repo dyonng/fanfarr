@@ -28,11 +28,6 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
   @max_bytes 40 * 1024 * 1024
   @timeout_ms 180_000
 
-  @allowed_schemes ~w(http https)
-  @allowed_hosts ~w(
-    youtube.com www.youtube.com m.youtube.com music.youtube.com youtu.be
-  )
-
   @impl true
   def version do
     case run([@binary, "--version"], 15_000) do
@@ -41,6 +36,73 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @search_timeout_ms 30_000
+
+  @impl true
+  def search(query, limit) when is_binary(query) and is_integer(limit) and limit > 0 do
+    query = String.trim(query)
+
+    if query == "" do
+      {:ok, []}
+    else
+      # ytsearchN: is yt-dlp's own search pseudo-URL; no API key involved.
+      # --flat-playlist returns the listing without visiting each video, which
+      # is the difference between one request and eleven.
+      args = [
+        "--dump-json",
+        "--flat-playlist",
+        "--no-warnings",
+        "--no-playlist",
+        "ytsearch#{min(limit, 25)}:#{query}"
+      ]
+
+      case run([@binary | args], @search_timeout_ms) do
+        {:ok, output} -> {:ok, parse_search(output)}
+        {:error, :enoent} -> {:error, :not_installed}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # One JSON object per line. A line that fails to parse is dropped rather than
+  # failing the whole search: yt-dlp occasionally prints a warning on stdout.
+  @doc false
+  def parse_search(output) do
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.flat_map(fn line ->
+      case Jason.decode(line) do
+        {:ok, %{"id" => id} = v} when is_binary(id) ->
+          [
+            %{
+              id: id,
+              url: v["url"] || "https://www.youtube.com/watch?v=#{id}",
+              title: v["title"] || id,
+              channel: v["channel"] || v["uploader"],
+              duration: number(v["duration"]),
+              thumbnail: best_thumbnail(v),
+              view_count: number(v["view_count"])
+            }
+          ]
+
+        _ ->
+          []
+      end
+    end)
+  end
+
+  defp number(n) when is_number(n), do: n
+  defp number(_), do: nil
+
+  # Flat listings carry a thumbnails array in some versions and a single
+  # thumbnail string in others; take whichever is there.
+  defp best_thumbnail(%{"thumbnails" => [_ | _] = thumbs}) do
+    thumbs |> List.last() |> Map.get("url")
+  end
+
+  defp best_thumbnail(%{"thumbnail" => url}) when is_binary(url), do: url
+  defp best_thumbnail(_), do: nil
 
   @impl true
   def download(url, dir) do
@@ -146,18 +208,9 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
     end
   end
 
-  defp validate_url(url) when is_binary(url) do
-    uri = URI.parse(url)
-
-    cond do
-      uri.scheme not in @allowed_schemes -> {:error, :unsupported_url}
-      is_nil(uri.host) -> {:error, :unsupported_url}
-      String.downcase(uri.host) not in @allowed_hosts -> {:error, :unsupported_url}
-      true -> :ok
-    end
+  defp validate_url(url) do
+    if Fanfarr.Themes.Downloader.youtube_url?(url), do: :ok, else: {:error, :unsupported_url}
   end
-
-  defp validate_url(_), do: {:error, :unsupported_url}
 
   defp ensure_dir(dir) do
     case File.stat(dir) do

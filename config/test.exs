@@ -36,3 +36,4 @@ config :phoenix,
   sort_verified_routes_query_params: true
 
 config :fanfarr, req_options: [plug: {Req.Test, Fanfarr.PlexReq}]
+config :fanfarr, health_monitor: false

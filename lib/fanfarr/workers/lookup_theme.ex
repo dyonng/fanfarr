@@ -9,7 +9,6 @@ defmodule Fanfarr.Workers.LookupTheme do
     max_attempts: 5,
     unique: [period: 3600, keys: [:media_item_id], states: [:available, :scheduled, :executing]]
 
-  @base_url "https://app.lizardbyte.dev/ThemerrDB"
   @external_id ~r/^[A-Za-z0-9_\-]{1,64}$/
 
   @impl Oban.Worker
@@ -17,15 +16,19 @@ defmodule Fanfarr.Workers.LookupTheme do
     item = Fanfarr.Library.get_media_item!(item_id)
     item_type = if item.kind == :show, do: :tv_shows, else: :movies
 
-    [imdb: item.imdb_id, themoviedb: item.tmdb_id]
-    |> Enum.filter(fn {_db, id} -> is_binary(id) and Regex.match?(@external_id, id) end)
-    |> Enum.reduce_while(:ok, fn {db, id}, _acc ->
-      case lookup(item_type, db, id) do
-        {:hit, _entry} -> {:halt, :ok}
-        :miss -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+    result =
+      [imdb: item.imdb_id, themoviedb: item.tmdb_id]
+      |> Enum.filter(fn {_db, id} -> is_binary(id) and Regex.match?(@external_id, id) end)
+      |> Enum.reduce_while(:ok, fn {db, id}, _acc ->
+        case lookup(item_type, db, id) do
+          {:hit, _entry} -> {:halt, :ok}
+          :miss -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+
+    Phoenix.PubSub.broadcast(Fanfarr.PubSub, "item:#{item.id}", {:item_updated, item.id})
+    result
   end
 
   @impl Oban.Worker
@@ -36,7 +39,7 @@ defmodule Fanfarr.Workers.LookupTheme do
   end
 
   defp lookup(item_type, database, external_id) do
-    url = "#{@base_url}/#{item_type}/#{database}/#{external_id}.json"
+    url = "#{Fanfarr.Themes.ThemerrDB.base_url()}/#{item_type}/#{database}/#{external_id}.json"
 
     case Req.get(url, retry: false, receive_timeout: 15_000) do
       {:ok, %{status: 200, body: body}} when is_map(body) ->

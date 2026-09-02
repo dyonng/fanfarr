@@ -105,6 +105,57 @@ defmodule Fanfarr.Plex.HTTPClient do
     put(config, path)
   end
 
+  @impl true
+  def fetch_image(config, key, opts \\ []) do
+    width = Keyword.get(opts, :width, 300)
+    height = Keyword.get(opts, :height, 450)
+
+    # /photo/:/transcode is what every Plex client uses for scaled artwork.
+    # If it is ever refused, the raw key is a fine fallback -- bigger, but
+    # still the right picture.
+    transcode =
+      "/photo/:/transcode?" <>
+        URI.encode_query(%{
+          "width" => width,
+          "height" => height,
+          "minSize" => 1,
+          "upscale" => 1,
+          "url" => key
+        })
+
+    case get_binary(config, transcode) do
+      {:ok, _} = ok -> ok
+      {:error, _} -> get_binary(config, key)
+    end
+  end
+
+  defp get_binary(config, path) do
+    req = build(config, path: path) |> Req.merge(headers: [{"Accept", "image/*"}])
+
+    case Req.get(req, url: path) do
+      {:ok, %{status: status, body: body, headers: headers}}
+      when status in 200..299 and is_binary(body) ->
+        type =
+          case Map.get(headers, "content-type") do
+            [t | _] -> t |> String.split(";") |> hd() |> String.trim()
+            _ -> "image/jpeg"
+          end
+
+        if String.starts_with?(type, "image/"),
+          do: {:ok, {type, body}},
+          else: {:error, {:not_an_image, type}}
+
+      {:ok, %{status: 401}} ->
+        {:error, :unauthorized}
+
+      {:ok, %{status: status}} ->
+        {:error, {:http, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   # --- parsing ---------------------------------------------------------------
 
   defp parse_item(m) do
@@ -174,24 +225,8 @@ defmodule Fanfarr.Plex.HTTPClient do
   defp post(config, path, data), do: request(config, :post, path, data)
   defp put(config, path), do: request(config, :put, path, nil)
 
-  defp request(%{base_url: base_url, token: token} = config, method, path, data) do
-    req =
-      [
-        base_url: base_url,
-        headers: [{"X-Plex-Token", token}, {"Accept", "application/json"}],
-        retry: :transient,
-        max_retries: 2,
-        receive_timeout: 30_000
-      ]
-      # Background workers can afford retries and a long wait; an interactive
-      # connection test cannot -- the LiveView client abandons a push after
-      # 30s and remounts the page, which reads as a mysterious reload. Callers
-      # pass tighter options through the config map for that case.
-      |> Keyword.merge(Map.get(config, :req_options, []))
-      # Lets the test suite serve captured real responses through this exact
-      # function, rather than testing a parser that production does not call.
-      |> Keyword.merge(Application.get_env(:fanfarr, :req_options, []))
-      |> Req.new()
+  defp request(config, method, path, data) do
+    req = build(config, [])
 
     result =
       case method do
@@ -213,6 +248,25 @@ defmodule Fanfarr.Plex.HTTPClient do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp build(%{base_url: base_url, token: token} = config, _opts) do
+    [
+      base_url: base_url,
+      headers: [{"X-Plex-Token", token}, {"Accept", "application/json"}],
+      retry: :transient,
+      max_retries: 2,
+      receive_timeout: 30_000
+    ]
+    # Background workers can afford retries and a long wait; an interactive
+    # connection test cannot -- the LiveView client abandons a push after
+    # 30s and remounts the page, which reads as a mysterious reload. Callers
+    # pass tighter options through the config map for that case.
+    |> Keyword.merge(Map.get(config, :req_options, []))
+    # Lets the test suite serve captured real responses through this exact
+    # function, rather than testing a parser that production does not call.
+    |> Keyword.merge(Application.get_env(:fanfarr, :req_options, []))
+    |> Req.new()
   end
 
   defp ensure_map(body) when is_map(body), do: body

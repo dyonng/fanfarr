@@ -12,37 +12,62 @@ required for the local-file output path.
 
 ## Features
 
-- **Library dashboard** — every show and movie with its theme status: missing,
-  Plex-supplied, Fanfarr-applied, local file, or failed. Filter by status,
-  type, and library; search; served from a local mirror, so it stays fast at
-  thousands of items.
-- **Honest status taxonomy** — status is derived from facts (what Plex
-  reports, what exists on disk, what the application log says), never stored,
-  so it cannot drift.
-- **Append-only application log** — Plex has no API to delete an uploaded
-  theme, so every attempt Fanfarr makes is recorded permanently: what, when,
-  from where, and how it went. Dry runs included, but never counted.
+- **Library dashboard** — every show and movie with its poster and theme
+  status: missing, Plex default, Fanfarr-applied, local file, or failed. Filter
+  by status, type, and library; search; served from a local mirror, so it
+  stays fast at thousands of items.
+- **Knows a stock theme from a chosen one** — Plex marks its own agent's
+  themes in the `ratingKey`, and Fanfarr reads it. A show that "has a theme"
+  because Plex shipped one is listed as such, so it can be found and replaced.
+- **Find a theme without leaving the page** — search YouTube from the item
+  page, play the result inline, and pick it. What you pick is exactly what
+  gets applied, and it outranks ThemerrDB from then on. Or paste a URL.
+- **ThemerrDB** — the community theme database is looked up automatically as
+  the default source; misses are cached so nothing is re-requested.
+- **Dry run first, by default** — a preview resolves the source and the
+  destination and checks the folder is writable, then stops. Run it on the
+  whole library before writing a single file.
+- **Bulk actions** — tick rows, or select everything matching a filter, and
+  preview, look up, or apply in one go.
+- **Local `theme.mp3`, never an upload** — themes are written beside the
+  media, where deleting the file undoes them. Plex's upload API cannot be
+  undone, so it is not used.
+- **mergerfs-aware writes** — files are staged in the destination folder and
+  renamed, with a copy fallback when the pool puts the temp file on another
+  branch (`EXDEV`). No half-written theme is ever visible to a Plex scan.
+- **Root folders, like Sonarr** — mount each library location wherever you
+  like (`/tv1`, `/tv2`, …), browse to it from Settings, and items are located
+  by directory name across the roots so a theme lands on the drive that holds
+  the show.
+- **System page** — Sonarr-style health checks: Plex reachable, yt-dlp
+  present, root folders writable, Plex paths resolving on this side of the
+  mount, ThemerrDB up, database healthy. A dot on the sidebar when something
+  needs attention. Version and build on the same page for bug reports.
+- **Append-only application log** — every attempt Fanfarr makes is recorded
+  permanently: what, when, from where, and how it went. Dry runs included,
+  but never counted.
 - **Activity view** — live job queue with per-job errors and retry, plus
   recent theme failures with their actual error message.
-- **Root folders, like Sonarr** — mount each library location wherever you
-  like (`/tv1`, `/tv2`, …); items are located by directory name across the
-  configured roots. On mergerfs and friends, themes are written to the drive
-  that actually holds the show.
 - **Login from the environment** — set `AUTH_USERNAME` and `AUTH_PASSWORD` in
-  compose and that is the account. No sign-up page, no reset flow: changing or
-  recovering the password is an edit and a restart. Leave them unset and the
-  dashboard is open, as the *arrs also start.
-- **Safe by default** — libraries are opt-in, dry-run is the default for bulk
-  work, and sync never re-enables what you disabled.
+  compose and that is the account. No sign-up page, no reset flow. Leave them
+  unset and the dashboard is open, as the *arrs also start.
+- **Safe by default** — libraries are opt-in, dry-run is the default, sync
+  never re-enables what you disabled, and posters are cached server-side so
+  your Plex token never reaches a browser.
 - **One container, one volume** — SQLite for everything, secrets generated on
   first boot, `PUID`/`PGID` respected, port 7373.
 
-### Not built yet
+### Not there yet
 
-Theme resolution (yt-dlp) and application are in progress — the pipeline that
-turns a ThemerrDB entry into audio on your server. Codec handling (Opus will
-not play on Apple TV), poster caching, health checks, and per-season theme
-research are planned; see `AGENTS.md` for the roadmap and the reasoning.
+- **Movies.** Plex's movie agent supplies no themes at all, so movies are the
+  bigger half of the job — but whether Plex reads a local `theme.mp3` for a
+  movie is unverified, and the alternative (uploading through the API) cannot
+  be undone. Applying to movies is disabled until that is tested on a real
+  server. Previews and manual picks work.
+- **Per-season themes.** Plex has no per-season theme; a theme belongs to the
+  show. Nothing to build there.
+- **Codec handling.** Opus does not play on Apple TV; everything is written as
+  MP3 for now, which plays everywhere.
 
 ## Running it
 
