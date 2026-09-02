@@ -42,6 +42,12 @@ defmodule Fanfarr.MixProject do
   defp deps do
     [
       {:bcrypt_elixir, "~> 3.0"},
+      # Every Plex, ThemerrDB and poster request. This was missing: Req reached
+      # dev and test transitively through igniter (dev/test only), compiled
+      # fine there, and was simply absent from the production release -- where
+      # every call to it raised UndefinedFunctionError. Guarded by
+      # test/runtime_deps_test.exs and the strict compile in the Dockerfile.
+      {:req, "~> 0.5"},
       {:simple_sat, "~> 0.1"},
       {:ash_authentication, "~> 4.0"},
       {:ash_authentication_phoenix, "~> 2.0"},

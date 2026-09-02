@@ -37,9 +37,14 @@ COPY assets assets
 ARG BUILD_REF=""
 ENV BUILD_REF=$BUILD_REF
 
+# Strict, and BEFORE assets.deploy: that alias compiles too, and a second
+# compile afterwards is a no-op that would catch nothing. A warning here is a
+# module that will not exist at runtime -- Req was once exactly that -- so it
+# has to fail the build rather than ship.
+RUN mix compile --warnings-as-errors
+
 # Digests and gzips static assets into priv/static.
 RUN mix assets.deploy
-RUN mix compile
 
 # runtime.exs is read when the container starts, not now, so it is copied
 # after compilation.

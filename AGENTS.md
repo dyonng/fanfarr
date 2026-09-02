@@ -248,6 +248,14 @@ cache 404s too. Details in `docs/themerrdb.md`.
   and crops.
 - Icons are linked at their plain paths with a `?v=` query, never through `~p`,
   which rewrites them to the digested filename. See root.html.heex.
+- **`req` was never a declared dependency.** It reached dev and test
+  transitively through igniter (`only: [:dev, :test]`), so everything compiled
+  and every test passed, and the production release simply did not contain
+  it: every Plex call raised `UndefinedFunctionError`. Found by reading a
+  `MIX_ENV=prod mix compile --warnings-as-errors` run, not by any test. The
+  Dockerfile now compiles strictly before `assets.deploy`, and
+  `test/runtime_deps_test.exs` checks that modules used from `lib/` come from
+  runtime deps. **A transitive dependency is not a dependency.**
 - "Test connection" appeared to reload the page. Two causes with one symptom:
   a URL without a scheme makes Req **raise**, crashing the LiveView (client
   remounts, form clears); and an unreachable host blocks `handle_event` past
