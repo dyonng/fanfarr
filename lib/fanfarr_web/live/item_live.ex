@@ -41,6 +41,7 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:plex_theme_state, nil)
       |> assign(:plex_diagnosis, nil)
       |> assign(:diagnosing, false)
+      |> assign(:selecting, false)
       |> load()
       |> maybe_lookup()
 
@@ -201,6 +202,23 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  def handle_event("select_theme", %{"key" => theme_key}, socket) do
+    item = socket.assigns.item
+
+    case Fanfarr.Config.plex_config() do
+      {:error, :plex_not_configured} ->
+        {:noreply, put_flash(socket, :error, "Plex is not configured")}
+
+      {:ok, config} ->
+        {:noreply,
+         socket
+         |> assign(:selecting, true)
+         |> start_async(:select_theme, fn ->
+           ThemeCheck.select(config, item.plex_rating_key, theme_key)
+         end)}
+    end
+  end
+
   def handle_event("diagnose_plex", _params, socket) do
     item = socket.assigns.item
 
@@ -312,6 +330,47 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> put_flash(:error, "Refresh crashed: #{inspect(reason, limit: 5)}")}
   end
 
+  def handle_async(:select_theme, {:ok, {:ok, current}}, socket) do
+    item =
+      Library.record_plex_theme!(socket.assigns.item, %{
+        plex_theme_url: current.url,
+        plex_theme_origin: current.origin,
+        plex_theme_agent: current.agent
+      })
+
+    # Whether Plex took the instruction is decided by the read-back, not by
+    # its response to the request. The endpoint is inferred from Plex's poster
+    # convention and a 200 from it has never been evidence of much.
+    {flash_level, message} =
+      if current.url do
+        {:info, "Plex is serving it now."}
+      else
+        {:error, "Plex accepted the request but is still serving no theme."}
+      end
+
+    {:noreply,
+     socket
+     |> assign(:selecting, false)
+     |> assign(:item, item)
+     |> assign(:plex_theme_state, restate(socket.assigns.plex_theme_state, current, item))
+     |> load()
+     |> put_flash(flash_level, message)}
+  end
+
+  def handle_async(:select_theme, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:selecting, false)
+     |> put_flash(:error, "Plex refused: #{inspect(reason)}")}
+  end
+
+  def handle_async(:select_theme, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:selecting, false)
+     |> put_flash(:error, "Selecting crashed: #{inspect(reason, limit: 5)}")}
+  end
+
   def handle_async(:diagnose, {:ok, report}, socket) do
     {:noreply, socket |> assign(:diagnosing, false) |> assign(:plex_diagnosis, report)}
   end
@@ -348,6 +407,17 @@ defmodule FanfarrWeb.ItemLive.Show do
   defp scan_result(:not_attempted), do: "not attempted — Plex path unknown"
   defp scan_result({:error, reason}), do: "refused: #{inspect(reason)}"
   defp scan_result(_), do: "—"
+
+  # Keeps whatever the last refresh established about the steps it took, and
+  # replaces only what Plex now serves.
+  defp restate(previous, current, item) do
+    {level, message} = ThemeCheck.verdict(current, item)
+
+    previous
+    |> Kernel.||(%{})
+    |> Map.merge(current)
+    |> Map.merge(%{level: level, message: message, changed: true})
+  end
 
   defp search_error(:not_installed),
     do: "yt-dlp is not installed in this container, so search is unavailable. See System."
@@ -774,14 +844,26 @@ defmodule FanfarrWeb.ItemLive.Show do
               </summary>
               <ul class="mt-1 space-y-1">
                 <li :for={theme <- @plex_theme_state.themes} class="text-xs">
-                  <span class={[
-                    "font-medium",
-                    theme.selected && "text-foreground",
-                    !theme.selected && "text-muted-foreground"
-                  ]}>
-                    {if theme.selected, do: "playing", else: "listed, not selected"}
-                  </span>
-                  <span class="ml-1 break-all font-mono text-muted-foreground">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class={[
+                      "font-medium",
+                      theme.selected && "text-foreground",
+                      !theme.selected && "text-muted-foreground"
+                    ]}>
+                      {if theme.selected, do: "playing", else: "listed, not selected"}
+                    </span>
+                    <button
+                      :if={!theme.selected and theme.rating_key}
+                      phx-click="select_theme"
+                      phx-value-key={theme.rating_key}
+                      disabled={@selecting}
+                      class="rounded-md border border-border px-2 py-0.5 hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+                      title="Tell Plex to serve this one"
+                    >
+                      {if @selecting, do: "asking…", else: "use this one"}
+                    </button>
+                  </div>
+                  <span class="mt-0.5 block break-all font-mono text-muted-foreground">
                     {theme.rating_key || theme.key}
                   </span>
                 </li>

@@ -91,6 +91,22 @@ defmodule Fanfarr.Plex.Client do
               :ok | {:error, term()}
 
   @doc """
+  Promotes one of an item's existing themes to *the* theme.
+
+  Plex can hold several themes for an item and serve none of them, which is
+  where a freshly scanned `theme.mp3` sits: listed, unselected, silent. This
+  is the call that picks one, and it adds nothing -- the theme must already be
+  in the item's list, so the only thing it changes is which of them plays.
+
+  Singular `theme` selects; the plural `themes` on `upload_theme/3` adds. That
+  is Plex's own convention for posters and art, and it is **inferred** here
+  rather than verified, so callers should read the item back afterwards and
+  report what Plex actually did rather than assuming a 200 means success.
+  """
+  @callback select_theme(config, rating_key :: String.t(), theme_rating_key :: String.t()) ::
+              :ok | {:error, term()}
+
+  @doc """
   A raw GET against the configured server, for the System page's diagnostics.
 
   Always relative to the configured `base_url`, so this reaches the operator's

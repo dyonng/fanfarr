@@ -106,6 +106,14 @@ defmodule Fanfarr.Plex.HTTPClient do
   end
 
   @impl true
+  def select_theme(config, rating_key, theme_rating_key) do
+    put(
+      config,
+      "/library/metadata/#{rating_key}/theme?url=#{URI.encode_www_form(theme_rating_key)}"
+    )
+  end
+
+  @impl true
   def refresh_metadata(config, rating_key) do
     put(config, "/library/metadata/#{rating_key}/refresh")
   end

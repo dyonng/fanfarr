@@ -124,6 +124,21 @@ defmodule Fanfarr.Plex.ThemeCheck do
   defp poll_delays,
     do: Application.get_env(:fanfarr, :plex_theme_poll_delays, @default_poll_delays)
 
+  @doc """
+  Tells Plex to serve one of the themes it already lists, then reads back what
+  it actually serves.
+
+  The read-back is the point. The endpoint is inferred from Plex's convention
+  for posters, so a 200 is not on its own evidence that anything changed;
+  `{:ok, state}` here means we asked and then looked.
+  """
+  @spec select(map(), String.t(), String.t()) :: {:ok, state()} | {:error, term()}
+  def select(config, rating_key, theme_rating_key) do
+    with :ok <- Client.impl().select_theme(config, rating_key, theme_rating_key) do
+      read(config, rating_key)
+    end
+  end
+
   defp poll(config, rating_key, before, [delay | rest]) do
     if delay > 0, do: Process.sleep(delay)
 
