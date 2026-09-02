@@ -2,6 +2,7 @@ defmodule FanfarrWeb.DashboardTest do
   use FanfarrWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import Mox
 
   describe "authentication" do
     test "the dashboard requires sign-in once an operator account exists", %{conn: conn} do
@@ -44,6 +45,19 @@ defmodule FanfarrWeb.DashboardTest do
                Phoenix.Router.route_info(FanfarrWeb.Router, "GET", "/register", "example.com")
 
       assert :error = Phoenix.Router.route_info(FanfarrWeb.Router, "GET", "/reset", "example.com")
+    end
+  end
+
+  describe "page titles" do
+    test "every page is prefixed with the product name", %{conn: conn} do
+      for {path, title} <- [
+            {"/", "Library"},
+            {"/activity", "Activity"},
+            {"/settings", "Settings"}
+          ] do
+        {:ok, view, _html} = live(conn, path)
+        assert page_title(view) == "Fanfarr - #{title}"
+      end
     end
   end
 
@@ -141,12 +155,16 @@ defmodule FanfarrWeb.DashboardTest do
 
   describe "settings" do
     setup :register_and_log_in_user
+    # The connection probe runs in a Task, not the test process, so the mock
+    # must be reachable globally. The module is async: false for this reason.
+    setup :set_mox_global
+    setup :verify_on_exit!
 
     test "saving the Plex connection stores overrides", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/settings")
 
       view
-      |> element("form[phx-submit=save_plex]")
+      |> element("form#plex-form")
       |> render_submit(%{"plex_url" => "http://plex.local:32400", "plex_token" => "tok123"})
 
       assert Fanfarr.Config.get("plex_url") == "http://plex.local:32400"
@@ -158,10 +176,71 @@ defmodule FanfarrWeb.DashboardTest do
       {:ok, view, _html} = live(conn, "/settings")
 
       view
-      |> element("form[phx-submit=save_plex]")
+      |> element("form#plex-form")
       |> render_submit(%{"plex_url" => "http://plex.local:32400", "plex_token" => ""})
 
       assert Fanfarr.Config.get("plex_token") == "keep-me"
+    end
+
+    test "a URL typed without a scheme is stored with one", %{conn: conn} do
+      # "192.168.1.121:32400" is what people type. Req raises on it, which took
+      # the LiveView process down and looked like the page reloading.
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> element("form#plex-form")
+      |> render_submit(%{"plex_url" => "192.168.1.121:32400/", "plex_token" => "t"})
+
+      assert Fanfarr.Config.get("plex_url") == "http://192.168.1.121:32400"
+    end
+
+    test "testing the connection uses what is typed, without saving it", %{conn: conn} do
+      expect(Fanfarr.PlexClientMock, :server_info, fn config ->
+        assert config.base_url == "http://typed.local:32400"
+        assert config.token == "typed-token"
+        # The interactive probe must not wait 30s with retries.
+        assert config.req_options[:retry] == false
+        {:ok, %{name: "Serve The DY", version: "1.43.4"}}
+      end)
+
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> element("form#plex-form")
+      |> render_submit(%{
+        "plex_url" => "typed.local:32400",
+        "plex_token" => "typed-token",
+        "intent" => "test"
+      })
+
+      html = render_async(view)
+      assert html =~ "Connected to Serve The DY"
+      assert Fanfarr.Config.get("plex_url") == nil, "testing must not save"
+    end
+
+    test "a connection failure is reported, not crashed on", %{conn: conn} do
+      expect(Fanfarr.PlexClientMock, :server_info, fn _ ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> element("form#plex-form")
+      |> render_submit(%{"plex_url" => "http://x:1", "plex_token" => "t", "intent" => "test"})
+
+      assert render_async(view) =~ "connection refused"
+    end
+
+    test "testing with no token anywhere says so instead of probing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      html =
+        view
+        |> element("form#plex-form")
+        |> render_submit(%{"plex_url" => "http://x:1", "plex_token" => "", "intent" => "test"})
+
+      assert html =~ "Enter a token first"
     end
 
     test "root folders can be added and are health-checked on the spot", %{conn: conn} do

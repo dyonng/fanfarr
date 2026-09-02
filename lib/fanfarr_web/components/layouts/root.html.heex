@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
-    <.live_title default="Fanfarr" phx-no-format>{assigns[:page_title]}</.live_title>
+    <.live_title default="Fanfarr" prefix="Fanfarr - " phx-no-format>{assigns[:page_title]}</.live_title>
     <%!-- SVG first for browsers that support it (crisp at any size, adapts to
           the tab strip); .ico is the fallback for those that do not. --%>
     <%!-- Linked at their plain paths rather than through ~p, which rewrites them

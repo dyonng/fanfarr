@@ -174,7 +174,7 @@ defmodule Fanfarr.Plex.HTTPClient do
   defp post(config, path, data), do: request(config, :post, path, data)
   defp put(config, path), do: request(config, :put, path, nil)
 
-  defp request(%{base_url: base_url, token: token}, method, path, data) do
+  defp request(%{base_url: base_url, token: token} = config, method, path, data) do
     req =
       [
         base_url: base_url,
@@ -183,6 +183,11 @@ defmodule Fanfarr.Plex.HTTPClient do
         max_retries: 2,
         receive_timeout: 30_000
       ]
+      # Background workers can afford retries and a long wait; an interactive
+      # connection test cannot -- the LiveView client abandons a push after
+      # 30s and remounts the page, which reads as a mysterious reload. Callers
+      # pass tighter options through the config map for that case.
+      |> Keyword.merge(Map.get(config, :req_options, []))
       # Lets the test suite serve captured real responses through this exact
       # function, rather than testing a parser that production does not call.
       |> Keyword.merge(Application.get_env(:fanfarr, :req_options, []))

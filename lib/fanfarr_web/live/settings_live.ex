@@ -10,12 +10,17 @@ defmodule FanfarrWeb.SettingsLive.Index do
 
   on_mount {FanfarrWeb.LiveUserAuth, :live_user_required}
 
+  # Short and without retries: the answer is wanted now, and "no answer in five
+  # seconds" is itself the answer.
+  @probe_options [retry: false, receive_timeout: 5_000, connect_options: [timeout: 5_000]]
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(:page_title, "Settings")
      |> assign(:test_result, nil)
+     |> assign(:testing, false)
      |> load()}
   end
 
@@ -28,32 +33,50 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:root_folders, Fanfarr.Library.list_root_folders!())
   end
 
+  # Both buttons submit the same form, distinguished by the button's value, so
+  # "Test" sees what is typed rather than what was last saved -- testing before
+  # saving is the whole point of a test button.
   @impl true
-  def handle_event("save_plex", %{"plex_url" => url} = params, socket) do
-    Fanfarr.Settings.put_setting!("plex_url", String.trim(url))
+  def handle_event("plex_form", %{"intent" => "test"} = params, socket) do
+    with {:ok, url} <- Fanfarr.Config.normalize_plex_url(params["plex_url"] || ""),
+         {:ok, token} <- token_from(params) do
+      config = %{base_url: url, token: token, req_options: @probe_options}
 
-    # An empty token field means "keep what is stored" -- the token is never
-    # echoed back into the form, so an untouched field must not blank it.
-    case String.trim(params["plex_token"] || "") do
-      "" -> :ok
-      token -> Fanfarr.Settings.put_setting!("plex_token", token)
+      {:noreply,
+       socket
+       |> assign(:testing, true)
+       |> assign(:test_result, nil)
+       # Off the LiveView process: a host that does not answer would otherwise
+       # block this process past the client's 30s push timeout, and the client
+       # responds to that by remounting the page.
+       |> start_async(:plex_test, fn -> probe(config) end)}
+    else
+      {:error, :invalid_url} ->
+        {:noreply, assign(socket, :test_result, {:error, "That is not a valid URL"})}
+
+      {:error, :no_token} ->
+        {:noreply, assign(socket, :test_result, {:error, "Enter a token first"})}
     end
-
-    {:noreply, socket |> load() |> put_flash(:info, "Plex settings saved")}
   end
 
-  def handle_event("test_plex", _params, socket) do
-    result =
-      with {:ok, config} <- Fanfarr.Config.plex_config(),
-           {:ok, info} <- Fanfarr.Plex.Client.impl().server_info(config) do
-        {:ok, "Connected to #{info.name} (#{info.version})"}
-      else
-        {:error, :plex_not_configured} -> {:error, "Set a URL and token first"}
-        {:error, :unauthorized} -> {:error, "Plex rejected the token"}
-        {:error, reason} -> {:error, "Connection failed: #{inspect(reason)}"}
-      end
+  def handle_event("plex_form", params, socket) do
+    case Fanfarr.Config.normalize_plex_url(params["plex_url"] || "") do
+      {:ok, url} ->
+        Fanfarr.Settings.put_setting!("plex_url", url)
 
-    {:noreply, assign(socket, :test_result, result)}
+        # An empty token field means "keep what is stored" -- the token is
+        # never echoed back into the form, so an untouched field must not
+        # blank it.
+        case String.trim(params["plex_token"] || "") do
+          "" -> :ok
+          token -> Fanfarr.Settings.put_setting!("plex_token", token)
+        end
+
+        {:noreply, socket |> load() |> put_flash(:info, "Plex settings saved")}
+
+      {:error, :invalid_url} ->
+        {:noreply, put_flash(socket, :error, "That is not a valid URL")}
+    end
   end
 
   def handle_event("save_paths", %{"path_mappings" => mappings}, socket) do
@@ -99,6 +122,47 @@ defmodule FanfarrWeb.SettingsLive.Index do
     {:noreply, load(socket)}
   end
 
+  @impl true
+  def handle_async(:plex_test, {:ok, result}, socket) do
+    {:noreply, socket |> assign(:testing, false) |> assign(:test_result, result)}
+  end
+
+  def handle_async(:plex_test, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:testing, false)
+     |> assign(:test_result, {:error, "Test crashed: #{inspect(reason, limit: 5)}"})}
+  end
+
+  defp probe(config) do
+    case Fanfarr.Plex.Client.impl().server_info(config) do
+      {:ok, info} -> {:ok, "Connected to #{info.name} (Plex #{info.version})"}
+      {:error, :unauthorized} -> {:error, "Plex rejected the token"}
+      {:error, %{reason: reason}} -> {:error, "Connection failed: #{explain(reason)}"}
+      {:error, reason} -> {:error, "Connection failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp explain(:econnrefused), do: "connection refused (is that the right port?)"
+  defp explain(:nxdomain), do: "host not found (from inside the container)"
+  defp explain(:timeout), do: "timed out (no route from the container to that host?)"
+  defp explain(:ehostunreach), do: "host unreachable from the container"
+  defp explain(other), do: inspect(other)
+
+  defp token_from(params) do
+    case String.trim(params["plex_token"] || "") do
+      "" ->
+        case Fanfarr.Config.get("plex_token") do
+          nil -> {:error, :no_token}
+          "" -> {:error, :no_token}
+          stored -> {:ok, stored}
+        end
+
+      typed ->
+        {:ok, typed}
+    end
+  end
+
   # Health is observed, not trusted from configuration: a root that stops
   # resolving is the difference between "nothing to do" and "the mount is
   # gone", and this is where that becomes visible.
@@ -130,14 +194,15 @@ defmodule FanfarrWeb.SettingsLive.Index do
           <p class="mt-1 text-xs text-muted-foreground">
             Values here override PLEX_URL / PLEX_TOKEN from the environment.
           </p>
-          <form id="plex-form" phx-submit="save_plex" class="mt-4 space-y-3">
+          <form id="plex-form" phx-submit="plex_form" class="mt-4 space-y-3">
             <div>
               <label class="text-xs font-medium text-muted-foreground">Server URL</label>
               <input
-                type="url"
+                type="text"
                 name="plex_url"
                 value={@plex_url}
                 placeholder="http://host.docker.internal:32400"
+                spellcheck="false"
                 class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
               />
             </div>
@@ -154,15 +219,21 @@ defmodule FanfarrWeb.SettingsLive.Index do
               />
             </div>
             <div class="flex items-center gap-2">
-              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              <button
+                name="intent"
+                value="save"
+                class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
                 Save
               </button>
               <button
-                type="button"
-                phx-click="test_plex"
-                class="h-9 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground"
+                name="intent"
+                value="test"
+                disabled={@testing}
+                class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
               >
-                Test connection
+                <.icon :if={@testing} name="lucide-loader-circle" class="size-4 animate-spin" />
+                {if @testing, do: "Testing…", else: "Test connection"}
               </button>
               <span :if={@test_result} class="text-sm">
                 <span

@@ -35,6 +35,35 @@ defmodule Fanfarr.Config do
     end
   end
 
+  @doc """
+  Normalises a Plex URL as typed by a person.
+
+  `192.168.1.121:32400` is what people type, and Req raises on it because it
+  has no scheme -- which took the whole LiveView down and looked like a page
+  reload. A bare host gets `http://`; trailing slashes go; anything that still
+  is not a URL with a host is rejected rather than stored.
+  """
+  @spec normalize_plex_url(String.t() | nil) :: {:ok, String.t()} | {:error, :invalid_url}
+  def normalize_plex_url(url) when is_binary(url) do
+    trimmed = String.trim(url)
+
+    with_scheme =
+      if Regex.match?(~r{^[a-z][a-z0-9+.-]*://}i, trimmed),
+        do: trimmed,
+        else: "http://" <> trimmed
+
+    case URI.parse(with_scheme) do
+      %URI{scheme: scheme, host: host}
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        {:ok, String.trim_trailing(with_scheme, "/")}
+
+      _ ->
+        {:error, :invalid_url}
+    end
+  end
+
+  def normalize_plex_url(_), do: {:error, :invalid_url}
+
   @doc "Parsed path mappings, ready for `Fanfarr.PathMapping.to_local/2`."
   def path_mappings do
     Fanfarr.PathMapping.parse(get("path_mappings"))
