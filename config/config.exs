@@ -28,7 +28,25 @@ config :fanfarr, Oban,
   lifeline: [rescue_after: {2, :hours}],
   pruner: [max_age: {1, :day}],
   repo: Fanfarr.Repo,
-  plugins: [{Oban.Plugins.Cron, []}]
+  plugins: [
+    {Oban.Plugins.Cron,
+     crontab: [
+       # Nothing in this app ran on its own until these existed: every sync and
+       # every lookup happened because somebody pressed a button, which is not
+       # what an appliance that sits in a homelab is for.
+       #
+       # Every six hours, matching what the *arr stack does for a library
+       # refresh. Both workers are unique across available/scheduled/executing,
+       # so a scheduled run and a "Sync now" cannot stack.
+       {"0 */6 * * *", Fanfarr.Workers.SyncLibrary},
+
+       # Daily, and deliberately not more often. A cold pass is ~2,550
+       # requests against a community-run static host; the point of the nightly
+       # run is to pick up titles ThemerrDB has gained since, not to poll it.
+       # Off the hour and offset from the sync so the two do not start together.
+       {"37 4 * * *", Fanfarr.Workers.RefreshThemerr}
+     ]}
+  ]
 
 # These enable behaviors that will become the default in the next major
 # version of Ash. Setting them now opts your application into the new

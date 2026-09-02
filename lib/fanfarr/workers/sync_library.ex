@@ -36,6 +36,15 @@ defmodule Fanfarr.Workers.SyncLibrary do
         |> Oban.insert!()
       end)
 
+      # A sync is the only thing that introduces new titles, so it is the only
+      # moment ThemerrDB has something new to be asked about. Delayed rather
+      # than immediate: the sections are still syncing, and a lookup pass that
+      # runs before they finish would miss exactly the items that prompted it.
+      # RefreshThemerr's own uniqueness collapses this against the nightly run.
+      %{}
+      |> Fanfarr.Workers.RefreshThemerr.new(schedule_in: 180)
+      |> Oban.insert!()
+
       :ok
     else
       # Not configured is not a failure to retry -- there is nothing to sync

@@ -55,6 +55,26 @@ defmodule Fanfarr.Workers.SyncTest do
     assert Enum.all?(sections, &(&1.enabled == false))
   end
 
+  test "a sync asks ThemerrDB about whatever it just brought in" do
+    # A sync is the only thing that introduces new titles, so it is the only
+    # moment ThemerrDB has anything new to be asked about. Without this the
+    # cache only warmed for items somebody opened by hand, and a bulk apply
+    # skipped the rest for want of a lookup nobody knew to queue.
+    expect(Fanfarr.PlexClientMock, :sections, fn _ -> {:ok, [section()]} end)
+
+    assert :ok = perform_job(Fanfarr.Workers.SyncLibrary, %{})
+
+    assert [job] =
+             Oban.Job
+             |> Fanfarr.Repo.all()
+             |> Enum.filter(&(&1.worker =~ "RefreshThemerr"))
+
+    # Scheduled, not immediate: the sections are still syncing, and a pass that
+    # ran now would miss the items that prompted it.
+    assert job.state == "scheduled"
+    assert DateTime.compare(job.scheduled_at, DateTime.utc_now()) == :gt
+  end
+
   test "sync does not re-enable a section the operator disabled" do
     expect(Fanfarr.PlexClientMock, :sections, 2, fn _ -> {:ok, [section()]} end)
 

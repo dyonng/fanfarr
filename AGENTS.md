@@ -119,6 +119,29 @@ or when selection is refused.
 A correlation with single-season shows looked convincing for several rounds
 and was coincidence. The locked field was the cause throughout.
 
+## What runs on its own
+
+Every sync and every lookup used to happen because somebody pressed a button:
+the crontab was `[]`, and `RefreshThemerr` was enqueued from nowhere at all.
+That is a tool, not an appliance, and it is why the ThemerrDB cache only ever
+warmed for items an operator had opened by hand -- which in turn is why a bulk
+apply skipped most of a cold selection.
+
+- `SyncLibrary` every six hours, matching what the *arr stack does for a
+  library refresh.
+- `RefreshThemerr` nightly at 04:37, off the hour and offset from the sync so
+  the two never start together. Daily and no more often: a cold pass is ~2,550
+  requests against a community-run static host, and the point of the nightly
+  run is to catch titles ThemerrDB has *gained*, not to poll it.
+- `SyncLibrary` also enqueues `RefreshThemerr` three minutes out, because a
+  sync is the only thing that introduces new titles. Delayed rather than
+  immediate: the section jobs are still running, and a lookup pass that ran
+  straight away would miss exactly the items that prompted it.
+
+Both workers are unique across available/scheduled/executing, so a scheduled
+run and a "Sync now" cannot stack, and the post-sync pass collapses into the
+nightly one when they coincide.
+
 ## Deployment decisions
 
 **Mounts follow *arr convention: one numbered mount per library location.**
