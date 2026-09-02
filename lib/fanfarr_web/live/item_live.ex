@@ -544,10 +544,8 @@ defmodule FanfarrWeb.ItemLive.Show do
               </button>
             </div>
             <p :if={@item.kind == :movie} class="mt-2 text-xs text-muted-foreground">
-              Whether Plex reads a local theme file for a <em>movie</em> is not something we have
-              confirmed — its movie agent supplies no themes of its own. The write happens either
-              way and is undone by deleting the file, and the check afterwards reports what Plex
-              actually serves, so you will see which it is rather than having to guess.
+              Plex's movie agent supplies no themes of its own, so this is the only way a film gets
+              one. It reads the local file the same as a show does.
             </p>
           </div>
         </div>
@@ -840,6 +838,16 @@ defmodule FanfarrWeb.ItemLive.Show do
                   <p class="mt-0.5 font-mono">
                     {@plex_diagnosis.section["title"]} · agent {@plex_diagnosis.section["agent"] ||
                       "unknown"} · scanner {@plex_diagnosis.section["scanner"] || "unknown"}
+                  </p>
+                </div>
+
+                <div :if={is_list(@plex_diagnosis.seasons)}>
+                  <p class="font-semibold text-muted-foreground">Seasons Plex lists</p>
+                  <p class="mt-0.5">
+                    {length(@plex_diagnosis.seasons)}
+                    <span :if={@plex_diagnosis.seasons != []}>
+                      — {Enum.join(@plex_diagnosis.seasons, ", ")}
+                    </span>
                   </p>
                 </div>
 

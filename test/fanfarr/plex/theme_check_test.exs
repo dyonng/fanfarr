@@ -250,7 +250,7 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
 
   describe "diagnose/3" do
     test "reports the library's agent, both folders, and the settings verbatim" do
-      expect(Fanfarr.PlexClientMock, :raw, 3, fn _config, path ->
+      expect(Fanfarr.PlexClientMock, :raw, 4, fn _config, path ->
         cond do
           path == "/library/sections" ->
             {:ok,
@@ -283,6 +283,14 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
                }
              }}
 
+          path == "/library/metadata/101/children" ->
+            {:ok,
+             %{
+               "MediaContainer" => %{
+                 "Directory" => [%{"title" => "Season 1"}, %{"title" => "Season 2"}]
+               }
+             }}
+
           path == "/library/metadata/101" ->
             {:ok,
              %{
@@ -295,6 +303,7 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
 
       item = %{
         plex_rating_key: "101",
+        kind: :show,
         plex_path: "/media/TV/Star City",
         local_theme_path: "/tv2/Star City/theme.mp3"
       }
@@ -305,6 +314,7 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
       assert report.section["title"] == "TV"
       assert report.plex_locations == ["/media/TV/Star City"]
       assert report.wrote_to == "/tv2/Star City/theme.mp3"
+      assert report.seasons == ["Season 1", "Season 2"]
 
       # Listed, not interpreted: we do not claim to know which one governs
       # themes on this agent.
@@ -315,12 +325,23 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
     test "a section Plex will not describe does not take the whole report down" do
       stub(Fanfarr.PlexClientMock, :raw, fn _config, _path -> {:error, :unauthorized} end)
 
-      item = %{plex_rating_key: "101", plex_path: nil, local_theme_path: nil}
+      item = %{plex_rating_key: "101", kind: :show, plex_path: nil, local_theme_path: nil}
       report = ThemeCheck.diagnose(@config, item, "2")
 
       assert report.section == %{"error" => ":unauthorized"}
       assert report.prefs == []
       assert report.plex_locations == []
+      assert report.seasons == nil
+    end
+
+    test "a movie is not asked for seasons" do
+      stub(Fanfarr.PlexClientMock, :raw, fn _config, path ->
+        refute path =~ "children"
+        {:ok, %{}}
+      end)
+
+      item = %{plex_rating_key: "9", kind: :movie, plex_path: "/m/Heat", local_theme_path: nil}
+      assert ThemeCheck.diagnose(@config, item, "1").seasons == nil
     end
   end
 

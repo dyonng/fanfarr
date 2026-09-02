@@ -21,11 +21,10 @@ defmodule Fanfarr.Workers.ApplyTheme do
   files are also the well-established path for **TV shows**, which is the use
   case this exists for.
 
-  Movies go through the same path. Whether Plex reads a local theme file for a
-  movie is still not something we have verified -- but refusing them was a way
-  of not finding out, and the pipeline now reads back what Plex serves after a
-  write, so an ignored file reports itself instead of being guessed at. The
-  file is reversible either way: deleting it undoes it.
+  Movies go through the same path, and it works: verified against a live
+  server, Plex picks up a local theme.mp3 for a movie exactly as it does for a
+  show. Its movie agent supplies no themes of its own, which is the gap this
+  project exists to fill, but Local Media Assets reads one we put there.
 
   What movies do need is a folder of their own. A show's path is a directory
   by construction; a movie's is derived from its media file, so a film sitting

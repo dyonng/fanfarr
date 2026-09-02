@@ -182,8 +182,30 @@ defmodule Fanfarr.Plex.ThemeCheck do
       prefs: prefs(config, section_key),
       plex_locations: locations(config, item.plex_rating_key),
       wrote_to: item.local_theme_path,
-      plex_path: item.plex_path
+      plex_path: item.plex_path,
+      seasons: seasons(config, item)
     }
+  end
+
+  # Reported because a pattern was noticed, not because we know it matters:
+  # the shows that took a local theme all had more than one season, and the
+  # ones that did not had one. That is a correlation across a handful of
+  # items and there is no mechanism to explain it, so the count is put on the
+  # page where it can be checked against more of them rather than being acted
+  # on. `nil` for a movie, and for a show Plex will not enumerate.
+  defp seasons(_config, %{kind: :movie}), do: nil
+
+  defp seasons(config, item) do
+    case Client.impl().raw(config, "/library/metadata/#{item.plex_rating_key}/children") do
+      {:ok, body} ->
+        body
+        |> container("Directory")
+        |> Enum.map(& &1["title"])
+        |> Enum.reject(&is_nil/1)
+
+      {:error, _reason} ->
+        nil
+    end
   end
 
   defp section_detail(config, section_key) do
