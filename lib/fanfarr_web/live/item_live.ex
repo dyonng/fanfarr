@@ -533,6 +533,16 @@ defmodule FanfarrWeb.ItemLive.Show do
                 <.icon name="lucide-volume-x" class="size-4" />
               </span>
             </button>
+
+            <input
+              type="range"
+              data-volume
+              min="0"
+              max="1"
+              step="0.01"
+              aria-label="Volume"
+              class="h-1.5 w-20 shrink-0 cursor-pointer accent-primary"
+            />
           </div>
 
           <script :type={Phoenix.LiveView.ColocatedHook} name=".AudioPlayer">
@@ -550,7 +560,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                 const playIcon = el.querySelector('[data-icon="play"]')
                 const pauseIcon = el.querySelector('[data-icon="pause"]')
                 const unmuted = el.querySelector('[data-icon="unmuted"]')
-                const muted = el.querySelector('[data-icon="muted"]')
+                const muted_ = el.querySelector('[data-icon="muted"]')
                 const fill = el.querySelector("[data-fill]")
                 const track = el.querySelector("[data-track]")
                 const time = el.querySelector("[data-time]")
@@ -579,9 +589,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                 })
 
                 el.querySelector("[data-mute]").addEventListener("click", () => {
-                  audio.muted = !audio.muted
-                  unmuted.classList.toggle("hidden", audio.muted)
-                  muted.classList.toggle("hidden", !audio.muted)
+                  window.Fanfarr.volume.set({muted: !audio.muted})
                 })
 
                 track.addEventListener("click", (event) => {
@@ -596,12 +604,34 @@ defmodule FanfarrWeb.ItemLive.Show do
                 audio.addEventListener("timeupdate", paint)
                 audio.addEventListener("loadedmetadata", paint)
                 audio.addEventListener("error", () => { time.textContent = "could not load" })
+
+                // Volume is shared with the YouTube preview and outlives the
+                // page, so it is never read off the element -- the store is the
+                // only source, and the slider is just one way to write to it.
+                const store = window.Fanfarr.volume
+                const slider = el.querySelector("[data-volume]")
+
+                this.unsubscribe = store.subscribe(({level, muted}) => {
+                  audio.volume = level
+                  audio.muted = muted
+                  slider.value = level
+                  unmuted.classList.toggle("hidden", muted)
+                  muted_.classList.toggle("hidden", !muted)
+                })
+
+                slider.addEventListener("input", () => {
+                  // Moving the slider off zero is an unmute: leaving it muted
+                  // while the slider reads 60% is the kind of thing people
+                  // spend a minute staring at.
+                  store.set({level: Number(slider.value), muted: false})
+                })
               },
 
               destroyed() {
                 // Without this the previous theme keeps playing after a new one
                 // replaces this node.
                 if (this.audio) { this.audio.pause(); this.audio.src = "" }
+                if (this.unsubscribe) { this.unsubscribe() }
               }
             }
           </script>
@@ -743,12 +773,17 @@ defmodule FanfarrWeb.ItemLive.Show do
                   do: "s"} listed by Plex
               </summary>
               <ul class="mt-1 space-y-1">
-                <li
-                  :for={theme <- @plex_theme_state.themes}
-                  class="break-all font-mono text-xs text-muted-foreground"
-                >
-                  <span :if={theme.selected} class="text-foreground">▸ </span>{theme.rating_key ||
-                    theme.key}
+                <li :for={theme <- @plex_theme_state.themes} class="text-xs">
+                  <span class={[
+                    "font-medium",
+                    theme.selected && "text-foreground",
+                    !theme.selected && "text-muted-foreground"
+                  ]}>
+                    {if theme.selected, do: "playing", else: "listed, not selected"}
+                  </span>
+                  <span class="ml-1 break-all font-mono text-muted-foreground">
+                    {theme.rating_key || theme.key}
+                  </span>
                 </li>
               </ul>
             </details>
@@ -951,14 +986,128 @@ defmodule FanfarrWeb.ItemLive.Show do
                   close
                 </button>
               </div>
-              <iframe
+              <%!-- Driven through YouTube's iframe API rather than a plain
+              embed. A cross-origin iframe takes no instruction, so a bare embed
+              has no volume control of its own and cannot be matched against the
+              theme player -- which is the comparison this page exists to make. --%>
+              <div
                 id={"yt-#{@previewing}"}
-                src={"https://www.youtube-nocookie.com/embed/#{@previewing}?autoplay=1"}
-                title="YouTube preview"
-                allow="autoplay; encrypted-media; picture-in-picture"
-                allowfullscreen
-                class="aspect-video w-full max-w-2xl rounded-md border border-border bg-black"
-              ></iframe>
+                phx-hook=".YouTubePreview"
+                data-video-id={@previewing}
+                class="max-w-2xl space-y-2"
+              >
+                <div class="aspect-video w-full overflow-hidden rounded-md border border-border bg-black">
+                  <div data-player class="size-full"></div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    data-mute
+                    aria-label="Mute"
+                    class="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <span data-icon="unmuted"><.icon name="lucide-volume-2" class="size-4" /></span>
+                    <span data-icon="muted" class="hidden">
+                      <.icon name="lucide-volume-x" class="size-4" />
+                    </span>
+                  </button>
+                  <input
+                    type="range"
+                    data-volume
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    aria-label="Volume"
+                    class="h-1.5 w-32 cursor-pointer accent-primary"
+                  />
+                  <span class="text-xs text-muted-foreground">
+                    shared with the player above
+                  </span>
+                </div>
+              </div>
+
+              <script :type={Phoenix.LiveView.ColocatedHook} name=".YouTubePreview">
+                // The API script is global and single-shot: it calls one global
+                // callback when it loads, so the load is shared by every mount
+                // rather than each one racing to define that callback.
+                let apiPromise = null
+
+                const loadApi = () => {
+                  if (window.YT && window.YT.Player) return Promise.resolve()
+
+                  if (!apiPromise) {
+                    apiPromise = new Promise((resolve) => {
+                      const previous = window.onYouTubeIframeAPIReady
+                      window.onYouTubeIframeAPIReady = () => {
+                        if (previous) { previous() }
+                        resolve()
+                      }
+                      const tag = document.createElement("script")
+                      tag.src = "https://www.youtube.com/iframe_api"
+                      document.head.appendChild(tag)
+                    })
+                  }
+
+                  return apiPromise
+                }
+
+                export default {
+                  mounted() {
+                    const el = this.el
+                    const store = window.Fanfarr.volume
+                    const slider = el.querySelector("[data-volume]")
+                    const unmuted = el.querySelector('[data-icon="unmuted"]')
+                    const muted = el.querySelector('[data-icon="muted"]')
+
+                    loadApi().then(() => {
+                      // Destroyed while the API was loading: a player built now
+                      // would attach to a node that is no longer on the page and
+                      // keep playing.
+                      if (this.gone) return
+
+                      this.player = new YT.Player(el.querySelector("[data-player]"), {
+                        videoId: el.dataset.videoId,
+                        host: "https://www.youtube-nocookie.com",
+                        playerVars: {autoplay: 1, rel: 0},
+                        events: {
+                          onReady: () => this.applyVolume(store.level(), store.muted())
+                        }
+                      })
+                    })
+
+                    this.applyVolume = (level, isMuted) => {
+                      slider.value = level
+                      unmuted.classList.toggle("hidden", isMuted)
+                      muted.classList.toggle("hidden", !isMuted)
+
+                      // Before onReady the player object exists without its
+                      // methods, so this is asked rather than assumed.
+                      if (!this.player || !this.player.setVolume) return
+                      this.player.setVolume(Math.round(level * 100))
+                      if (isMuted) { this.player.mute() } else { this.player.unMute() }
+                    }
+
+                    this.unsubscribe = store.subscribe(({level, muted}) => {
+                      this.applyVolume(level, muted)
+                    })
+
+                    slider.addEventListener("input", () => {
+                      store.set({level: Number(slider.value), muted: false})
+                    })
+
+                    el.querySelector("[data-mute]").addEventListener("click", () => {
+                      store.set({muted: !store.muted()})
+                    })
+                  },
+
+                  destroyed() {
+                    this.gone = true
+                    if (this.unsubscribe) { this.unsubscribe() }
+                    if (this.player && this.player.destroy) { this.player.destroy() }
+                  }
+                }
+              </script>
             </div>
 
             <p :if={@search_error} class="text-sm text-destructive">{@search_error}</p>

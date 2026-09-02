@@ -53,12 +53,20 @@ defmodule Fanfarr.Plex.ThemeCheck do
          {:ok, themes} <- Client.impl().themes(config, rating_key) do
       selected = ThemeOrigin.selected(themes)
 
+      url = blank_to_nil(meta["theme"])
+
+      # The item's own `theme` attribute is the authority on what is being
+      # served. A themes listing can name files Plex has found and not
+      # promoted, and reporting one of those as the item's theme is how
+      # "Plex found your file but is not playing it" got mistaken for a theme
+      # that was there.
       {:ok,
        %{
-         url: blank_to_nil(meta["theme"]),
-         origin: (selected && selected.origin) || :none,
-         agent: selected && selected[:agent],
-         rating_key: selected && selected[:rating_key],
+         url: url,
+         origin: (url && selected && selected.origin) || :none,
+         agent: url && selected && selected[:agent],
+         rating_key: url && selected && selected[:rating_key],
+         listed_not_selected: ThemeOrigin.listed_not_selected?(themes),
          themes: themes
        }}
     end
@@ -249,6 +257,20 @@ defmodule Fanfarr.Plex.ThemeCheck do
   something quite different depending on that.
   """
   @spec verdict(state(), map()) :: {:ok | :warning | :info, String.t()}
+  def verdict(%{origin: :local}, _item) do
+    {:ok, "Plex is serving the local file — the theme Fanfarr wrote is the one playing."}
+  end
+
+  def verdict(%{origin: :none, listed_not_selected: true}, %{local_theme_present: true}) do
+    {:warning,
+     """
+     Plex has found the file — it is in the item's theme list — but has not \
+     made it the item's theme, so nothing plays. Try the refresh once more; if \
+     it stays listed and unselected, Plex has to be told to use it, either \
+     from Plex itself or by an API call Fanfarr does not make yet.\
+     """}
+  end
+
   def verdict(%{origin: :none, scanned: {:error, reason}}, %{local_theme_present: true}) do
     {:warning,
      """

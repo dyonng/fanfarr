@@ -9,6 +9,10 @@ defmodule Fanfarr.Plex.ThemeOriginTest do
   # the only shape we have actually seen, so it is the one the suite pins.
   @observed "metadata://themes/tv.plex.agents.series_b00837223037c5e21ab3a908018b4aed41791a2f"
 
+  # Also copied from the same server: the form that appeared on an item whose
+  # local theme.mp3 had just started playing. No agent id, just the digest.
+  @local "metadata://themes/46f33324b3bba73680ef38c5de0cd89664a55a1c"
+
   describe "classify/1" do
     test "the observed agent theme is recognised" do
       assert ThemeOrigin.classify(@observed) == :plex_agent
@@ -16,6 +20,17 @@ defmodule Fanfarr.Plex.ThemeOriginTest do
 
     test "an uploaded theme is recognised" do
       assert ThemeOrigin.classify("upload://themes/deadbeef") == :uploaded
+    end
+
+    test "a bare digest names no agent, so it is not agent-supplied" do
+      assert ThemeOrigin.classify(@local) == :local
+      assert ThemeOrigin.agent(@local) == nil
+    end
+
+    test "the two metadata:// forms are not confused for one another" do
+      # An agent id carries dots and an underscore; a digest is hex only.
+      assert ThemeOrigin.classify(@observed) == :plex_agent
+      assert ThemeOrigin.classify(@local) == :local
     end
 
     test "anything unrecognised is :unknown rather than guessed at" do
@@ -50,14 +65,28 @@ defmodule Fanfarr.Plex.ThemeOriginTest do
       assert ThemeOrigin.selected([other, chosen]) == chosen
     end
 
-    test "falls back to the first when Plex marks none" do
+    test "nothing marked means nothing is being served" do
+      # Observed on a live item: one theme listed, none marked, and the item's
+      # own `theme` attribute empty. The old fallback to the first entry
+      # reported a theme that was not playing.
       first = %{rating_key: @observed, selected: false}
 
-      assert ThemeOrigin.selected([first, %{rating_key: "b", selected: false}]) == first
+      assert ThemeOrigin.selected([first, %{rating_key: "b", selected: false}]) == nil
     end
 
     test "no themes means nothing selected" do
       assert ThemeOrigin.selected([]) == nil
+    end
+  end
+
+  describe "listed_not_selected?/1" do
+    test "the state a freshly scanned theme.mp3 lands in" do
+      assert ThemeOrigin.listed_not_selected?([%{rating_key: @local, selected: false}])
+    end
+
+    test "not when one is selected, and not when the list is empty" do
+      refute ThemeOrigin.listed_not_selected?([%{rating_key: @local, selected: true}])
+      refute ThemeOrigin.listed_not_selected?([])
     end
   end
 end

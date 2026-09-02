@@ -16,7 +16,7 @@ defmodule Fanfarr.DiagnosticsTest do
     %{section: section}
   end
 
-  defp item(section, over \\ %{}) do
+  defp item(section, over) do
     Fanfarr.Library.sync_media_item_from_plex!(
       Map.merge(
         %{

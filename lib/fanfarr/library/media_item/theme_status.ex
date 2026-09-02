@@ -70,6 +70,11 @@ defmodule Fanfarr.Library.MediaItem.ThemeStatus do
       item.local_theme_present ->
         :local_file
 
+      # Plex is serving a theme it picked up from disk. Not ours to claim
+      # credit for either, but it is a local file and not stock Plex audio.
+      item.plex_theme_origin == :local ->
+        :local_file
+
       # Plex's own agent put this here. Verified against a live server: the
       # theme's ratingKey is metadata://themes/<agent-id>_<sha>. This is the
       # state worth surfacing -- the title looks finished but is running stock

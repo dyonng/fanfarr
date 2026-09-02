@@ -142,7 +142,7 @@ defmodule Fanfarr.Library.MediaItem do
       public? true
       allow_nil? false
       default :none
-      constraints one_of: [:none, :plex_agent, :uploaded, :unknown]
+      constraints one_of: [:none, :plex_agent, :local, :uploaded, :unknown]
 
       description """
       Where the theme Plex is serving came from, read from the ratingKey scheme

@@ -25,6 +25,13 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/fanfarr"
 import topbar from "../vendor/topbar"
 
+// Shared by the theme player and the YouTube preview, which are otherwise
+// unrelated players. Hung off window because colocated hooks are extracted to
+// their own files and cannot import from here.
+import {Volume} from "./volume.js"
+
+window.Fanfarr = {volume: Volume}
+
 // Vendored SaladUI runtime (assets/js/salad_ui). Each component module
 // self-registers with the factory on import, so an unimported component
 // renders but stays inert -- import every one we use.

@@ -76,7 +76,11 @@ defmodule FanfarrWeb.FeaturesTest do
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
 
       html = render_click(view, "preview_video", %{"id" => "abc12345678"})
-      assert html =~ "youtube-nocookie.com/embed/abc12345678"
+
+      # The embed URL is YouTube's iframe API to build, not ours: the server
+      # hands over the id and the volume controls the API makes possible.
+      assert html =~ ~s(data-video-id="abc12345678")
+      assert html =~ ~s(aria-label="Volume")
 
       html =
         render_click(view, "use_video", %{
