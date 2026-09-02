@@ -16,6 +16,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
   @page_size 50
 
+  # How many pages to show either side of the current one.
+  @window 2
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Fanfarr.PubSub, "library")
@@ -348,9 +351,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
           </table>
         </div>
 
-        <div :if={@pages > 1} class="flex items-center justify-between text-sm text-muted-foreground">
+        <div
+          :if={@pages > 1}
+          class="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground"
+        >
           <span>Page {@page} of {@pages}</span>
-          <div class="flex gap-2">
+          <nav class="flex flex-wrap items-center gap-1" aria-label="Pagination">
             <.link
               :if={@page > 1}
               patch={~p"/?#{filter_params(@filters, @page - 1)}"}
@@ -358,6 +364,23 @@ defmodule FanfarrWeb.LibraryLive.Index do
             >
               Previous
             </.link>
+
+            <%= for entry <- page_numbers(@page, @pages) do %>
+              <span :if={entry == :gap} class="px-1.5 text-muted-foreground">…</span>
+              <.link
+                :if={entry != :gap}
+                patch={~p"/?#{filter_params(@filters, entry)}"}
+                aria-current={entry == @page && "page"}
+                class={[
+                  "min-w-9 rounded-md border px-2.5 py-1.5 text-center tabular-nums",
+                  entry == @page && "border-primary bg-primary font-medium text-primary-foreground",
+                  entry != @page && "border-border hover:bg-accent hover:text-accent-foreground"
+                ]}
+              >
+                {entry}
+              </.link>
+            <% end %>
+
             <.link
               :if={@page < @pages}
               patch={~p"/?#{filter_params(@filters, @page + 1)}"}
@@ -365,12 +388,37 @@ defmodule FanfarrWeb.LibraryLive.Index do
             >
               Next
             </.link>
-          </div>
+          </nav>
         </div>
       </div>
     </Layouts.app>
     """
   end
+
+  @doc false
+  # First and last are always reachable, with a window around the current page
+  # and `:gap` standing in for the stretches left out. A library of a few
+  # thousand titles is 60-odd pages, and a button per page would wrap into a
+  # wall of numbers that is harder to use than the two arrows it replaced.
+  def page_numbers(page, pages) do
+    window =
+      (page - @window)..(page + @window)
+      |> Enum.filter(&(&1 >= 1 and &1 <= pages))
+
+    [1, pages]
+    |> Enum.concat(window)
+    |> Enum.filter(&(&1 >= 1 and &1 <= pages))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> insert_gaps()
+  end
+
+  # A gap standing in for a single page is wider than the page it hides, so
+  # the number goes in instead.
+  defp insert_gaps([a, b | rest]) when b - a == 2, do: [a, a + 1 | insert_gaps([b | rest])]
+  defp insert_gaps([a, b | rest]) when b - a > 2, do: [a, :gap | insert_gaps([b | rest])]
+  defp insert_gaps([a | rest]), do: [a | insert_gaps(rest)]
+  defp insert_gaps([]), do: []
 
   defp filter_params(filters, page) do
     %{
