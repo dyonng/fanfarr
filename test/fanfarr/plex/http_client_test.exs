@@ -102,6 +102,79 @@ defmodule Fanfarr.Plex.HTTPClientTest do
     end
   end
 
+  describe "item_path/3" do
+    test "reads a show's Location from its own metadata" do
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":"101","type":"show","title":"One Piece",
+         "Location":[{"path":"/media/merged-storage/TV/One Piece (1999)"}]}
+      ]}}
+      """
+
+      stub(fn conn ->
+        assert conn.request_path == "/library/metadata/101"
+        json(conn, body)
+      end)
+
+      assert {:ok, "/media/merged-storage/TV/One Piece (1999)"} =
+               HTTPClient.item_path(@config, "101", :show)
+    end
+
+    test "falls back to an episode's directory, stepping over the season folder" do
+      # The case that matters: Plex reports no Location for the show at all.
+      meta = ~S"""
+      {"MediaContainer":{"Metadata":[{"ratingKey":"101","type":"show","title":"One Piece"}]}}
+      """
+
+      leaves = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":"555","type":"episode",
+         "Media":[{"Part":[{"file":"/tv2/One Piece (1999)/Season 01/S01E01.mkv"}]}]}
+      ]}}
+      """
+
+      stub(fn conn ->
+        case conn.request_path do
+          "/library/metadata/101" -> json(conn, meta)
+          "/library/metadata/101/allLeaves" -> json(conn, leaves)
+        end
+      end)
+
+      assert {:ok, "/tv2/One Piece (1999)"} = HTTPClient.item_path(@config, "101", :show)
+    end
+
+    test "a flat show folder is not stepped over" do
+      meta = ~S"""
+      {"MediaContainer":{"Metadata":[{"ratingKey":"101","type":"show"}]}}
+      """
+
+      leaves = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":"555","Media":[{"Part":[{"file":"/tv2/Fleabag/ep1.mkv"}]}]}
+      ]}}
+      """
+
+      stub(fn conn ->
+        case conn.request_path do
+          "/library/metadata/101" -> json(conn, meta)
+          _ -> json(conn, leaves)
+        end
+      end)
+
+      assert {:ok, "/tv2/Fleabag"} = HTTPClient.item_path(@config, "101", :show)
+    end
+
+    test "a movie with no path anywhere is an error, not a guess" do
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[{"ratingKey":"9","type":"movie"}]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:error, :no_path_reported} = HTTPClient.item_path(@config, "9", :movie)
+    end
+  end
+
   describe "items/2" do
     test "the listing's theme attribute is captured but carries no origin" do
       # Verified: the listing reports theme="/library/metadata/45870/theme/1788156492".

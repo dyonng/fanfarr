@@ -106,6 +106,63 @@ defmodule Fanfarr.Plex.HTTPClient do
   end
 
   @impl true
+  def raw(config, path) do
+    get(config, path)
+  end
+
+  @impl true
+  def metadata(config, rating_key) do
+    with {:ok, body} <- get(config, "/library/metadata/#{rating_key}") do
+      case containers(body, ["Directory", "Video", "Metadata"]) do
+        [item | _] -> {:ok, item}
+        [] -> {:error, :not_found}
+      end
+    end
+  end
+
+  @impl true
+  def item_path(config, rating_key, kind) do
+    with {:ok, item} <- metadata(config, rating_key) do
+      case item_path(item) do
+        path when is_binary(path) and path != "" -> {:ok, path}
+        _ -> from_episodes(config, rating_key, kind)
+      end
+    end
+  end
+
+  # Last resort for a show: ask for one episode and take the directory its file
+  # sits in. Plex nests Show/Season/Episode.mkv by convention but not by rule,
+  # so a directory that looks like a season folder is stepped over and anything
+  # else is taken as the show folder. A heuristic, and the only thing left when
+  # the server reports no location at all.
+  defp from_episodes(config, rating_key, :show) do
+    path =
+      "/library/metadata/#{rating_key}/allLeaves?X-Plex-Container-Start=0&X-Plex-Container-Size=1"
+
+    with {:ok, body} <- get(config, path) do
+      file =
+        body
+        |> containers(["Video", "Metadata"])
+        |> Enum.flat_map(&Map.get(&1, "Media", []))
+        |> Enum.flat_map(&Map.get(&1, "Part", []))
+        |> Enum.find_value(& &1["file"])
+
+      case file do
+        nil -> {:error, :no_path_reported}
+        file -> {:ok, file |> Path.dirname() |> strip_season_dir()}
+      end
+    end
+  end
+
+  defp from_episodes(_config, _rating_key, _kind), do: {:error, :no_path_reported}
+
+  @season_dir ~r/^(season\b|specials$|s\d+$)/i
+
+  defp strip_season_dir(dir) do
+    if Regex.match?(@season_dir, Path.basename(dir)), do: Path.dirname(dir), else: dir
+  end
+
+  @impl true
   def fetch_image(config, key, opts \\ []) do
     width = Keyword.get(opts, :width, 300)
     height = Keyword.get(opts, :height, 450)

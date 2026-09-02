@@ -14,6 +14,9 @@ defmodule Fanfarr.Application do
       # process owns. Without it every component render raises on a missing
       # table, so it has to start before anything can render.
       TwMerge.Cache,
+      # Holds recent log lines for the System page. Started before the things
+      # that log so their output is captured from the first line.
+      Fanfarr.Log.Buffer,
       Fanfarr.Repo,
       {Ecto.Migrator,
        repos: Application.fetch_env!(:fanfarr, :ecto_repos), skip: skip_migrations?()},
@@ -40,7 +43,18 @@ defmodule Fanfarr.Application do
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Fanfarr.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    case Supervisor.start_link(children, opts) do
+      {:ok, pid} ->
+        # Both need the tree up: the redactor reads the stored Plex token, and
+        # the handler feeds a process that must already exist.
+        Fanfarr.Diagnostics.Redactor.prime()
+        Fanfarr.Log.Buffer.attach()
+        {:ok, pid}
+
+      other ->
+        other
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration

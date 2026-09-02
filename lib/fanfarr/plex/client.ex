@@ -65,6 +65,35 @@ defmodule Fanfarr.Plex.Client do
               :ok | {:error, term()}
 
   @doc """
+  A raw GET against the configured server, for the System page's diagnostics.
+
+  Always relative to the configured `base_url`, so this reaches the operator's
+  own Plex and nowhere else. It exists because the fastest way to settle what
+  Plex does or does not report is to look at what it actually sent.
+  """
+  @callback raw(config, path :: String.t()) :: {:ok, map()} | {:error, term()}
+
+  @doc """
+  Raw metadata for one item, exactly as Plex returns it.
+
+  Used to recover a path the section listing did not carry, and by the
+  diagnostics on the System page -- where seeing the server's actual response
+  beats any amount of reasoning about what it ought to contain.
+  """
+  @callback metadata(config, rating_key :: String.t()) :: {:ok, map()} | {:error, term()}
+
+  @doc """
+  The directory an item's files live in, for items the listing did not say.
+
+  A section listing gives movies a `Media/Part/file` and is supposed to give
+  shows a `Location`. When it gives neither there is no path to write a theme
+  beside, so this asks per item and, for a show with no location even then,
+  falls back to where its episodes actually are.
+  """
+  @callback item_path(config, rating_key :: String.t(), kind :: :show | :movie) ::
+              {:ok, String.t()} | {:error, term()}
+
+  @doc """
   Fetches a poster (or any image key Plex reported) as bytes.
 
   Goes through the server's transcoder for a bounded size, since the raw

@@ -70,8 +70,14 @@ defmodule FanfarrWeb.SettingsLive.Index do
         # never echoed back into the form, so an untouched field must not
         # blank it.
         case String.trim(params["plex_token"] || "") do
-          "" -> :ok
-          token -> Fanfarr.Settings.put_setting!("plex_token", token)
+          "" ->
+            :ok
+
+          token ->
+            Fanfarr.Settings.put_setting!("plex_token", token)
+            # So the System page starts scrubbing the new token immediately
+            # rather than at the next health tick.
+            Fanfarr.Diagnostics.Redactor.remember(token)
         end
 
         {:noreply, socket |> load() |> put_flash(:info, "Plex settings saved")}

@@ -96,6 +96,11 @@ correct -- Plex's movie agent supplies no themes at all.
 the item > ThemerrDB entry. Oban uniqueness is per item *and* dry-run flag;
 with only the item as key, a queued dry run swallowed the apply after it.
 
+**Debugging:** the System page has a redacted log view and diagnostics tools
+(environment, item trace, yt-dlp video check, raw Plex probe, and a one-click
+bug-report bundle). `Fanfarr.Diagnostics.Redactor` must never query the
+database -- see AGENTS.md for why that would loop forever.
+
 Not built yet, in intended order:
 1. **Movies.** Verify on the real server whether Plex reads a local theme.mp3
    for a movie. Until then `ApplyTheme` refuses `:movie` items. Do not guess.

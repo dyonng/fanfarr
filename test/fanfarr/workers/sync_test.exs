@@ -195,6 +195,75 @@ defmodule Fanfarr.Workers.SyncTest do
     end
   end
 
+  describe "items the listing gives no path for" do
+    setup do
+      expect(Fanfarr.PlexClientMock, :sections, fn _ -> {:ok, [section()]} end)
+      assert :ok = perform_job(Fanfarr.Workers.SyncLibrary, %{})
+      [s] = Fanfarr.Library.list_sections!()
+      %{section: s}
+    end
+
+    test "asks Plex per item, which is what :no_plex_path was", %{section: s} do
+      # Every show synced with a nil path, so every apply was skipped with
+      # :no_plex_path. The listing reported no Location for them.
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{path: nil})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :item_path, fn _config, "101", :show ->
+        {:ok, "/media/merged-storage/TV/One Piece (1999)"}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      [item] = Fanfarr.Library.list_media_items!()
+      assert item.plex_path == "/media/merged-storage/TV/One Piece (1999)"
+    end
+
+    test "an item the listing does describe costs no extra request", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, [plex_item()]} end)
+
+      # No :item_path expectation; verify_on_exit! fails on any call.
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      [item] = Fanfarr.Library.list_media_items!()
+      assert item.plex_path == "/media/merged-storage/TV/One Piece (1999)"
+    end
+
+    test "a path already stored is not looked up again, nor overwritten with nil",
+         %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, 2, fn _config, "1" ->
+        {:ok, [plex_item(%{path: nil})]}
+      end)
+
+      # Looked up once, on the first sync only.
+      expect(Fanfarr.PlexClientMock, :item_path, 1, fn _config, "101", :show ->
+        {:ok, "/media/merged-storage/TV/One Piece (1999)"}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      [item] = Fanfarr.Library.list_media_items!()
+      assert item.plex_path == "/media/merged-storage/TV/One Piece (1999)"
+    end
+
+    test "an item Plex has no path for at all syncs without one", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{path: nil})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :item_path, fn _config, "101", :show ->
+        {:error, :no_path_reported}
+      end)
+
+      # Still mirrored -- it just cannot have a theme written for it, which the
+      # dashboard and the application log both say plainly.
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+      assert [%{plex_path: nil}] = Fanfarr.Library.list_media_items!()
+    end
+  end
+
   test "an unconfigured Plex cancels rather than retries" do
     Fanfarr.Settings.list_settings!() |> Enum.each(&Fanfarr.Settings.delete_setting!/1)
     System.delete_env("PLEX_URL")

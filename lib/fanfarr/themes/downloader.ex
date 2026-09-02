@@ -122,6 +122,17 @@ defmodule Fanfarr.Themes.Downloader do
 
   def youtube_id(_), do: nil
 
+  @doc """
+  Asks whether a URL can actually be downloaded, without downloading it.
+
+  A video that refuses to play in the embedded preview has usually had
+  *embedding* disabled by its uploader, which says nothing about whether
+  yt-dlp can fetch it. Guessing either way is worse than asking, so this asks.
+  """
+  @callback probe(url :: String.t()) ::
+              {:ok, %{title: String.t(), duration: number() | nil, uploader: String.t() | nil}}
+              | {:error, error()}
+
   @doc "The configured implementation. Tests set :theme_downloader to the mock."
   def impl, do: Application.get_env(:fanfarr, :theme_downloader, Fanfarr.Themes.Downloader.YtDlp)
 end

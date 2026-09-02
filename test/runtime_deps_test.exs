@@ -67,6 +67,23 @@ defmodule RuntimeDepsTest do
            "assets.deploy compiles too; a strict compile after it is a no-op and guards nothing"
   end
 
+  test "a v-tag release would carry a matching mix.exs version" do
+    # docker.yml tags an image from the git tag while the running app reports
+    # mix.exs. If the bump workflow ever stops editing mix.exs, an image
+    # labelled v1.2.3 would report something else, and the version line on the
+    # System page is what bug reports quote.
+    workflow = File.read!(".github/workflows/version.yml")
+
+    rewrites_mix =
+      workflow
+      |> String.split("\n")
+      |> Enum.any?(&(&1 =~ "sed -i" and &1 =~ "mix.exs" and &1 =~ "version:"))
+
+    assert rewrites_mix, "the bump workflow must rewrite the version in mix.exs"
+    assert workflow =~ "git tag -a", "it must tag the commit carrying the new version"
+    assert workflow =~ "workflow_dispatch", "bumping is a decision, not a push side effect"
+  end
+
   defp runtime?(opts) do
     case Keyword.get(opts, :only) do
       nil -> true

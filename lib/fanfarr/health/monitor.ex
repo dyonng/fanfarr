@@ -54,6 +54,10 @@ defmodule Fanfarr.Health.Monitor do
   end
 
   defp take do
+    # Cheap, and it keeps the log redactor's secret cache from drifting after a
+    # token change made somewhere other than the settings form.
+    Fanfarr.Diagnostics.Redactor.prime()
+
     results =
       try do
         Fanfarr.Health.run_all()

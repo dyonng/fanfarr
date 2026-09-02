@@ -25,7 +25,15 @@ defmodule Fanfarr.Workers.SyncSection do
     max_attempts: 3,
     unique: [period: 300, keys: [:section_id], states: [:available, :scheduled, :executing]]
 
+  require Logger
+
   alias Fanfarr.Library
+
+  # Concurrency is deliberately modest: this is someone's media server, often
+  # the same box that is transcoding, and a sync is background work. Shared by
+  # the origin and the path lookups, which have the same shape.
+  @origin_concurrency 8
+  @origin_timeout 15_000
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"section_id" => section_id}}) do
@@ -34,6 +42,7 @@ defmodule Fanfarr.Workers.SyncSection do
     with {:ok, config} <- Fanfarr.Config.plex_config(),
          {:ok, items} <- Fanfarr.Plex.Client.impl().items(config, section.plex_key) do
       origins = origins(config, items)
+      paths = paths(config, items, section)
 
       items
       |> Enum.chunk_every(100)
@@ -48,7 +57,7 @@ defmodule Fanfarr.Workers.SyncSection do
             title: item.title,
             year: item.year,
             kind: item.kind,
-            plex_path: item.path,
+            plex_path: Map.get(paths, item.rating_key),
             imdb_id: item.imdb_id,
             tmdb_id: item.tmdb_id,
             tvdb_id: item.tvdb_id,
@@ -69,10 +78,71 @@ defmodule Fanfarr.Workers.SyncSection do
     end
   end
 
-  # Concurrency is deliberately modest: this is someone's media server, often
-  # the same box that is transcoding, and a sync is background work.
-  @origin_concurrency 8
-  @origin_timeout 15_000
+  # The listing gives a movie its file and is supposed to give a show a
+  # Location. When it gives neither there is nothing to write a theme beside,
+  # and the apply fails with :no_plex_path -- which is what happened on the
+  # reference server for every show.
+  #
+  # So a missing path is asked for per item, and only for items that have no
+  # path from the listing AND none already stored: a path does not change, so
+  # this is a one-off cost per item rather than a per-sync one. Anything we
+  # already knew survives a listing that stops reporting it.
+  defp paths(config, items, section) do
+    known =
+      section.id
+      |> Library.media_items_in_section!()
+      |> Map.new(&{&1.plex_rating_key, presence(&1.plex_path)})
+
+    needed =
+      Enum.filter(items, fn item ->
+        is_nil(presence(item.path)) and is_nil(Map.get(known, item.rating_key))
+      end)
+
+    fetched =
+      needed
+      |> Task.async_stream(
+        fn item ->
+          {item.rating_key,
+           Fanfarr.Plex.Client.impl().item_path(config, item.rating_key, item.kind)}
+        end,
+        max_concurrency: @origin_concurrency,
+        timeout: @origin_timeout,
+        on_timeout: :kill_task,
+        ordered: false
+      )
+      |> Enum.flat_map(fn
+        {:ok, {rating_key, {:ok, path}}} -> [{rating_key, presence(path)}]
+        {:ok, {rating_key, {:error, reason}}} -> log_missing(rating_key, reason)
+        {:exit, _reason} -> []
+      end)
+      |> Map.new()
+
+    Map.new(items, fn item ->
+      resolved =
+        presence(item.path) || Map.get(fetched, item.rating_key) ||
+          Map.get(known, item.rating_key)
+
+      {item.rating_key, resolved}
+    end)
+  end
+
+  defp log_missing(rating_key, reason) do
+    Logger.warning(
+      "[fanfarr] Plex reports no path for ratingKey #{rating_key} (#{inspect(reason)}); " <>
+        "a theme cannot be written for it"
+    )
+
+    []
+  end
+
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp presence(_), do: nil
 
   defp origins(config, items) do
     items

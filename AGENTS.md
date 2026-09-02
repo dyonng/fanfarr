@@ -248,6 +248,13 @@ cache 404s too. Details in `docs/themerrdb.md`.
   and crops.
 - Icons are linked at their plain paths with a `?v=` query, never through `~p`,
   which rewrites them to the digested filename. See root.html.heex.
+- **Every show synced with no path**, so every apply was skipped with
+  `:no_plex_path`. A section listing gives a movie its `Media/Part/file` and is
+  supposed to give a show a `Location`; the reference server gave neither. The
+  fabricated-`provider` lesson again: the parser was written from what the API
+  ought to return. Missing paths are now fetched per item
+  (`Plex.Client.item_path/3`), falling back to an episode's directory, and only
+  for items that have no path from the listing and none stored.
 - **`req` was never a declared dependency.** It reached dev and test
   transitively through igniter (`only: [:dev, :test]`), so everything compiled
   and every test passed, and the production release simply did not contain
@@ -359,6 +366,32 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
   10 minutes and on demand and holds the last snapshot. The sidebar dot reads
   the snapshot; nil means no dot. Off in tests (`health_monitor: false`).
 - Probes use the same 5-second, no-retry options as the settings test button.
+
+## The System page's log and diagnostics
+
+- `Fanfarr.Log.Buffer` is an Erlang `:logger` handler feeding a bounded, lossy
+  ring buffer. It is a debugging aid; the application log in the database is
+  the record that must survive.
+- **Everything on that page is assumed to become public**, so redaction happens
+  at capture, not at render: a secret that never enters the buffer cannot leak
+  out of it through a path nobody considered.
+- `Fanfarr.Diagnostics.Redactor` **must never touch the database.** Ecto logs
+  every query, so a querying redactor would log, which would redact, which
+  would query -- one log line spinning forever. Secrets from the database live
+  in `:persistent_term`, primed at boot, on save, and on each health tick.
+- Diagnostics tools run under `start_async`: they shell out to yt-dlp, call
+  Plex and touch the filesystem, none of which may hold the page or crash it.
+- `plex_probe/1` only accepts server-relative paths, so it can reach the
+  operator's own Plex and nothing else.
+
+## Versioning is a decision, not a side effect
+
+`.github/workflows/version.yml` is `workflow_dispatch` only. An automatic bump
+per push would add a commit per merge and produce numbers that say nothing the
+commit sha does not -- and the sha is already baked into every image and shown
+on the System page. The workflow rewrites `mix.exs` and tags the same commit,
+so an image tagged `v1.2.3` reports `1.2.3`; `test/runtime_deps_test.exs`
+guards that pairing.
 
 ## Conventions
 

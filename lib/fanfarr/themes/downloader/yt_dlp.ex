@@ -105,6 +105,53 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
   defp best_thumbnail(_), do: nil
 
   @impl true
+  def probe(url) do
+    with :ok <- validate_url(url) do
+      # --simulate does everything except write the file, so a success here is
+      # a real answer about this video rather than a guess from its metadata.
+      args = ["--simulate", "--dump-json", "--no-playlist", "--no-warnings", url]
+
+      case run([@binary | args], @search_timeout_ms) do
+        {:ok, output} ->
+          case parse_search(output) do
+            [%{title: title} = hit | _] ->
+              {:ok, %{title: title, duration: hit.duration, uploader: hit.channel}}
+
+            [] ->
+              {:error, :unavailable}
+          end
+
+        {:error, :enoent} ->
+          {:error, :not_installed}
+
+        {:error, {:exit, _code, output}} ->
+          {:error, classify_failure(output)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  # yt-dlp reports why it could not fetch a video on stderr; the distinctions
+  # that matter to an operator are "gone", "needs an account" and "blocked".
+  defp classify_failure(output) do
+    cond do
+      output =~ ~r/Private video|Video unavailable|has been removed|does not exist/i ->
+        :unavailable
+
+      output =~ ~r/age|Sign in to confirm/i ->
+        :age_restricted
+
+      output =~ ~r/not available in your country|geo/i ->
+        :geo_blocked
+
+      true ->
+        {:exit, 1, String.slice(output, 0, 300)}
+    end
+  end
+
+  @impl true
   def download(url, dir) do
     with :ok <- validate_url(url),
          :ok <- ensure_dir(dir) do

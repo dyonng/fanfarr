@@ -1,0 +1,65 @@
+name: Bump version
+
+# Deliberately manual. An automatic bump on every push to main would add a
+# commit per merge and produce version numbers that say nothing the commit sha
+# does not already say -- and the sha is already baked into every image and
+# shown on the System page. A version number is a statement that a set of
+# changes is a release, which is a judgement, not a side effect of pushing.
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: "Which part to increment"
+        required: true
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Bump mix.exs and tag
+        env:
+          LEVEL: ${{ github.event.inputs.level }}
+        run: |
+          set -euo pipefail
+
+          current=$(grep -oP '(?<=version: ")[0-9]+\.[0-9]+\.[0-9]+(?=")' mix.exs)
+          IFS=. read -r major minor patch <<< "$current"
+
+          case "$LEVEL" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+
+          next="$major.$minor.$patch"
+          echo "$current -> $next"
+
+          if git rev-parse "v$next" >/dev/null 2>&1; then
+            echo "::error::tag v$next already exists"
+            exit 1
+          fi
+
+          sed -i "s/version: \"$current\"/version: \"$next\"/" mix.exs
+          grep -q "version: \"$next\"" mix.exs
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: release v$next"
+
+          # The tag is what docker.yml turns into a semver image tag and what
+          # release.yml turns into a GitHub release, so it is pushed with the
+          # commit that carries the matching mix.exs.
+          git tag -a "v$next" -m "Fanfarr v$next"
+          git push origin HEAD:main
+          git push origin "v$next"
