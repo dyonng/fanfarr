@@ -231,7 +231,67 @@ defmodule Fanfarr.Diagnostics do
       would write    #{if target, do: Path.join(target, @theme_filename), else: "(nowhere)"}
 
       verdict        #{verdict_line(verdict)}
+      same folder    #{same_folder(item, target)}
     """
+  end
+
+  # Root folders are matched by directory *name*, so with five drives mounted
+  # a show called "One Pace" on tv2 and an unrelated "One Pace" on tv4 look
+  # identical to the resolver. Writing to the wrong one succeeds, reports
+  # success, and Plex never plays the theme -- with nothing anywhere saying
+  # why. So the resolved directory is checked against a file Plex actually
+  # reports for this item.
+  defp same_folder(_item, nil), do: "n/a"
+
+  defp same_folder(item, dir) do
+    case plex_filenames(item) do
+      {:ok, []} ->
+        "unknown (Plex reported no files for this item)"
+
+      {:ok, names} ->
+        local = local_filenames(dir)
+
+        if Enum.any?(names, &MapSet.member?(local, &1)) do
+          "yes -- #{dir} holds files Plex reports for this item"
+        else
+          "NO -- #{dir} does not contain any file Plex reports for this item. " <>
+            "Another drive probably has a folder of the same name; a theme written " <>
+            "here will never be seen. Example Plex file: #{List.first(names)}"
+        end
+
+      {:error, reason} ->
+        "unknown (#{inspect(reason)})"
+    end
+  end
+
+  defp plex_filenames(item) do
+    with {:ok, config} <- Fanfarr.Config.plex_config(),
+         {:ok, body} <-
+           Fanfarr.Plex.Client.impl().raw(
+             config,
+             "/library/metadata/#{item.plex_rating_key}/allLeaves" <>
+               "?X-Plex-Container-Start=0&X-Plex-Container-Size=3"
+           ) do
+      names =
+        body
+        |> Map.get("MediaContainer", %{})
+        |> then(&(Map.get(&1, "Metadata", []) ++ Map.get(&1, "Video", [])))
+        |> Enum.flat_map(&Map.get(&1, "Media", []))
+        |> Enum.flat_map(&Map.get(&1, "Part", []))
+        |> Enum.map(& &1["file"])
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(&Path.basename/1)
+
+      {:ok, names}
+    end
+  end
+
+  # One level down as well, since episodes usually sit in season folders.
+  defp local_filenames(dir) do
+    [Path.join(dir, "*"), Path.join([dir, "*", "*"])]
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.map(&Path.basename/1)
+    |> MapSet.new()
   end
 
   # Plex runs on the host and reports host paths; the container mounts the same

@@ -365,6 +365,26 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
   when a match-filter rejects a video, so "success with no file" is the normal
   shape of "too long".
 
+## After the file is written
+
+- **Plex does not notice a new local theme file.** It does not watch the
+  filesystem for local assets, so the file sits there until something triggers
+  a metadata refresh. The item page has a "Refresh in Plex" button
+  (`PUT /library/metadata/<key>/refresh`). Without it the operator sees a
+  successful apply and silence in Plex, with nothing saying why.
+- For Plex to use the file at all, the library's agent must have **Local Media
+  Assets** enabled. That is a Plex library setting, not something Fanfarr can
+  set or detect; if a refresh changes nothing, that is the next thing to check.
+- **Root folders match by directory name**, so with five drives mounted a show
+  called "One Pace" on tv2 and an unrelated folder of the same name on tv4 are
+  indistinguishable to the resolver. Writing to the wrong one succeeds and
+  reports success, and Plex never plays the theme. The item trace therefore
+  compares the resolved directory against a file Plex actually reports for the
+  item and says `same folder yes/NO`.
+- The written file is playable from the item page (`/library/:id/theme`).
+  A download can succeed and still be the wrong audio; a log line saying
+  "succeeded" cannot tell anyone that, and listening can.
+
 ## Finding a theme: YouTube search
 
 - `Fanfarr.Themes.Downloader.search/2` runs `yt-dlp "ytsearchN:query"
@@ -403,6 +423,10 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
   every query, so a querying redactor would log, which would redact, which
   would query -- one log line spinning forever. Secrets from the database live
   in `:persistent_term`, primed at boot, on save, and on each health tick.
+- Long paths must not widen the page: the destination path in the history
+  table and the written-file path both `break-all`, and the table scrolls
+  inside its own container. A `truncate` inside a table cell does nothing --
+  the table just grows and takes the page with it.
 - Diagnostics tools run under `start_async`: they shell out to yt-dlp, call
   Plex and touch the filesystem, none of which may hold the page or crash it.
 - `plex_probe/1` only accepts server-relative paths, so it can reach the

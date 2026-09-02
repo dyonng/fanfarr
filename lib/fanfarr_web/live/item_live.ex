@@ -34,6 +34,7 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:search_error, nil)
       |> assign(:searching, false)
       |> assign(:previewing, nil)
+      |> assign(:refreshing, false)
       |> load()
 
     {:ok, assign(socket, :search_query, default_query(socket.assigns.item))}
@@ -44,6 +45,10 @@ defmodule FanfarrWeb.ItemLive.Show do
 
     socket
     |> assign(:item, item)
+    |> assign(:applying, ApplyTheme.in_flight?(item.id))
+    # Changes when a theme is replaced, so the player refetches instead of
+    # playing the previous file out of the browser cache.
+    |> assign(:theme_version, theme_version(item))
     |> assign(:history, Fanfarr.Themes.theme_history_for_item!(item.id))
     |> assign(:themerr, themerr_entry(item))
     |> assign(:page_title, item.title)
@@ -61,6 +66,10 @@ defmodule FanfarrWeb.ItemLive.Show do
       end
     end)
   end
+
+  defp theme_version(%{local_theme_checked_at: nil}), do: 0
+
+  defp theme_version(%{local_theme_checked_at: at}), do: DateTime.to_unix(at)
 
   # What people type into YouTube for this: the title, the year to
   # disambiguate remakes, and the word that finds the opening rather than a
@@ -127,6 +136,23 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  def handle_event("refresh_plex", _params, socket) do
+    item = socket.assigns.item
+
+    case Fanfarr.Config.plex_config() do
+      {:error, :plex_not_configured} ->
+        {:noreply, put_flash(socket, :error, "Plex is not configured")}
+
+      {:ok, config} ->
+        {:noreply,
+         socket
+         |> assign(:refreshing, true)
+         |> start_async(:refresh_plex, fn ->
+           Fanfarr.Plex.Client.impl().refresh_metadata(config, item.plex_rating_key)
+         end)}
+    end
+  end
+
   def handle_event("clear_manual", _params, socket) do
     Library.set_manual_theme!(socket.assigns.item, %{
       manual_theme_url: nil,
@@ -154,9 +180,40 @@ defmodule FanfarrWeb.ItemLive.Show do
     {flash, opts} = Keyword.pop(opts, :flash)
 
     case ApplyTheme.enqueue(socket.assigns.item, opts) do
-      {:ok, _} -> {:noreply, put_flash(socket, :info, flash)}
-      {:error, _} -> {:noreply, put_flash(socket, :error, "Could not queue the job")}
+      {:ok, _} ->
+        # Set immediately rather than waiting for the worker's broadcast: the
+        # click has to visibly do something, and on a busy queue the job may
+        # not start for minutes.
+        {:noreply, socket |> assign(:applying, true) |> put_flash(:info, flash)}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Could not queue the job")}
     end
+  end
+
+  @impl true
+  def handle_async(:refresh_plex, {:ok, :ok}, socket) do
+    {:noreply,
+     socket
+     |> assign(:refreshing, false)
+     |> put_flash(
+       :info,
+       "Asked Plex to refresh this item. Give it a moment, then play the show in Plex."
+     )}
+  end
+
+  def handle_async(:refresh_plex, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:refreshing, false)
+     |> put_flash(:error, "Plex refused the refresh: #{inspect(reason)}")}
+  end
+
+  def handle_async(:refresh_plex, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:refreshing, false)
+     |> put_flash(:error, "Refresh crashed: #{inspect(reason, limit: 5)}")}
   end
 
   @impl true
@@ -227,7 +284,8 @@ defmodule FanfarrWeb.ItemLive.Show do
             <div class="mt-4 flex flex-wrap items-center gap-2">
               <button
                 phx-click="preview"
-                class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground"
+                disabled={@applying}
+                class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 title="Resolves the theme and the destination, checks it is writable, writes nothing"
               >
                 <.icon name="lucide-flask-conical" class="size-4" /> Preview (dry run)
@@ -235,11 +293,17 @@ defmodule FanfarrWeb.ItemLive.Show do
               <button
                 phx-click="apply"
                 data-confirm={"Write theme.mp3 next to #{@item.title}? Deleting the file undoes it."}
-                disabled={@item.theme_locked or @item.kind == :movie}
+                disabled={@applying or @item.theme_locked or @item.kind == :movie}
                 class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                 title={apply_title(@item)}
               >
-                <.icon name="lucide-music" class="size-4" /> Apply theme
+                <.icon
+                  :if={@applying}
+                  name="lucide-loader-circle"
+                  class="size-4 animate-spin"
+                />
+                <.icon :if={!@applying} name="lucide-music" class="size-4" />
+                {if @applying, do: "Working…", else: "Apply theme"}
               </button>
               <button
                 phx-click="lookup"
@@ -254,6 +318,63 @@ defmodule FanfarrWeb.ItemLive.Show do
             </p>
           </div>
         </div>
+
+        <div
+          :if={@applying}
+          class="flex items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3 text-sm"
+        >
+          <.icon name="lucide-loader-circle" class="size-4 animate-spin text-primary" />
+          <div>
+            <p class="font-medium">Working on this item</p>
+            <p class="text-xs text-muted-foreground">
+              Downloading the audio and writing it beside the media. This page updates itself when
+              it finishes — downloads take a few seconds, and a queued job waits its turn behind
+              any others.
+            </p>
+          </div>
+        </div>
+
+        <section
+          :if={@item.local_theme_present and @item.local_theme_path}
+          class="rounded-lg border border-border bg-card p-4"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h2 class="text-sm font-semibold text-card-foreground">The file Fanfarr wrote</h2>
+              <p
+                class="break-all font-mono text-xs text-muted-foreground"
+                title={@item.local_theme_path}
+              >
+                {@item.local_theme_path}
+              </p>
+            </div>
+            <button
+              phx-click="refresh_plex"
+              disabled={@refreshing}
+              class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+              title="Plex does not watch for new local theme files; it has to be told to look again"
+            >
+              <.icon
+                name="lucide-refresh-cw"
+                class={["size-3.5", @refreshing && "animate-spin"]}
+              /> {if @refreshing, do: "Asking Plex…", else: "Refresh in Plex"}
+            </button>
+          </div>
+
+          <audio
+            id={"theme-audio-#{@theme_version}"}
+            controls
+            preload="none"
+            src={~p"/library/#{@item.id}/theme?v=#{@theme_version}"}
+            class="mt-3 w-full"
+          ></audio>
+
+          <p class="mt-2 text-xs text-muted-foreground">
+            Listen before trusting it: a download can succeed and still be the wrong track. If the
+            show has no theme in Plex yet, use Refresh in Plex above — Plex does not notice a new
+            local theme file on its own.
+          </p>
+        </section>
 
         <div class="grid gap-4 lg:grid-cols-3">
           <section class="rounded-lg border border-border bg-card p-4">
@@ -335,7 +456,7 @@ defmodule FanfarrWeb.ItemLive.Show do
             <div :if={@item.manual_theme_url not in [nil, ""]} class="mt-3 space-y-2 text-sm">
               <p class="font-medium">{@item.manual_theme_title || "Chosen video"}</p>
               <p
-                class="truncate font-mono text-xs text-muted-foreground"
+                class="break-all font-mono text-xs text-muted-foreground"
                 title={@item.manual_theme_url}
               >
                 {@item.manual_theme_url}
@@ -483,44 +604,46 @@ defmodule FanfarrWeb.ItemLive.Show do
           <div :if={@history == []} class="px-4 py-6 text-sm text-muted-foreground">
             No applications yet.
           </div>
-          <table :if={@history != []} class="w-full text-sm">
-            <tbody>
-              <tr :for={entry <- @history} class="border-b border-border/60 last:border-0">
-                <td class="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                  {Calendar.strftime(entry.attempted_at, "%Y-%m-%d %H:%M")}
-                </td>
-                <td class="px-2 py-2">
-                  <span class={[
-                    "rounded-full px-2 py-0.5 text-xs font-medium",
-                    entry.status == :succeeded &&
-                      "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-                    entry.status == :failed && "bg-destructive/15 text-destructive",
-                    entry.status == :pending && "bg-muted text-muted-foreground",
-                    entry.status == :skipped && "bg-muted text-muted-foreground"
-                  ]}>
-                    {entry.status}
-                  </span>
-                  <span
-                    :if={entry.dry_run}
-                    class="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-                  >
-                    dry run
-                  </span>
-                </td>
-                <td class="px-2 py-2 text-xs text-muted-foreground">
-                  {entry.source} · {entry.method}
-                  <span
-                    :if={entry.destination_path}
-                    class="block truncate font-mono"
-                    title={entry.destination_path}
-                  >
-                    {entry.destination_path}
-                  </span>
-                </td>
-                <td class="px-2 py-2 text-xs text-destructive">{entry.error}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div :if={@history != []} class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <tbody>
+                <tr :for={entry <- @history} class="border-b border-border/60 last:border-0">
+                  <td class="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                    {Calendar.strftime(entry.attempted_at, "%Y-%m-%d %H:%M")}
+                  </td>
+                  <td class="px-2 py-2">
+                    <span class={[
+                      "rounded-full px-2 py-0.5 text-xs font-medium",
+                      entry.status == :succeeded &&
+                        "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                      entry.status == :failed && "bg-destructive/15 text-destructive",
+                      entry.status == :pending && "bg-muted text-muted-foreground",
+                      entry.status == :skipped && "bg-muted text-muted-foreground"
+                    ]}>
+                      {entry.status}
+                    </span>
+                    <span
+                      :if={entry.dry_run}
+                      class="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                    >
+                      dry run
+                    </span>
+                  </td>
+                  <td class="max-w-md px-2 py-2 text-xs text-muted-foreground">
+                    {entry.source} · {entry.method}
+                    <span
+                      :if={entry.destination_path}
+                      class="block break-all font-mono"
+                      title={entry.destination_path}
+                    >
+                      {entry.destination_path}
+                    </span>
+                  </td>
+                  <td class="px-2 py-2 text-xs text-destructive">{entry.error}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
     </Layouts.app>

@@ -65,6 +65,15 @@ defmodule Fanfarr.Plex.Client do
               :ok | {:error, term()}
 
   @doc """
+  Asks Plex to re-read an item's metadata, which is what makes it notice a
+  theme file that appeared next to the media after the last scan.
+
+  Plex does not watch the filesystem for local assets; without this the file
+  sits there unnoticed until something else triggers a refresh.
+  """
+  @callback refresh_metadata(config, rating_key :: String.t()) :: :ok | {:error, term()}
+
+  @doc """
   A raw GET against the configured server, for the System page's diagnostics.
 
   Always relative to the configured `base_url`, so this reaches the operator's

@@ -106,6 +106,11 @@ defmodule Fanfarr.Plex.HTTPClient do
   end
 
   @impl true
+  def refresh_metadata(config, rating_key) do
+    put(config, "/library/metadata/#{rating_key}/refresh")
+  end
+
+  @impl true
   def raw(config, path) do
     get(config, path)
   end

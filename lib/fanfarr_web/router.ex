@@ -73,10 +73,10 @@ defmodule FanfarrWeb.Router do
     get "/health", HealthController, :show
   end
 
-  # Images for the dashboard. Session-aware so an operator login gates them
-  # the same as the pages that show them, but no CSRF: it is a GET for an
-  # image, and the endpoint's static plug does not run this early anyway.
-  pipeline :images do
+  # Media for the dashboard: posters, and the theme audio Fanfarr wrote.
+  # Session-aware so an operator login gates them the same as the pages that
+  # show them, but no CSRF: these are GETs for files.
+  pipeline :media do
     plug :accepts, ["html", "*/*"]
     plug :fetch_session
     plug :load_from_session
@@ -84,9 +84,10 @@ defmodule FanfarrWeb.Router do
   end
 
   scope "/", FanfarrWeb do
-    pipe_through :images
+    pipe_through :media
 
     get "/posters/:id", PosterController, :show
+    get "/library/:id/theme", ThemeController, :show
   end
 
   # Other scopes may use custom stacks.

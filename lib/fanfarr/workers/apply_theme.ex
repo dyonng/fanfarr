@@ -276,6 +276,10 @@ defmodule Fanfarr.Workers.ApplyTheme do
   defp blank_plan, do: %{url: nil, path: nil, source: :themerrdb}
 
   defp record_intent(item, plan, dry_run) do
+    # Broadcast here as well as on the outcome: the page should show that work
+    # started, not just that it finished.
+    broadcast(item)
+
     Themes.record_theme_intent!(%{
       media_item_id: item.id,
       source: plan.source,
@@ -287,9 +291,6 @@ defmodule Fanfarr.Workers.ApplyTheme do
   end
 
   defp record_outcome(item, plan, dry_run, status, reason, download \\ %{}) do
-    # The item page is subscribed; a finished job shows up without a reload.
-    Phoenix.PubSub.broadcast(Fanfarr.PubSub, "item:#{item.id}", {:item_updated, item.id})
-
     Themes.record_theme_outcome!(%{
       media_item_id: item.id,
       source: plan[:source] || :themerrdb,
@@ -302,5 +303,33 @@ defmodule Fanfarr.Workers.ApplyTheme do
       codec: download[:codec],
       bytes: download[:bytes]
     })
+
+    # After the row exists, so a subscriber that reloads sees the outcome.
+    broadcast(item)
+  end
+
+  defp broadcast(item) do
+    Phoenix.PubSub.broadcast(Fanfarr.PubSub, "item:#{item.id}", {:item_updated, item.id})
+  end
+
+  @doc """
+  Whether a job for this item is queued or running.
+
+  Read from Oban rather than from the application log, because the gap that
+  matters to someone watching the page is between clicking Apply and the
+  worker picking the job up -- and during a bulk run on a two-slot queue that
+  gap is minutes, with no log row written yet to show for it.
+  """
+  @spec in_flight?(String.t()) :: boolean()
+  def in_flight?(item_id) when is_binary(item_id) do
+    import Ecto.Query
+
+    Fanfarr.Repo.exists?(
+      from(j in Oban.Job,
+        where: j.worker == "Fanfarr.Workers.ApplyTheme",
+        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where: fragment("json_extract(?, ?)", j.args, "$.media_item_id") == ^item_id
+      )
+    )
   end
 end

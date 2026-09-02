@@ -75,6 +75,66 @@ defmodule Fanfarr.DiagnosticsTest do
       assert text =~ Path.join([root, "tv2/One Pace", "theme.mp3"])
     end
 
+    test "warns when the resolved folder is a same-named folder on another drive",
+         %{section: s} do
+      # Five drives, two with a folder called "One Pace". The resolver matches
+      # by name, so it can pick the wrong one; writing there succeeds and Plex
+      # never plays the theme.
+      root = Path.join(System.tmp_dir!(), "fanfarr-wrong-#{:erlang.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(root, "tv4/One Pace/Season 01"))
+      on_exit(fn -> File.rm_rf(root) end)
+      Fanfarr.Library.create_root_folder!(%{path: Path.join(root, "tv4"), kind: :show})
+
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+
+      expect(Fanfarr.PlexClientMock, :raw, fn _config, path ->
+        assert path =~ "allLeaves"
+
+        {:ok,
+         %{
+           "MediaContainer" => %{
+             "Metadata" => [
+               %{"Media" => [%{"Part" => [%{"file" => "/media/red-10/TV/One Pace/S01E01.mkv"}]}]}
+             ]
+           }
+         }}
+      end)
+
+      item = item(s, %{title: "One Pace", plex_path: "/media/red-10/TV/One Pace"})
+
+      text = Diagnostics.item_report(item.id)
+
+      assert text =~ "same folder    NO"
+      assert text =~ "S01E01.mkv"
+    end
+
+    test "confirms the folder when it holds the files Plex reports", %{section: s} do
+      root = Path.join(System.tmp_dir!(), "fanfarr-right-#{:erlang.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(root, "tv2/One Pace/Season 01"))
+      File.write!(Path.join([root, "tv2/One Pace/Season 01", "S01E01.mkv"]), "")
+      on_exit(fn -> File.rm_rf(root) end)
+      Fanfarr.Library.create_root_folder!(%{path: Path.join(root, "tv2"), kind: :show})
+
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+
+      expect(Fanfarr.PlexClientMock, :raw, fn _c, _p ->
+        {:ok,
+         %{
+           "MediaContainer" => %{
+             "Metadata" => [
+               %{"Media" => [%{"Part" => [%{"file" => "/media/red-10/TV/One Pace/S01E01.mkv"}]}]}
+             ]
+           }
+         }}
+      end)
+
+      item = item(s, %{title: "One Pace", plex_path: "/media/red-10/TV/One Pace"})
+
+      assert Diagnostics.item_report(item.id) =~ "same folder    yes"
+    end
+
     test "an item no root folder holds says what to do about it", %{section: s} do
       item = item(s, %{title: "Nowhere", plex_path: "/media/red-10-redemption/TV/Nowhere"})
 

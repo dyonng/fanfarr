@@ -147,6 +147,92 @@ defmodule FanfarrWeb.FeaturesTest do
     end
   end
 
+  describe "feedback while a theme is being applied" do
+    test "clicking apply immediately shows work in progress", %{conn: conn, item: item} do
+      {:ok, view, html} = live(conn, "/library/#{item.id}")
+
+      refute html =~ "Working on this item"
+
+      html = render_click(view, "apply", %{})
+
+      # The click has to visibly do something. On a busy queue the worker may
+      # not start for minutes, so this cannot wait for the worker to say so.
+      assert html =~ "Working on this item"
+      assert html =~ "Working…"
+      assert has_element?(view, ~s(button[phx-click="apply"][disabled]))
+      assert has_element?(view, ~s(button[phx-click="preview"][disabled]))
+    end
+
+    test "a queued job is still reflected after a reload", %{conn: conn, item: item} do
+      {:ok, _} = Fanfarr.Workers.ApplyTheme.enqueue(item, dry_run: false)
+
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+      assert html =~ "Working on this item"
+    end
+
+    test "no in-flight state once nothing is queued", %{conn: conn, item: item} do
+      {:ok, job} = Fanfarr.Workers.ApplyTheme.enqueue(item, dry_run: false)
+      Fanfarr.Repo.delete!(job)
+
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+      refute html =~ "Working on this item"
+    end
+  end
+
+  describe "listening to what was written" do
+    setup %{item: item} do
+      dir = Path.join(System.tmp_dir!(), "fanfarr-play-#{:erlang.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf(dir) end)
+
+      path = Path.join(dir, "theme.mp3")
+      File.write!(path, "audio")
+
+      item =
+        Fanfarr.Library.record_local_theme!(item, %{
+          local_theme_present: true,
+          local_theme_path: path
+        })
+
+      %{item: item, path: path}
+    end
+
+    test "the page offers a player for the file it wrote", %{conn: conn, item: item, path: path} do
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+
+      assert html =~ "The file Fanfarr wrote"
+      assert html =~ path
+      assert html =~ "/library/#{item.id}/theme?v="
+      assert html =~ "Listen before trusting it"
+    end
+
+    test "asking Plex to refresh reports what Plex said", %{conn: conn, item: item} do
+      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _config, rating_key ->
+        assert rating_key == item.plex_rating_key
+        :ok
+      end)
+
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "refresh_plex", %{})
+
+      assert render_async(view, 10_000) =~ "Asked Plex to refresh"
+    end
+
+    test "a refusal from Plex is reported, not swallowed", %{conn: conn, item: item} do
+      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> {:error, {:http, 403}} end)
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "refresh_plex", %{})
+
+      assert render_async(view, 10_000) =~ "Plex refused the refresh"
+    end
+  end
+
   describe "library bulk actions" do
     test "select the page, then act on the selection", %{conn: conn, item: item, other: other} do
       {:ok, view, _html} = live(conn, "/")
