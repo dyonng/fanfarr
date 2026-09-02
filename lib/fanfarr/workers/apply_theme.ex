@@ -219,8 +219,12 @@ defmodule Fanfarr.Workers.ApplyTheme do
   defp execute(item, plan, false = dry_run) do
     with :ok <- writable?(plan.dir),
          {:ok, download} <- download(plan) do
-      record_outcome(item, plan, dry_run, :succeeded, nil, download)
+      # The local theme is recorded first: record_outcome broadcasts, and a
+      # subscriber that reloads before this ran would see the previous file's
+      # timestamp -- which is what left the audio player on the item page
+      # playing the old theme until the page was refreshed by hand.
       Library.record_local_theme!(item, %{local_theme_present: true, local_theme_path: plan.path})
+      record_outcome(item, plan, dry_run, :succeeded, nil, download)
       :ok
     else
       {:error, reason} ->
@@ -239,6 +243,10 @@ defmodule Fanfarr.Workers.ApplyTheme do
     try do
       case Themes.Downloader.impl().download(plan.url, tmp) do
         {:ok, %{path: downloaded} = result} ->
+          # Before it is moved into place, so a normalisation that fails does
+          # not leave a half-processed file next to the media.
+          result = normalize(downloaded, result)
+
           case Themes.Writer.place(downloaded, plan.path) do
             :ok -> {:ok, result}
             {:error, reason} -> {:error, {:write_failed, reason}}
@@ -249,6 +257,44 @@ defmodule Fanfarr.Workers.ApplyTheme do
       end
     after
       File.rm_rf(tmp)
+    end
+  end
+
+  # Themes arrive from Plex's agent, from ThemerrDB and from whatever the
+  # operator picked, all mastered differently, so one show blasts and the next
+  # is inaudible. Normalising is therefore part of applying, not a nicety.
+  #
+  # A failure here is logged and ignored: an unnormalised theme is worse than a
+  # normalised one and far better than no theme, so this never turns a
+  # successful download into a failed apply.
+  defp normalize(path, result) do
+    case Fanfarr.Themes.Normalizer.normalize(path) do
+      {:ok, measured} ->
+        Logger.info(
+          "[fanfarr] loudness #{Float.round(measured.before, 1)} -> " <>
+            "#{Float.round(measured.after, 1)} LUFS (target #{measured.target})"
+        )
+
+        # Re-encoding changes the size, so the recorded byte count has to come
+        # from the file that actually gets written.
+        result
+        |> Map.put(:loudness_lufs, measured.after)
+        |> Map.put(:bytes, file_size(path, result[:bytes]))
+
+      {:error, reason} ->
+        Logger.warning(
+          "[fanfarr] could not normalise loudness (#{inspect(reason)}); " <>
+            "writing the file as downloaded"
+        )
+
+        result
+    end
+  end
+
+  defp file_size(path, fallback) do
+    case File.stat(path) do
+      {:ok, %{size: size}} -> size
+      _ -> fallback
     end
   end
 
@@ -301,7 +347,8 @@ defmodule Fanfarr.Workers.ApplyTheme do
       status: status,
       error: reason && inspect(reason),
       codec: download[:codec],
-      bytes: download[:bytes]
+      bytes: download[:bytes],
+      loudness_lufs: download[:loudness_lufs]
     })
 
     # After the row exists, so a subscriber that reloads sees the outcome.

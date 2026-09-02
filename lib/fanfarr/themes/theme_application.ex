@@ -60,7 +60,8 @@ defmodule Fanfarr.Themes.ThemeApplication do
         :status,
         :error,
         :codec,
-        :bytes
+        :bytes,
+        :loudness_lufs
       ]
 
       change set_attribute(:attempted_at, &DateTime.utc_now/0)
@@ -130,6 +131,16 @@ defmodule Fanfarr.Themes.ThemeApplication do
     end
 
     attribute :bytes, :integer, public?: true
+
+    attribute :loudness_lufs, :float do
+      public? true
+
+      description """
+      Integrated loudness of the file that was written, in LUFS. Recorded so
+      "is this theme in line with the others" is answerable from the log
+      rather than by listening to them one after another.
+      """
+    end
 
     attribute :attempted_at, :utc_datetime_usec, allow_nil?: false, public?: true
 

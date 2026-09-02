@@ -37,6 +37,68 @@ defmodule FanfarrWeb.ThemeControllerTest do
     assert get_resp_header(conn, "cache-control") == ["no-store"]
   end
 
+  describe "range requests" do
+    setup %{item: item, dir: dir} do
+      path = Path.join(dir, "theme.mp3")
+      File.write!(path, "0123456789")
+
+      item =
+        Fanfarr.Library.record_local_theme!(item, %{
+          local_theme_present: true,
+          local_theme_path: path
+        })
+
+      %{item: item}
+    end
+
+    test "a full request advertises that ranges are supported", %{conn: conn, item: item} do
+      conn = get(conn, ~p"/library/#{item.id}/theme")
+
+      assert response(conn, 200) == "0123456789"
+      assert get_resp_header(conn, "accept-ranges") == ["bytes"]
+    end
+
+    test "serves the requested slice", %{conn: conn, item: item} do
+      conn =
+        conn
+        |> put_req_header("range", "bytes=2-5")
+        |> get(~p"/library/#{item.id}/theme")
+
+      assert response(conn, 206) == "2345"
+      assert get_resp_header(conn, "content-range") == ["bytes 2-5/10"]
+    end
+
+    test "an open-ended range runs to the end", %{conn: conn, item: item} do
+      conn =
+        conn |> put_req_header("range", "bytes=7-") |> get(~p"/library/#{item.id}/theme")
+
+      assert response(conn, 206) == "789"
+      assert get_resp_header(conn, "content-range") == ["bytes 7-9/10"]
+    end
+
+    test "a suffix range counts back from the end", %{conn: conn, item: item} do
+      conn =
+        conn |> put_req_header("range", "bytes=-3") |> get(~p"/library/#{item.id}/theme")
+
+      assert response(conn, 206) == "789"
+    end
+
+    test "a range past the end is refused, not silently clamped", %{conn: conn, item: item} do
+      conn =
+        conn |> put_req_header("range", "bytes=50-60") |> get(~p"/library/#{item.id}/theme")
+
+      assert response(conn, 416)
+      assert get_resp_header(conn, "content-range") == ["bytes */10"]
+    end
+
+    test "an unparseable range falls back to the whole file", %{conn: conn, item: item} do
+      conn =
+        conn |> put_req_header("range", "bytes=nonsense") |> get(~p"/library/#{item.id}/theme")
+
+      assert response(conn, 200) == "0123456789"
+    end
+  end
+
   test "404 when no theme has been written", %{conn: conn, item: item} do
     assert conn |> get(~p"/library/#{item.id}/theme") |> response(404)
   end

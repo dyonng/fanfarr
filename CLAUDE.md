@@ -96,6 +96,11 @@ correct -- Plex's movie agent supplies no themes at all.
 the item > ThemerrDB entry. Oban uniqueness is per item *and* dry-run flag;
 with only the item as key, a queued dry run swallowed the apply after it.
 
+**Loudness:** downloads are normalised to -14 LUFS by default via ffmpeg
+`loudnorm` two-pass (`theme_loudness_lufs` to change it). Measure any file with
+`Fanfarr.Themes.Normalizer.measure/1` to calibrate against themes already in
+the library rather than guessing.
+
 **Debugging:** the System page has a redacted log view and diagnostics tools
 (environment, item trace, yt-dlp video check, raw Plex probe, and a one-click
 bug-report bundle). `Fanfarr.Diagnostics.Redactor` must never query the

@@ -365,6 +365,28 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
   when a match-filter rejects a video, so "success with no file" is the normal
   shape of "too long".
 
+## Loudness
+
+Themes arrive from Plex's agent, ThemerrDB and whatever the operator picked,
+all mastered differently, so one show blasts and the next is inaudible.
+`Fanfarr.Themes.Normalizer` runs EBU R128 `loudnorm` **two-pass** (measure,
+then apply exactly that gain) between the download and the write. One pass
+adjusts as it goes and pumps on a quiet intro, which is what an opening theme
+usually has.
+
+- Target defaults to **-14 LUFS** -- where streaming services sit, so roughly
+  where a YouTube-sourced theme is expected to land. It is a setting
+  (`theme_loudness_lufs` / `THEME_LOUDNESS_LUFS`) because the right number is
+  whatever matches the themes already in the library, and that is measurable
+  rather than a matter of opinion: `Normalizer.measure/1` reports any file's
+  level without changing it.
+- **A normalisation failure is logged and ignored.** An unnormalised theme is
+  worse than a normalised one and far better than no theme, so it never turns
+  a successful download into a failed apply.
+- The recorded `bytes` comes from the file after re-encoding, not before.
+- ffmpeg ships in the image; the System page reports it, and tests that need
+  it are tagged `:requires_ffmpeg` and excluded where it is missing.
+
 ## After the file is written
 
 - **Plex does not notice a new local theme file.** It does not watch the
@@ -423,6 +445,18 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
   every query, so a querying redactor would log, which would redact, which
   would query -- one log line spinning forever. Secrets from the database live
   in `:persistent_term`, primed at boot, on save, and on each health tick.
+- The theme endpoint serves **range requests**. Without them a media element
+  cannot seek within a file it has not finished downloading and cannot read a
+  duration without pulling the whole thing -- so a seek bar and a duration
+  display are not free, they need the server to support ranges.
+- The audio player is drawn from our own tokens rather than `<audio controls>`,
+  whose native chrome is a white bar in a dark UI. It is keyed on the theme
+  version so a newly written file replaces the node; the hook pauses and
+  clears the source in `destroyed()`, or the old theme keeps playing over it.
+- `record_local_theme!` must run **before** `record_outcome`, because the
+  latter broadcasts. The other order meant a subscriber reloaded with the
+  previous file's timestamp and the player kept the old audio until the page
+  was refreshed by hand.
 - Long paths must not widen the page: the destination path in the history
   table and the written-file path both `break-all`, and the table scrolls
   inside its own container. A `truncate` inside a table cell does nothing --

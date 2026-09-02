@@ -33,6 +33,7 @@ defmodule Fanfarr.Health do
     [
       plex(),
       ytdlp(),
+      ffmpeg(),
       root_folders(),
       path_resolution(),
       themerrdb(),
@@ -95,6 +96,32 @@ defmodule Fanfarr.Health do
 
       {:error, reason} ->
         result(:ytdlp, "yt-dlp", :error, "Not working", describe(reason))
+    end
+  end
+
+  @doc "ffmpeg present, which is what normalises a downloaded theme's loudness."
+  def ffmpeg do
+    case Fanfarr.Themes.Normalizer.version() do
+      {:ok, version} ->
+        result(
+          :ffmpeg,
+          "ffmpeg",
+          :ok,
+          "Installed",
+          "#{version} -- target #{Fanfarr.Themes.Normalizer.target()} LUFS"
+        )
+
+      {:error, :not_installed} ->
+        result(
+          :ffmpeg,
+          "ffmpeg",
+          :warning,
+          "Not installed",
+          "Themes will still be written, but at whatever level they were uploaded at, so some will be far louder than others."
+        )
+
+      {:error, reason} ->
+        result(:ffmpeg, "ffmpeg", :warning, "Not working", describe(reason))
     end
   end
 

@@ -49,6 +49,7 @@ defmodule FanfarrWeb.ItemLive.Show do
     # Changes when a theme is replaced, so the player refetches instead of
     # playing the previous file out of the browser cache.
     |> assign(:theme_version, theme_version(item))
+    |> assign(:written, written_details(item))
     |> assign(:history, Fanfarr.Themes.theme_history_for_item!(item.id))
     |> assign(:themerr, themerr_entry(item))
     |> assign(:page_title, item.title)
@@ -67,9 +68,16 @@ defmodule FanfarrWeb.ItemLive.Show do
     end)
   end
 
+  # The measurements from the run that produced the file now on disk, so
+  # "is this in line with the rest of the library" is answerable here.
+  defp written_details(item) do
+    Fanfarr.Themes.theme_history_for_item!(item.id)
+    |> Enum.find(&(&1.status == :succeeded and not &1.dry_run))
+  end
+
   defp theme_version(%{local_theme_checked_at: nil}), do: 0
 
-  defp theme_version(%{local_theme_checked_at: at}), do: DateTime.to_unix(at)
+  defp theme_version(%{local_theme_checked_at: at}), do: DateTime.to_unix(at, :microsecond)
 
   # What people type into YouTube for this: the title, the year to
   # disambiguate remakes, and the word that finds the opening rather than a
@@ -347,6 +355,17 @@ defmodule FanfarrWeb.ItemLive.Show do
               >
                 {@item.local_theme_path}
               </p>
+              <p :if={@written} class="mt-1 text-xs text-muted-foreground">
+                <span :if={@written.loudness_lufs}>
+                  {Float.round(@written.loudness_lufs, 1)} LUFS
+                  <span class="opacity-70">
+                    (normalised to {Fanfarr.Themes.Normalizer.target()})
+                  </span>
+                  ·
+                </span>
+                <span :if={@written.bytes}>{format_bytes(@written.bytes)}</span>
+                <span :if={@written.codec}> · {@written.codec}</span>
+              </p>
             </div>
             <button
               phx-click="refresh_plex"
@@ -361,13 +380,126 @@ defmodule FanfarrWeb.ItemLive.Show do
             </button>
           </div>
 
-          <audio
-            id={"theme-audio-#{@theme_version}"}
-            controls
-            preload="none"
-            src={~p"/library/#{@item.id}/theme?v=#{@theme_version}"}
-            class="mt-3 w-full"
-          ></audio>
+          <%!-- The browser's own audio controls render in its default chrome,
+          which is a white bar in a dark UI and ignores the theme entirely. This
+          is the same element underneath, with the controls drawn from our own
+          tokens. Keyed on the theme version so a newly written file replaces
+          the node rather than the browser continuing with the previous one. --%>
+          <div
+            id={"theme-player-#{@theme_version}"}
+            phx-hook=".AudioPlayer"
+            data-src={~p"/library/#{@item.id}/theme?v=#{@theme_version}"}
+            class="mt-3 flex items-center gap-3 rounded-md border border-border bg-background px-3 py-2"
+          >
+            <button
+              type="button"
+              data-play
+              aria-label="Play"
+              class="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              <span data-icon="play"><.icon name="lucide-play" class="size-4" /></span>
+              <span data-icon="pause" class="hidden">
+                <.icon name="lucide-pause" class="size-4" />
+              </span>
+            </button>
+
+            <div
+              data-track
+              role="slider"
+              aria-label="Seek"
+              tabindex="0"
+              class="relative h-2 flex-1 cursor-pointer rounded-full bg-muted"
+            >
+              <div data-fill class="absolute inset-y-0 left-0 w-0 rounded-full bg-primary"></div>
+            </div>
+
+            <span data-time class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+              0:00 / 0:00
+            </span>
+
+            <button
+              type="button"
+              data-mute
+              aria-label="Mute"
+              class="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            >
+              <span data-icon="unmuted"><.icon name="lucide-volume-2" class="size-4" /></span>
+              <span data-icon="muted" class="hidden">
+                <.icon name="lucide-volume-x" class="size-4" />
+              </span>
+            </button>
+          </div>
+
+          <script :type={Phoenix.LiveView.ColocatedHook} name=".AudioPlayer">
+            export default {
+              mounted() {
+                const el = this.el
+                // Built here rather than rendered as <audio>, so there is no
+                // native control bar to hide and restyle.
+                const audio = new Audio(el.dataset.src)
+                // metadata, not none: the range-capable endpoint means this
+                // costs a few kilobytes and fills in the duration up front.
+                audio.preload = "metadata"
+                this.audio = audio
+
+                const playIcon = el.querySelector('[data-icon="play"]')
+                const pauseIcon = el.querySelector('[data-icon="pause"]')
+                const unmuted = el.querySelector('[data-icon="unmuted"]')
+                const muted = el.querySelector('[data-icon="muted"]')
+                const fill = el.querySelector("[data-fill]")
+                const track = el.querySelector("[data-track]")
+                const time = el.querySelector("[data-time]")
+                const playButton = el.querySelector("[data-play]")
+
+                const clock = (seconds) => {
+                  if (!isFinite(seconds)) return "0:00"
+                  const total = Math.floor(seconds)
+                  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`
+                }
+
+                const paint = () => {
+                  const done = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0
+                  fill.style.width = `${done}%`
+                  time.textContent = `${clock(audio.currentTime)} / ${clock(audio.duration)}`
+                }
+
+                const showPlaying = (playing) => {
+                  playIcon.classList.toggle("hidden", playing)
+                  pauseIcon.classList.toggle("hidden", !playing)
+                  playButton.setAttribute("aria-label", playing ? "Pause" : "Play")
+                }
+
+                playButton.addEventListener("click", () => {
+                  if (audio.paused) { audio.play() } else { audio.pause() }
+                })
+
+                el.querySelector("[data-mute]").addEventListener("click", () => {
+                  audio.muted = !audio.muted
+                  unmuted.classList.toggle("hidden", audio.muted)
+                  muted.classList.toggle("hidden", !audio.muted)
+                })
+
+                track.addEventListener("click", (event) => {
+                  const box = track.getBoundingClientRect()
+                  const ratio = Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1)
+                  if (isFinite(audio.duration)) { audio.currentTime = ratio * audio.duration }
+                })
+
+                audio.addEventListener("play", () => showPlaying(true))
+                audio.addEventListener("pause", () => showPlaying(false))
+                audio.addEventListener("ended", () => { showPlaying(false); paint() })
+                audio.addEventListener("timeupdate", paint)
+                audio.addEventListener("loadedmetadata", paint)
+                audio.addEventListener("error", () => { time.textContent = "could not load" })
+              },
+
+              destroyed() {
+                // Without this the previous theme keeps playing after a new one
+                // replaces this node.
+                if (this.audio) { this.audio.pause(); this.audio.src = "" }
+              }
+            }
+          </script>
 
           <p class="mt-2 text-xs text-muted-foreground">
             Listen before trusting it: a download can succeed and still be the wrong track. If the
@@ -653,6 +785,12 @@ defmodule FanfarrWeb.ItemLive.Show do
   defp apply_title(%{theme_locked: true}), do: "This item's theme is locked in Plex"
   defp apply_title(%{kind: :movie}), do: "Movies are not supported yet"
   defp apply_title(_), do: "Download the theme and write theme.mp3 next to the media"
+
+  defp format_bytes(bytes) when bytes >= 1_048_576,
+    do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+
+  defp format_bytes(bytes) when bytes >= 1024, do: "#{div(bytes, 1024)} KB"
+  defp format_bytes(bytes), do: "#{bytes} B"
 
   defp duration(seconds) when is_number(seconds) do
     total = trunc(seconds)

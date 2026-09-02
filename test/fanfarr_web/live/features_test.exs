@@ -197,12 +197,36 @@ defmodule FanfarrWeb.FeaturesTest do
       %{item: item, path: path}
     end
 
+    test "a newly written theme changes the player's key so it reloads",
+         %{conn: conn, item: item, path: path} do
+      {:ok, view, html} = live(conn, "/library/#{item.id}")
+      [_, first] = Regex.run(~r/theme-player-(\d+)/, html)
+
+      # What the worker does on success, in the order it does it: the local
+      # theme is recorded before the broadcast, or a subscriber reloads with
+      # the previous file's timestamp and the player keeps the old audio.
+      File.write!(path, "different audio")
+
+      Fanfarr.Library.record_local_theme!(item, %{
+        local_theme_present: true,
+        local_theme_path: path
+      })
+
+      Phoenix.PubSub.broadcast(Fanfarr.PubSub, "item:#{item.id}", {:item_updated, item.id})
+
+      html = render(view)
+      [_, second] = Regex.run(~r/theme-player-(\d+)/, html)
+
+      refute first == second, "the player must be replaced when the file changes"
+    end
+
     test "the page offers a player for the file it wrote", %{conn: conn, item: item, path: path} do
       {:ok, _view, html} = live(conn, "/library/#{item.id}")
 
       assert html =~ "The file Fanfarr wrote"
       assert html =~ path
       assert html =~ "/library/#{item.id}/theme?v="
+      assert html =~ "theme-player-"
       assert html =~ "Listen before trusting it"
     end
 

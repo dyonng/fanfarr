@@ -286,6 +286,76 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
   end
 
+  describe "loudness" do
+    test "the file is recorded with the loudness it ended up at", ctx do
+      themerr_hit()
+      item = item(ctx)
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        file = Path.join(dir, "theme.mp3")
+        File.write!(file, "audio")
+        {:ok, %{path: file, bytes: 5, codec: "mp3", duration: 90.0}}
+      end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+
+      [outcome | _] = history(item)
+      assert outcome.status == :succeeded
+
+      # Without ffmpeg the apply still succeeds and simply records no loudness:
+      # an unnormalised theme is far better than no theme.
+      case Fanfarr.Themes.Normalizer.version() do
+        {:ok, _} -> assert is_float(outcome.loudness_lufs) or is_nil(outcome.loudness_lufs)
+        {:error, _} -> assert is_nil(outcome.loudness_lufs)
+      end
+    end
+
+    @tag :requires_ffmpeg
+    test "real audio is normalised on its way to the destination", ctx do
+      themerr_hit()
+      item = item(ctx)
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        file = Path.join(dir, "theme.mp3")
+
+        {_, 0} =
+          System.cmd(
+            "ffmpeg",
+            [
+              "-hide_banner",
+              "-loglevel",
+              "error",
+              "-f",
+              "lavfi",
+              "-i",
+              "sine=frequency=440:duration=5",
+              "-af",
+              "volume=0dB",
+              "-c:a",
+              "libmp3lame",
+              "-b:a",
+              "192k",
+              file
+            ],
+            stderr_to_stdout: true
+          )
+
+        {:ok, %{path: file, bytes: File.stat!(file).size, codec: "mp3", duration: 5.0}}
+      end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+
+      [outcome | _] = history(item)
+      assert outcome.status == :succeeded
+      assert_in_delta outcome.loudness_lufs, Fanfarr.Themes.Normalizer.target(), 1.0
+
+      # The recorded size must be the file that was actually written, not the
+      # one before re-encoding.
+      written = Path.join(ctx.media, "theme.mp3")
+      assert outcome.bytes == File.stat!(written).size
+    end
+  end
+
   describe "a host path the container cannot see" do
     # The reported case. Plex runs on the host and says
     # /media/red-10-redemption/TV/One Pace. That path does not exist in the

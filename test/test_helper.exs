@@ -32,7 +32,26 @@ can_mount? =
      end
    end).()
 
-ExUnit.start(exclude: if(can_mount?, do: [], else: [:requires_mount]))
+# Loudness normalisation shells out to ffmpeg. It ships in the image, but a
+# development machine may not have it, and a test that silently passes without
+# it would prove nothing about the thing it claims to test.
+has_ffmpeg? =
+  try do
+    match?({_, 0}, System.cmd("ffmpeg", ["-version"], stderr_to_stdout: true))
+  rescue
+    _ -> false
+  end
+
+excluded =
+  [] ++
+    if(can_mount?, do: [], else: [:requires_mount]) ++
+    if has_ffmpeg?, do: [], else: [:requires_ffmpeg]
+
+ExUnit.start(exclude: excluded)
+
+unless has_ffmpeg? do
+  IO.puts("\n[fanfarr] Skipping tests tagged :requires_ffmpeg -- ffmpeg is not installed here.")
+end
 
 unless can_mount? do
   IO.puts("""

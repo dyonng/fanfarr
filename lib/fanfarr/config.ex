@@ -15,7 +15,8 @@ defmodule Fanfarr.Config do
     "plex_url" => "PLEX_URL",
     "plex_token" => "PLEX_TOKEN",
     "path_mappings" => "PATH_MAPPINGS",
-    "ytdlp_proxy" => "YTDLP_PROXY"
+    "ytdlp_proxy" => "YTDLP_PROXY",
+    "theme_loudness_lufs" => "THEME_LOUDNESS_LUFS"
   }
 
   @doc "The resolved value for a key, or nil."
