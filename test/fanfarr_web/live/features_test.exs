@@ -330,6 +330,11 @@ defmodule FanfarrWeb.FeaturesTest do
          ]}
       end)
 
+      # The item's folder, in Plex's own view, and the section it belongs to.
+      expect(Fanfarr.PlexClientMock, :scan_directory, fn _c, "1", "/tv/One Piece (1999)" ->
+        :ok
+      end)
+
       expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _config, rating_key ->
         assert rating_key == item.plex_rating_key
         :ok
@@ -344,6 +349,7 @@ defmodule FanfarrWeb.FeaturesTest do
       html = render_async(view, 10_000)
 
       assert html =~ "What Plex serves now"
+      assert html =~ "Plex scanned the folder"
       assert html =~ "serving a theme from its own agent"
       assert html =~ "tv.plex.agents.series"
       # The ratingKey is shown verbatim: it is the evidence for the verdict.
@@ -374,6 +380,7 @@ defmodule FanfarrWeb.FeaturesTest do
          ]}
       end)
 
+      stub(Fanfarr.PlexClientMock, :scan_directory, fn _c, _s, _p -> :ok end)
       expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> :ok end)
       Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
       Fanfarr.Settings.put_setting!("plex_token", "t")
@@ -387,6 +394,7 @@ defmodule FanfarrWeb.FeaturesTest do
     test "a refusal from Plex is reported, not swallowed", %{conn: conn, item: item} do
       stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k -> {:ok, %{}} end)
       stub(Fanfarr.PlexClientMock, :themes, fn _c, _k -> {:ok, []} end)
+      stub(Fanfarr.PlexClientMock, :scan_directory, fn _c, _s, _p -> :ok end)
       expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> {:error, {:http, 403}} end)
       Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
       Fanfarr.Settings.put_setting!("plex_token", "t")

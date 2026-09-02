@@ -65,25 +65,51 @@ defmodule Fanfarr.Plex.ThemeCheck do
   end
 
   @doc """
-  Refreshes the item in Plex, then polls until what Plex serves changes or the
-  budget runs out.
+  Scans the item's folder, refreshes the item, then polls until what Plex
+  serves changes or the budget runs out.
+
+  The scan is the part that matters and the part we were missing. Plex finds
+  files and fetches metadata in two separate stages: the scanner walks the
+  filesystem, and the agents then run over what it found. Refreshing an item
+  only re-runs the agents, so a `theme.mp3` written since the last scan is
+  simply not in the listing they work from -- they re-derive the same answer as
+  before and Plex goes on reporting no theme. Asking the scanner to walk that
+  one folder first is what puts the file in front of them.
 
   Returns `{:ok, before, after}` so the caller can say whether anything moved.
-  `before` is `nil` when the pre-refresh read failed; the refresh still went
+  `before` is `nil` when the pre-refresh read failed; the refresh still goes
   ahead, since a read failure is no reason to withhold it.
+
+  `scan` is `{section_key, plex_dir}` -- both in Plex's own view of things --
+  or `nil` when we do not know where Plex thinks the item lives, in which case
+  only the metadata refresh runs.
   """
-  @spec refresh_and_reread(map(), String.t()) ::
+  @spec refresh_and_reread(map(), String.t(), {String.t(), String.t()} | nil) ::
           {:ok, state() | nil, state()} | {:error, term()}
-  def refresh_and_reread(config, rating_key) do
+  def refresh_and_reread(config, rating_key, scan \\ nil) do
     before =
       case read(config, rating_key) do
         {:ok, state} -> state
         {:error, _reason} -> nil
       end
 
+    scanned = scan_folder(config, scan)
+
     with :ok <- Client.impl().refresh_metadata(config, rating_key),
          {:ok, current} <- poll(config, rating_key, before, poll_delays()) do
-      {:ok, before, current}
+      {:ok, before, Map.put(current, :scanned, scanned)}
+    end
+  end
+
+  # A scan failure is reported, not raised: the metadata refresh is still worth
+  # doing, and which of the two steps ran is exactly what the operator needs to
+  # know when the theme still does not appear.
+  defp scan_folder(_config, nil), do: :not_attempted
+
+  defp scan_folder(config, {section_key, dir}) do
+    case Client.impl().scan_directory(config, section_key, dir) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -112,14 +138,33 @@ defmodule Fanfarr.Plex.ThemeCheck do
   something quite different depending on that.
   """
   @spec verdict(state(), map()) :: {:ok | :warning | :info, String.t()}
+  def verdict(%{origin: :none, scanned: {:error, reason}}, %{local_theme_present: true}) do
+    {:warning,
+     """
+     Plex refused to scan the item's folder (#{inspect(reason)}), so it never \
+     looked for the file. Without that scan a metadata refresh cannot see a \
+     theme.mp3 added since the last one.\
+     """}
+  end
+
+  def verdict(%{origin: :none, scanned: :not_attempted}, %{local_theme_present: true}) do
+    {:warning,
+     """
+     Plex still reports no theme, and we could not ask it to scan the folder \
+     because we do not know where Plex thinks this item lives. Sync the library \
+     so the item's Plex path is known, then try again.\
+     """}
+  end
+
   def verdict(%{origin: :none}, %{local_theme_present: true} = item) do
     {:warning,
      """
-     Plex refreshed the item and still reports no theme, even though \
-     #{Path.basename(item.local_theme_path || "theme.mp3")} is on disk beside it. \
-     Either Plex is not reading local assets for this library, or the file is \
-     not in the folder Plex scans for this item — compare the path above with \
-     the folder Plex lists for the show, further down this page.\
+     Plex scanned the folder and refreshed the item, and still reports no \
+     theme, even though #{Path.basename(item.local_theme_path || "theme.mp3")} \
+     is on disk beside it. The remaining explanations are that this library's \
+     agent is not reading local assets, or that the folder Plex scanned is not \
+     the folder we wrote to — compare the path above with the one Plex reports \
+     further down this page.\
      """}
   end
 
@@ -158,10 +203,18 @@ defmodule Fanfarr.Plex.ThemeCheck do
 
   @doc """
   True when the refresh changed what Plex serves.
+
+  Compares only the fields describing the theme. `:scanned` records which steps
+  we took, not what Plex answered, and comparing it would report a change on
+  every call.
   """
   @spec changed?(state() | nil, state()) :: boolean()
   def changed?(nil, _current), do: false
-  def changed?(before, current), do: before != current
+
+  def changed?(before, current) do
+    Map.take(before, [:url, :origin, :agent, :rating_key]) !=
+      Map.take(current, [:url, :origin, :agent, :rating_key])
+  end
 
   defp blank_to_nil(value) when is_binary(value) and value != "", do: value
   defp blank_to_nil(_), do: nil

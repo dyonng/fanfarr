@@ -59,7 +59,54 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
     end
   end
 
-  describe "refresh_and_reread/2" do
+  describe "refresh_and_reread/3" do
+    test "the folder is scanned before the item is refreshed" do
+      # The whole point: Plex's scanner has to walk the folder or the metadata
+      # agents re-run against a listing that does not mention our theme.mp3.
+      test_pid = self()
+
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _, _ -> {:ok, []} end)
+
+      expect(Fanfarr.PlexClientMock, :scan_directory, fn @config, "2", "/media/TV/Star City" ->
+        send(test_pid, :scanned)
+        :ok
+      end)
+
+      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _, "1" ->
+        send(test_pid, :refreshed)
+        :ok
+      end)
+
+      assert {:ok, _before, current} =
+               ThemeCheck.refresh_and_reread(@config, "1", {"2", "/media/TV/Star City"})
+
+      assert current.scanned == :ok
+      assert_received :scanned
+      assert_received :refreshed
+    end
+
+    test "a refused scan does not withhold the refresh, and is reported" do
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _, _ -> {:ok, []} end)
+      expect(Fanfarr.PlexClientMock, :scan_directory, fn _, _, _ -> {:error, {:http, 404}} end)
+      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _, _ -> :ok end)
+
+      assert {:ok, _before, current} =
+               ThemeCheck.refresh_and_reread(@config, "1", {"2", "/media/TV/Star City"})
+
+      assert current.scanned == {:error, {:http, 404}}
+    end
+
+    test "with no known Plex path there is nothing to scan" do
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _, _ -> {:ok, []} end)
+      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _, _ -> :ok end)
+
+      assert {:ok, _before, current} = ThemeCheck.refresh_and_reread(@config, "1", nil)
+      assert current.scanned == :not_attempted
+    end
+
     test "stops polling as soon as the state changes" do
       # before
       expect(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
@@ -103,12 +150,30 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
   end
 
   describe "verdict/2" do
-    test "a local file plus no theme in Plex is the actionable case" do
+    test "a local file plus no theme after a successful scan is the actionable case" do
       item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}
 
-      assert {:warning, message} = ThemeCheck.verdict(%{origin: :none}, item)
-      assert message =~ "still reports no theme"
-      assert message =~ "not in the folder Plex scans"
+      assert {:warning, message} = ThemeCheck.verdict(%{origin: :none, scanned: :ok}, item)
+      assert message =~ "scanned the folder"
+      assert message =~ "not reading local assets"
+    end
+
+    test "a scan that never ran is named as the reason, not the library settings" do
+      item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}
+
+      assert {:warning, message} =
+               ThemeCheck.verdict(%{origin: :none, scanned: :not_attempted}, item)
+
+      assert message =~ "we do not know where Plex thinks this item lives"
+    end
+
+    test "a refused scan is named as the reason" do
+      item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}
+
+      assert {:warning, message} =
+               ThemeCheck.verdict(%{origin: :none, scanned: {:error, {:http, 404}}}, item)
+
+      assert message =~ "refused to scan"
     end
 
     test "a local file losing to the agent's theme names the agent" do

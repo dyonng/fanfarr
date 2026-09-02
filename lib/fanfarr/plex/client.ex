@@ -74,6 +74,23 @@ defmodule Fanfarr.Plex.Client do
   @callback refresh_metadata(config, rating_key :: String.t()) :: :ok | {:error, term()}
 
   @doc """
+  Asks Plex's *scanner* to walk one directory again.
+
+  Distinct from `refresh_metadata/2`, and the distinction is the whole reason
+  this exists. Plex separates finding files from fetching metadata about them:
+  the scanner walks the filesystem, and the agents run afterwards over what the
+  scanner found. `refresh_metadata/2` only re-runs the second stage, so a
+  sidecar file written since the last scan -- `theme.mp3`, exactly our case --
+  is invisible to it. The agents faithfully re-derive a theme from a file
+  listing that does not yet mention ours.
+
+  `path` is a directory in **Plex's** view of the filesystem, so pass
+  `plex_path` and not the mapped local path.
+  """
+  @callback scan_directory(config, section_key :: String.t(), path :: String.t()) ::
+              :ok | {:error, term()}
+
+  @doc """
   A raw GET against the configured server, for the System page's diagnostics.
 
   Always relative to the configured `base_url`, so this reaches the operator's

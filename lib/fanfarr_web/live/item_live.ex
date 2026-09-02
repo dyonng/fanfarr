@@ -194,7 +194,7 @@ defmodule FanfarrWeb.ItemLive.Show do
          socket
          |> assign(:refreshing, true)
          |> start_async(:refresh_plex, fn ->
-           ThemeCheck.refresh_and_reread(config, item.plex_rating_key)
+           ThemeCheck.refresh_and_reread(config, item.plex_rating_key, scan_target(item))
          end)}
     end
   end
@@ -207,6 +207,17 @@ defmodule FanfarrWeb.ItemLive.Show do
 
     {:noreply,
      socket |> load() |> put_flash(:info, "Manual pick cleared; ThemerrDB is the source again")}
+  end
+
+  # Where to point Plex's scanner: its own view of the item's folder, plus the
+  # section that folder belongs to. Both have to be known, and plex_path is the
+  # one that goes missing -- a section listing does not always report it.
+  defp scan_target(item) do
+    section = Ash.load!(item, :section).section
+
+    if is_binary(item.plex_path) and item.plex_path != "" and is_binary(section.plex_key) do
+      {section.plex_key, item.plex_path}
+    end
   end
 
   defp set_manual(socket, url, title) do
@@ -300,6 +311,11 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> assign(:search_results, [])
      |> assign(:search_error, "Search crashed: #{inspect(reason, limit: 5)}")}
   end
+
+  defp scan_result(:ok), do: "Plex scanned the folder"
+  defp scan_result(:not_attempted), do: "not attempted — Plex path unknown"
+  defp scan_result({:error, reason}), do: "refused: #{inspect(reason)}"
+  defp scan_result(_), do: "—"
 
   defp search_error(:not_installed),
     do: "yt-dlp is not installed in this container, so search is unavailable. See System."
@@ -593,6 +609,10 @@ defmodule FanfarrWeb.ItemLive.Show do
                   {@plex_theme_state.origin}{if @plex_theme_state.agent,
                     do: " · #{@plex_theme_state.agent}"}
                 </dd>
+              </div>
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Folder scan</dt>
+                <dd>{scan_result(@plex_theme_state[:scanned])}</dd>
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Changed by the refresh</dt>

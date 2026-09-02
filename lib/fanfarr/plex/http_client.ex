@@ -110,6 +110,16 @@ defmodule Fanfarr.Plex.HTTPClient do
     put(config, "/library/metadata/#{rating_key}/refresh")
   end
 
+  # A partial scan: Plex walks just this directory rather than the whole
+  # section. Deliberately not `refresh?force=1` on the item, which would also
+  # re-run the metadata agents and can overwrite unlocked fields the operator
+  # edited by hand. Making the scanner look at one folder is the narrowest
+  # thing that gets a new theme.mp3 seen.
+  @impl true
+  def scan_directory(config, section_key, path) do
+    get_ok(config, "/library/sections/#{section_key}/refresh?path=#{URI.encode_www_form(path)}")
+  end
+
   @impl true
   def raw(config, path) do
     get(config, path)
@@ -284,6 +294,16 @@ defmodule Fanfarr.Plex.HTTPClient do
   # --- transport -------------------------------------------------------------
 
   defp get(config, path), do: request(config, :get, path, nil)
+
+  # Plex answers a partial scan with an empty 200, which is not JSON. Ask for
+  # it as a GET but keep only the status.
+  defp get_ok(config, path) do
+    case request(config, :get, path, nil) do
+      {:ok, _body} -> :ok
+      other -> other
+    end
+  end
+
   defp post(config, path, data), do: request(config, :post, path, data)
   defp put(config, path), do: request(config, :put, path, nil)
 
