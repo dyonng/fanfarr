@@ -39,6 +39,8 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:refreshing, false)
       |> assign(:looking_up, false)
       |> assign(:plex_theme_state, nil)
+      |> assign(:plex_diagnosis, nil)
+      |> assign(:diagnosing, false)
       |> load()
       |> maybe_lookup()
 
@@ -199,6 +201,25 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  def handle_event("diagnose_plex", _params, socket) do
+    item = socket.assigns.item
+
+    case {Fanfarr.Config.plex_config(), scan_target(item)} do
+      {{:error, :plex_not_configured}, _} ->
+        {:noreply, put_flash(socket, :error, "Plex is not configured")}
+
+      {_, nil} ->
+        {:noreply,
+         put_flash(socket, :error, "Fanfarr does not know this item's Plex path — sync first")}
+
+      {{:ok, config}, {section_key, _dir}} ->
+        {:noreply,
+         socket
+         |> assign(:diagnosing, true)
+         |> start_async(:diagnose, fn -> ThemeCheck.diagnose(config, item, section_key) end)}
+    end
+  end
+
   def handle_event("clear_manual", _params, socket) do
     Library.set_manual_theme!(socket.assigns.item, %{
       manual_theme_url: nil,
@@ -291,6 +312,17 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> put_flash(:error, "Refresh crashed: #{inspect(reason, limit: 5)}")}
   end
 
+  def handle_async(:diagnose, {:ok, report}, socket) do
+    {:noreply, socket |> assign(:diagnosing, false) |> assign(:plex_diagnosis, report)}
+  end
+
+  def handle_async(:diagnose, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:diagnosing, false)
+     |> put_flash(:error, "The check crashed: #{inspect(reason, limit: 5)}")}
+  end
+
   @impl true
   def handle_async(:search, {:ok, {:ok, hits}}, socket) do
     {:noreply, socket |> assign(:searching, false) |> assign(:search_results, hits)}
@@ -312,7 +344,7 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> assign(:search_error, "Search crashed: #{inspect(reason, limit: 5)}")}
   end
 
-  defp scan_result(:ok), do: "Plex scanned the folder"
+  defp scan_result(:ok), do: "Plex accepted the scan request"
   defp scan_result(:not_attempted), do: "not attempted — Plex path unknown"
   defp scan_result({:error, reason}), do: "refused: #{inspect(reason)}"
   defp scan_result(_), do: "—"
@@ -619,6 +651,77 @@ defmodule FanfarrWeb.ItemLive.Show do
                 <dd>{if @plex_theme_state.changed, do: "yes", else: "no"}</dd>
               </div>
             </dl>
+
+            <div class="mt-3 border-t border-border/60 pt-3">
+              <button
+                phx-click="diagnose_plex"
+                disabled={@diagnosing}
+                class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+              >
+                <.icon
+                  :if={@diagnosing}
+                  name="lucide-loader-circle"
+                  class="size-3.5 animate-spin"
+                /> Ask Plex why
+              </button>
+
+              <%!-- Reported as Plex phrased it. Which preference governs theme
+              music differs between the legacy agents and tv.plex.agents.*, and
+              inventing a mapping we have not verified is how the `provider`
+              field got made up in the first place. --%>
+              <div :if={@plex_diagnosis} class="mt-3 space-y-3 text-xs">
+                <div>
+                  <p class="font-semibold text-muted-foreground">Library</p>
+                  <p class="mt-0.5 font-mono">
+                    {@plex_diagnosis.section["title"]} · agent {@plex_diagnosis.section["agent"] ||
+                      "unknown"} · scanner {@plex_diagnosis.section["scanner"] || "unknown"}
+                  </p>
+                </div>
+
+                <div>
+                  <p class="font-semibold text-muted-foreground">Folders</p>
+                  <p class="mt-0.5 break-all font-mono">
+                    Plex holds: {if @plex_diagnosis.plex_locations == [],
+                      do: @plex_diagnosis.plex_path || "nothing",
+                      else: Enum.join(@plex_diagnosis.plex_locations, ", ")}
+                  </p>
+                  <p class="break-all font-mono">
+                    We wrote: {@plex_diagnosis.wrote_to || "nothing"}
+                  </p>
+                </div>
+
+                <div :if={ThemeCheck.local_asset_prefs(@plex_diagnosis.prefs) != []}>
+                  <p class="font-semibold text-muted-foreground">
+                    Settings mentioning local assets or themes
+                  </p>
+                  <dl class="mt-0.5 space-y-0.5">
+                    <div
+                      :for={pref <- ThemeCheck.local_asset_prefs(@plex_diagnosis.prefs)}
+                      class="flex justify-between gap-4"
+                    >
+                      <dt class="text-muted-foreground">{pref.label || pref.id}</dt>
+                      <dd class="font-mono">{to_string(pref.value)}</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <details :if={@plex_diagnosis.prefs != []}>
+                  <summary class="cursor-pointer text-muted-foreground hover:underline">
+                    all {length(@plex_diagnosis.prefs)} library settings
+                  </summary>
+                  <dl class="mt-1 space-y-0.5">
+                    <div :for={pref <- @plex_diagnosis.prefs} class="flex justify-between gap-4">
+                      <dt class="text-muted-foreground">{pref.label || pref.id}</dt>
+                      <dd class="font-mono">{to_string(pref.value)}</dd>
+                    </div>
+                  </dl>
+                </details>
+
+                <p :if={@plex_diagnosis.prefs == []} class="text-muted-foreground">
+                  Plex returned no settings for this library.
+                </p>
+              </div>
+            </div>
 
             <details :if={@plex_theme_state.themes != []} class="mt-2">
               <summary class="cursor-pointer text-xs text-muted-foreground hover:underline">

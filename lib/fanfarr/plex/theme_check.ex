@@ -128,6 +128,89 @@ defmodule Fanfarr.Plex.ThemeCheck do
   end
 
   @doc """
+  Asks Plex the two questions left standing when a scan changes nothing:
+  is this library set up to read local assets, and is the folder Plex has for
+  the item the folder we wrote to.
+
+  Everything here is a read, and everything is reported as Plex phrased it.
+  The agent settings in particular are listed rather than interpreted: which
+  preference governs theme music differs between the legacy agents and
+  tv.plex.agents.*, and inventing a mapping we have not verified is how the
+  earlier `provider` field got made up.
+  """
+  @spec diagnose(map(), map(), String.t()) :: map()
+  def diagnose(config, item, section_key) do
+    %{
+      section: section_detail(config, section_key),
+      prefs: prefs(config, section_key),
+      plex_locations: locations(config, item.plex_rating_key),
+      wrote_to: item.local_theme_path,
+      plex_path: item.plex_path
+    }
+  end
+
+  defp section_detail(config, section_key) do
+    case Client.impl().raw(config, "/library/sections") do
+      {:ok, body} ->
+        body
+        |> container("Directory")
+        |> Enum.find(%{}, &(to_string(&1["key"]) == to_string(section_key)))
+        |> Map.take(["title", "agent", "scanner", "language", "type"])
+
+      {:error, reason} ->
+        %{"error" => inspect(reason)}
+    end
+  end
+
+  defp prefs(config, section_key) do
+    case Client.impl().raw(config, "/library/sections/#{section_key}/prefs") do
+      {:ok, body} ->
+        body
+        |> container("Setting")
+        |> Enum.map(&%{id: &1["id"], label: &1["label"], value: &1["value"]})
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  defp locations(config, rating_key) do
+    case Client.impl().raw(config, "/library/metadata/#{rating_key}") do
+      {:ok, body} ->
+        body
+        |> container(["Directory", "Video", "Metadata"])
+        |> Enum.flat_map(&List.wrap(&1["Location"]))
+        |> Enum.map(& &1["path"])
+        |> Enum.reject(&is_nil/1)
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  defp container(body, names) when is_list(names) do
+    c = body["MediaContainer"] || %{}
+    Enum.flat_map(names, &List.wrap(Map.get(c, &1, [])))
+  end
+
+  defp container(body, name), do: container(body, [name])
+
+  @doc """
+  Preferences whose name mentions local assets.
+
+  A filter over `diagnose/3`'s `prefs`, not a claim about which one decides
+  the theme. Kept separate so the page can lead with the likely ones and still
+  show the rest.
+  """
+  @spec local_asset_prefs([map()]) :: [map()]
+  def local_asset_prefs(prefs) do
+    Enum.filter(prefs, fn pref ->
+      text = String.downcase("#{pref.id} #{pref.label}")
+      String.contains?(text, "local") or String.contains?(text, "theme")
+    end)
+  end
+
+  @doc """
   A plain reading of what came back, for the operator.
 
   The severity is the honest one: `:ok` only when Plex is serving something
@@ -159,12 +242,11 @@ defmodule Fanfarr.Plex.ThemeCheck do
   def verdict(%{origin: :none}, %{local_theme_present: true} = item) do
     {:warning,
      """
-     Plex scanned the folder and refreshed the item, and still reports no \
-     theme, even though #{Path.basename(item.local_theme_path || "theme.mp3")} \
-     is on disk beside it. The remaining explanations are that this library's \
-     agent is not reading local assets, or that the folder Plex scanned is not \
-     the folder we wrote to — compare the path above with the one Plex reports \
-     further down this page.\
+     Plex accepted a scan of the folder, refreshed the item, and still reports \
+     no theme, even though #{Path.basename(item.local_theme_path || "theme.mp3")} \
+     is on disk beside it. Two things are left: this library's agent may not be \
+     reading local assets, or the folder Plex holds for this item may not be \
+     the one we wrote to. Run the check below and Plex will answer both.\
      """}
   end
 

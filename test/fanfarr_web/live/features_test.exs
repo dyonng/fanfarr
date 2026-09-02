@@ -349,7 +349,7 @@ defmodule FanfarrWeb.FeaturesTest do
       html = render_async(view, 10_000)
 
       assert html =~ "What Plex serves now"
-      assert html =~ "Plex scanned the folder"
+      assert html =~ "Plex accepted the scan request"
       assert html =~ "serving a theme from its own agent"
       assert html =~ "tv.plex.agents.series"
       # The ratingKey is shown verbatim: it is the evidence for the verdict.

@@ -154,8 +154,8 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
       item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}
 
       assert {:warning, message} = ThemeCheck.verdict(%{origin: :none, scanned: :ok}, item)
-      assert message =~ "scanned the folder"
-      assert message =~ "not reading local assets"
+      assert message =~ "accepted a scan of the folder"
+      assert message =~ "may not be reading local assets"
     end
 
     test "a scan that never ran is named as the reason, not the library settings" do
@@ -194,6 +194,82 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
 
       assert {:ok, message} = ThemeCheck.verdict(state, item)
       assert message =~ "something://else"
+    end
+  end
+
+  describe "diagnose/3" do
+    test "reports the library's agent, both folders, and the settings verbatim" do
+      expect(Fanfarr.PlexClientMock, :raw, 3, fn _config, path ->
+        cond do
+          path == "/library/sections" ->
+            {:ok,
+             %{
+               "MediaContainer" => %{
+                 "Directory" => [
+                   %{"key" => "1", "title" => "Other"},
+                   %{
+                     "key" => "2",
+                     "title" => "TV",
+                     "agent" => "tv.plex.agents.series",
+                     "scanner" => "Plex TV Series"
+                   }
+                 ]
+               }
+             }}
+
+          path == "/library/sections/2/prefs" ->
+            {:ok,
+             %{
+               "MediaContainer" => %{
+                 "Setting" => [
+                   %{
+                     "id" => "enableLocalAssets",
+                     "label" => "Use local assets",
+                     "value" => false
+                   },
+                   %{"id" => "collectionMode", "label" => "Collections", "value" => 0}
+                 ]
+               }
+             }}
+
+          path == "/library/metadata/101" ->
+            {:ok,
+             %{
+               "MediaContainer" => %{
+                 "Metadata" => [%{"Location" => [%{"path" => "/media/TV/Star City"}]}]
+               }
+             }}
+        end
+      end)
+
+      item = %{
+        plex_rating_key: "101",
+        plex_path: "/media/TV/Star City",
+        local_theme_path: "/tv2/Star City/theme.mp3"
+      }
+
+      report = ThemeCheck.diagnose(@config, item, "2")
+
+      assert report.section["agent"] == "tv.plex.agents.series"
+      assert report.section["title"] == "TV"
+      assert report.plex_locations == ["/media/TV/Star City"]
+      assert report.wrote_to == "/tv2/Star City/theme.mp3"
+
+      # Listed, not interpreted: we do not claim to know which one governs
+      # themes on this agent.
+      assert [%{id: "enableLocalAssets", value: false}] =
+               ThemeCheck.local_asset_prefs(report.prefs)
+    end
+
+    test "a section Plex will not describe does not take the whole report down" do
+      stub(Fanfarr.PlexClientMock, :raw, fn _config, _path -> {:error, :unauthorized} end)
+
+      item = %{plex_rating_key: "101", plex_path: nil, local_theme_path: nil}
+      report = ThemeCheck.diagnose(@config, item, "2")
+
+      assert report.section == %{"error" => ":unauthorized"}
+      assert report.prefs == []
+      assert report.plex_locations == []
     end
   end
 
