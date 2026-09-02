@@ -198,8 +198,13 @@ defmodule Fanfarr.Plex.ThemeCheck do
   defp seasons(config, item) do
     case Client.impl().raw(config, "/library/metadata/#{item.plex_rating_key}/children") do
       {:ok, body} ->
+        # Both keys, because the JSON key is not the XML element name. Seasons
+        # are <Directory> in XML and "Metadata" in JSON, the same trap that
+        # made /themes look empty when it was read as <Track>. Reading only
+        # "Directory" reported every show as having no seasons at all, which
+        # is what this line was added to measure.
         body
-        |> container("Directory")
+        |> container(["Directory", "Metadata"])
         |> Enum.map(& &1["title"])
         |> Enum.reject(&is_nil/1)
 

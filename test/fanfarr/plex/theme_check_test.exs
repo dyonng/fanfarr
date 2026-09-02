@@ -284,10 +284,13 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
              }}
 
           path == "/library/metadata/101/children" ->
+            # As JSON actually comes back: seasons are <Directory> in XML but
+            # "Metadata" in JSON. Reading only "Directory" reported every show
+            # as having zero seasons.
             {:ok,
              %{
                "MediaContainer" => %{
-                 "Directory" => [%{"title" => "Season 1"}, %{"title" => "Season 2"}]
+                 "Metadata" => [%{"title" => "Season 1"}, %{"title" => "Season 2"}]
                }
              }}
 
@@ -332,6 +335,19 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
       assert report.prefs == []
       assert report.plex_locations == []
       assert report.seasons == nil
+    end
+
+    test "seasons are read from the XML element name too" do
+      stub(Fanfarr.PlexClientMock, :raw, fn _config, path ->
+        if path =~ "children" do
+          {:ok, %{"MediaContainer" => %{"Directory" => [%{"title" => "Season 1"}]}}}
+        else
+          {:ok, %{}}
+        end
+      end)
+
+      item = %{plex_rating_key: "7", kind: :show, plex_path: "/t/S", local_theme_path: nil}
+      assert ThemeCheck.diagnose(@config, item, "2").seasons == ["Season 1"]
     end
 
     test "a movie is not asked for seasons" do
