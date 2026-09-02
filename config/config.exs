@@ -22,7 +22,9 @@ config :fanfarr, Oban,
   notifier: Oban.Notifiers.PG,
   # :themerrdb is deliberately narrow -- ~2,550 cold-sync requests against a
   # community-run static host deserve restraint, not throughput.
-  queues: [default: 10, sync: 3, themerrdb: 2],
+  # `apply` is deliberately narrow: each job downloads audio and writes to
+  # someone's media drive, and there is no hurry.
+  queues: [default: 10, sync: 3, themerrdb: 2, apply: 2],
   lifeline: [rescue_after: {2, :hours}],
   pruner: [max_age: {1, :day}],
   repo: Fanfarr.Repo,

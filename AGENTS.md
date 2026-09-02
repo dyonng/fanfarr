@@ -288,6 +288,35 @@ releases carries it, and self-hosters report bugs by version. Images are already
 tagged `latest`, `sha-<sha>` and semver by `docker/metadata-action`; tag a
 release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
 
+## Applying a theme
+
+`Fanfarr.Workers.ApplyTheme`: intent -> plan -> download -> place -> outcome.
+
+- **Dry run is the default.** `"dry_run" => false` must be passed explicitly.
+  A dry run resolves the URL and the destination and checks the directory is
+  writable, then stops. That is how a wrong path mapping is found once instead
+  of 1,785 times.
+- **Local `theme.mp3` only.** Deleting the file undoes it; a Plex API upload
+  cannot be undone, and irreversible actions are the project's first rule.
+- **Movies are refused** (`:movies_not_supported_yet`). Plex's movie agent
+  supplies no themes at all, and whether Plex reads a local theme file for a
+  movie is UNVERIFIED. This is the next thing to test on the real server; do
+  not implement it from memory.
+- `Fanfarr.Themes.Writer` stages into the destination directory and renames.
+  **EXDEV is the expected case on the reference pool**, not an edge case:
+  `category.create=mfs` puts a new file on whichever branch has most room, so
+  the rename crosses filesystems and falls back to copy-then-unlink. Tested
+  against a real second tmpfs mount, because a test that only renames within
+  one filesystem proves nothing about this deployment.
+- yt-dlp is invoked via `System.cmd/3` with an argument list, never a shell
+  string, and URLs are checked against a host allowlist first: the URLs come
+  from a third-party database, and yt-dlp accepts local paths and other
+  protocols.
+- Duration and size ceilings exist because the alternative to rejecting a
+  ten-hour video is downloading it onto someone's media drive. yt-dlp exits 0
+  when a match-filter rejects a video, so "success with no file" is the normal
+  shape of "too long".
+
 ## Conventions
 
 - Run `mix precommit` before finishing (compile --warnings-as-errors, unused

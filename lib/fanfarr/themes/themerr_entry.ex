@@ -59,6 +59,17 @@ defmodule Fanfarr.Themes.ThemerrEntry do
       change set_attribute(:fetched_at, &DateTime.utc_now/0)
     end
 
+    read :lookup do
+      argument :item_type, :atom, allow_nil?: false
+      argument :database, :atom, allow_nil?: false
+      argument :external_id, :string, allow_nil?: false
+
+      filter expr(
+               item_type == ^arg(:item_type) and database == ^arg(:database) and
+                 external_id == ^arg(:external_id)
+             )
+    end
+
     read :stale do
       argument :ttl_seconds, :integer, default: 86_400
 

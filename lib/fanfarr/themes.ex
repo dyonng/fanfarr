@@ -14,6 +14,11 @@ defmodule Fanfarr.Themes do
       define :record_themerr_lookup, action: :record_lookup
       define :list_stale_themerr_entries, action: :stale
       define :list_themerr_entries, action: :read
+
+      define :themerr_entry_for,
+        action: :lookup,
+        args: [:item_type, :database, :external_id],
+        get?: true
     end
 
     resource Fanfarr.Themes.ThemeApplication do
