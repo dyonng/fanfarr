@@ -138,6 +138,15 @@ defmodule FanfarrWeb.SystemLive.Index do
     end
   end
 
+  # Fixed-width columns so timestamps and levels line up down the page and the
+  # eye can skip to the message. Padded here rather than with CSS because the
+  # whole entry has to be one string.
+  defp log_line(entry) do
+    level = entry.level |> to_string() |> String.slice(0, 5) |> String.pad_trailing(5)
+
+    "#{Calendar.strftime(entry.at, "%H:%M:%S")}  #{level}  #{entry.message}"
+  end
+
   defp load_logs(socket) do
     level = String.to_existing_atom(socket.assigns.log_level)
     entries = Fanfarr.Log.Buffer.entries(level: level, limit: 400)
@@ -297,23 +306,23 @@ defmodule FanfarrWeb.SystemLive.Index do
             class="max-h-96 overflow-auto px-4 py-3 font-mono text-[11px] leading-relaxed"
           >
             <p :if={@logs == []} class="text-muted-foreground">(nothing captured yet)</p>
-            <p
+            <%!-- One <pre> per entry, holding a single interpolation.
+            whitespace-pre-wrap is needed so a stack trace keeps its shape, but
+            it preserves the template's own newlines and indentation just as
+            faithfully: spans on separate lines turned every entry into four
+            lines with blank ones between. Building the whole line in Elixir
+            removes that, and <pre> is what stops the formatter putting the
+            interpolation back on its own line. --%>
+            <pre
               :for={entry <- Enum.reverse(@logs)}
               class={[
-                "whitespace-pre-wrap break-all",
-                entry.level in [:error, :critical, :alert, :emergency] &&
-                  "text-destructive",
+                "m-0 whitespace-pre-wrap break-all font-mono",
+                entry.level in [:error, :critical, :alert, :emergency] && "text-destructive",
                 entry.level == :warning && "text-amber-600 dark:text-amber-400",
                 entry.level == :info && "text-foreground/80",
-                entry.level in [:debug, :notice] && "text-muted-foreground"
+                entry.level in [:debug, :notice] && "text-muted-foreground/70"
               ]}
-            >
-              <span class="text-muted-foreground/60">
-                {Calendar.strftime(entry.at, "%H:%M:%S")}
-              </span>
-              <span class="font-semibold">[{entry.level}]</span>
-              {entry.message}
-            </p>
+            >{log_line(entry)}</pre>
           </div>
 
           <script :type={Phoenix.LiveView.ColocatedHook} name=".TailLog">

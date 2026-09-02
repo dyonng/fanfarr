@@ -4,6 +4,8 @@ defmodule FanfarrWeb.FeaturesTest do
 
   import Phoenix.LiveViewTest
   import Mox
+
+  require Logger
   import Ecto.Query, only: [from: 2]
 
   # The page re-asks on a timer, so the assertion has to outlast one tick.
@@ -566,6 +568,39 @@ defmodule FanfarrWeb.FeaturesTest do
       {:ok, view, _html} = live(conn, "/settings")
       html = render_click(view, "browse", %{"path" => "/definitely/not/here"})
       assert html =~ "Cannot read"
+    end
+  end
+
+  describe "the log console's shape" do
+    test "an entry renders as one line, with nothing padding it", %{conn: conn} do
+      Fanfarr.Log.Buffer.clear()
+      Logger.error("something went wrong")
+      Fanfarr.Log.Buffer.entries(limit: 1)
+
+      {:ok, _view, html} = live(conn, "/system")
+
+      # The element preserves whitespace so a stack trace keeps its shape, which
+      # means the template's own newlines and indentation would show up as blank
+      # lines between every entry -- which is exactly what happened.
+      assert [row] =
+               Regex.run(~r{<pre[^>]*>([^<]*something went wrong[^<]*)</pre>}, html,
+                 capture: :all_but_first
+               )
+
+      refute row =~ "\n"
+      assert row =~ ~r/^\d\d:\d\d:\d\d  error  something went wrong$/
+    end
+
+    test "the level is padded so messages line up", %{conn: conn} do
+      Fanfarr.Log.Buffer.clear()
+      Logger.error("short level")
+      Logger.warning("long level")
+      Fanfarr.Log.Buffer.entries(limit: 1)
+
+      {:ok, _view, html} = live(conn, "/system")
+
+      assert html =~ ~r/\d\d:\d\d:\d\d  error  short level/
+      assert html =~ ~r/\d\d:\d\d:\d\d  warni  long level/
     end
   end
 
