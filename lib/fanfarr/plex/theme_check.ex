@@ -153,6 +153,32 @@ defmodule Fanfarr.Plex.ThemeCheck do
     end
   end
 
+  @doc """
+  Uploads a theme file to Plex, then reads back what it serves.
+
+  The other way round from `select/3`. Selecting asks Plex to serve a theme it
+  already knows about; uploading hands it the bytes and lets it own the result,
+  which is what Themerr-plex did for years and does not depend on Plex being
+  willing to promote a local asset. Worth having as a separate action because
+  the two fail differently: selection is refused by the server, an upload is
+  refused by the file.
+  """
+  @spec upload(map(), String.t(), Path.t()) :: {:ok, state()} | {:error, term()}
+  def upload(config, rating_key, path) do
+    before =
+      case read(config, rating_key) do
+        {:ok, state} -> state
+        {:error, _reason} -> nil
+      end
+
+    result = Client.impl().upload_theme(config, rating_key, {:file, path})
+    Logger.info("uploaded #{path} to Plex for #{rating_key}: #{inspect(result)}")
+
+    with :ok <- result do
+      poll(config, rating_key, before, poll_delays())
+    end
+  end
+
   defp poll(config, rating_key, before, [delay | rest]) do
     if delay > 0, do: Process.sleep(delay)
 

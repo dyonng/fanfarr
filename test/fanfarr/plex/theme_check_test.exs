@@ -200,6 +200,55 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
     end
   end
 
+  describe "upload/3" do
+    test "hands Plex the bytes, then reports what it serves" do
+      Agent.start_link(fn -> false end, name: :uploaded?)
+
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ ->
+        if Agent.get(:uploaded?, & &1),
+          do: {:ok, %{"theme" => "/library/metadata/1/theme/9"}},
+          else: {:ok, %{}}
+      end)
+
+      stub(Fanfarr.PlexClientMock, :themes, fn _, _ ->
+        if Agent.get(:uploaded?, & &1),
+          do: {:ok, [theme("upload://themes/deadbeef", true)]},
+          else: {:ok, []}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :upload_theme, fn @config, "1", {:file, path} ->
+        assert path == "/tv/Show/theme.mp3"
+        Agent.update(:uploaded?, fn _ -> true end)
+        :ok
+      end)
+
+      assert {:ok, state} = ThemeCheck.upload(@config, "1", "/tv/Show/theme.mp3")
+      assert state.origin == :uploaded
+      assert state.url == "/library/metadata/1/theme/9"
+    end
+
+    test "a refused upload is passed through, not dressed up" do
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _, _ -> {:ok, []} end)
+
+      expect(Fanfarr.PlexClientMock, :upload_theme, fn _, _, _ ->
+        {:error, {:http, 500, "boom"}}
+      end)
+
+      assert {:error, {:http, 500, "boom"}} = ThemeCheck.upload(@config, "1", "/tv/S/theme.mp3")
+    end
+
+    test "an upload Plex accepts but does not act on is not called success" do
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _, _ -> {:ok, []} end)
+      expect(Fanfarr.PlexClientMock, :upload_theme, fn _, _, _ -> :ok end)
+
+      assert {:ok, state} = ThemeCheck.upload(@config, "1", "/tv/S/theme.mp3")
+      assert state.url == nil
+      assert state.origin == :none
+    end
+  end
+
   describe "verdict/2" do
     test "a local file plus no theme after a successful scan is the actionable case" do
       item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}

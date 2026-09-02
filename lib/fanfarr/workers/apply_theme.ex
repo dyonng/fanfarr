@@ -446,6 +446,10 @@ defmodule Fanfarr.Workers.ApplyTheme do
   def explain({:destination_missing, dir}), do: "#{dir} does not exist on this side of the mount."
   def explain({:write_failed, reason}), do: "Writing the file failed: #{inspect(reason)}"
   def explain({:exit, code, output}), do: "yt-dlp exited #{code}: #{String.trim(output)}"
+
+  def explain({:http, status, ""}), do: "Plex answered #{status}."
+  def explain({:http, status, detail}), do: "Plex answered #{status}: #{detail}"
+  def explain({:http, status}), do: "Plex answered #{status}"
   def explain(other), do: inspect(other)
 
   defp record_outcome(item, plan, dry_run, status, reason, download \\ %{}) do

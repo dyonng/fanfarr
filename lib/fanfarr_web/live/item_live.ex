@@ -49,6 +49,7 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:diagnosing, false)
       |> assign(:selecting, false)
       |> assign(:poll_scheduled, false)
+      |> assign(:uploading, false)
       |> load()
       |> track_applying()
       |> maybe_lookup()
@@ -253,6 +254,28 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  def handle_event("upload_theme", _params, socket) do
+    item = socket.assigns.item
+
+    case {Fanfarr.Config.plex_config(), item.local_theme_path} do
+      {{:error, :plex_not_configured}, _} ->
+        {:noreply, put_flash(socket, :error, "Plex is not configured")}
+
+      {_, path} when path in [nil, ""] ->
+        {:noreply, put_flash(socket, :error, "There is no local file to upload yet")}
+
+      {{:ok, config}, path} ->
+        Logger.info("upload_theme clicked for #{item.title}: #{path}")
+
+        {:noreply,
+         socket
+         |> assign(:uploading, true)
+         |> start_async(:upload_theme, fn ->
+           ThemeCheck.upload(config, item.plex_rating_key, path)
+         end)}
+    end
+  end
+
   def handle_event("diagnose_plex", _params, socket) do
     item = socket.assigns.item
 
@@ -383,6 +406,36 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   def handle_async(:select_theme, {:ok, {:error, reason}}, socket) do
     {:noreply, socket |> assign(:selecting, false) |> select_failed(reason)}
+  end
+
+  def handle_async(:upload_theme, {:ok, {:ok, current}}, socket) do
+    item =
+      Library.record_plex_theme!(socket.assigns.item, %{
+        plex_theme_url: current.url,
+        plex_theme_origin: current.origin,
+        plex_theme_agent: current.agent
+      })
+
+    {:noreply,
+     socket
+     |> assign(:uploading, false)
+     |> assign(:item, item)
+     |> assign(:plex_theme_state, restate(socket.assigns.plex_theme_state, current, item))
+     |> load()}
+  end
+
+  def handle_async(:upload_theme, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:uploading, false)
+     |> select_failed({:upload_refused, reason})}
+  end
+
+  def handle_async(:upload_theme, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:uploading, false)
+     |> select_failed({:upload_crashed, inspect(reason, limit: 5)})}
   end
 
   def handle_async(:select_theme, {:exit, reason}, socket) do
@@ -813,6 +866,22 @@ defmodule FanfarrWeb.ItemLive.Show do
             </dl>
 
             <div class="mt-3 border-t border-border/60 pt-3">
+              <%!-- The other way round from "use this one": that asks Plex to
+              serve a theme it already lists, this hands it the bytes. They
+              fail differently, and on this server selection answers 500. --%>
+              <button
+                :if={@item.local_theme_path not in [nil, ""]}
+                phx-click="upload_theme"
+                disabled={@uploading}
+                class="mr-2 inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+                title="Send the file to Plex instead of asking it to read the one on disk"
+              >
+                <.icon
+                  :if={@uploading}
+                  name="lucide-loader-circle"
+                  class="size-3.5 animate-spin"
+                /> {if @uploading, do: "Uploading…", else: "Upload to Plex"}
+              </button>
               <button
                 phx-click="diagnose_plex"
                 disabled={@diagnosing}

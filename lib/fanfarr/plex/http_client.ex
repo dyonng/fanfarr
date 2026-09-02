@@ -228,8 +228,11 @@ defmodule Fanfarr.Plex.HTTPClient do
       {:ok, %{status: 401}} ->
         {:error, :unauthorized}
 
-      {:ok, %{status: status}} ->
-        {:error, {:http, status}}
+      # Plex explains itself in the body, and throwing that away turned a 500
+      # into a number with no next step. Kept short: it is a header line or an
+      # HTML error page, and only the beginning of either says anything.
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:http, status, detail(body)}}
 
       {:error, reason} ->
         {:error, reason}
@@ -339,6 +342,13 @@ defmodule Fanfarr.Plex.HTTPClient do
         {:error, reason}
     end
   end
+
+  defp detail(body) when is_binary(body) do
+    body |> String.trim() |> String.slice(0, 300)
+  end
+
+  defp detail(body) when is_map(body) or is_list(body), do: inspect(body, limit: 20)
+  defp detail(_), do: ""
 
   defp build(%{base_url: base_url, token: token} = config, _opts) do
     [
