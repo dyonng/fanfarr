@@ -323,9 +323,148 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
          ]}
       end)
 
-      # No select_theme expectation: verify_on_exit! fails the test if one is
-      # called, which is the assertion.
+      # Neither select_theme nor upload_theme is expected: calling either fails
+      # the test, which is the assertion that a served theme is left alone.
       assert :ok = run(item, %{"dry_run" => false})
+    end
+
+    test "a locked theme field goes straight to upload, without trying to select",
+         ctx do
+      # Verified on a live server: with `theme` locked, Plex's agents will not
+      # write it however many times the folder is scanned, and the local file
+      # sits listed and unselected forever. An upload sets the field directly.
+      themerr_hit()
+      item = item(ctx)
+      downloads_ok()
+
+      stub(Fanfarr.PlexClientMock, :scan_directory, fn _c, _s, _p -> :ok end)
+      stub(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> :ok end)
+
+      Agent.start_link(fn -> false end, name: :sent?)
+
+      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k ->
+        base = %{"Field" => [%{"name" => "theme", "locked" => true}]}
+
+        if Agent.get(:sent?, & &1),
+          do: {:ok, Map.put(base, "theme", "/library/metadata/1/theme/9")},
+          else: {:ok, base}
+      end)
+
+      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k ->
+        if Agent.get(:sent?, & &1),
+          do:
+            {:ok,
+             [
+               %{
+                 rating_key: "upload://themes/a",
+                 key: "/k",
+                 selected: true,
+                 origin: :uploaded,
+                 agent: nil
+               }
+             ]},
+          else:
+            {:ok,
+             [
+               %{
+                 rating_key: "metadata://themes/abc123def",
+                 key: "/k",
+                 selected: false,
+                 origin: :local,
+                 agent: nil
+               }
+             ]}
+      end)
+
+      # No select_theme expectation: calling it fails the test, which is the
+      # assertion that a locked field skips straight past it.
+      expect(Fanfarr.PlexClientMock, :upload_theme, fn _c, _k, {:file, path} ->
+        assert path == Path.join(ctx.media, "theme.mp3")
+        Agent.update(:sent?, fn _ -> true end)
+        :ok
+      end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+
+      reloaded = Fanfarr.Library.get_media_item!(item.id)
+      assert reloaded.plex_theme_origin == :uploaded
+      assert reloaded.theme_locked
+    end
+
+    test "a refused selection falls back to uploading", ctx do
+      themerr_hit()
+      item = item(ctx)
+      downloads_ok()
+
+      stub(Fanfarr.PlexClientMock, :scan_directory, fn _c, _s, _p -> :ok end)
+      stub(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> :ok end)
+
+      Agent.start_link(fn -> false end, name: :uploaded?)
+
+      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k ->
+        if Agent.get(:uploaded?, & &1),
+          do: {:ok, %{"theme" => "/library/metadata/1/theme/9"}},
+          else: {:ok, %{}}
+      end)
+
+      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k ->
+        if Agent.get(:uploaded?, & &1),
+          do:
+            {:ok,
+             [
+               %{
+                 rating_key: "upload://themes/a",
+                 key: "/k",
+                 selected: true,
+                 origin: :uploaded,
+                 agent: nil
+               }
+             ]},
+          else:
+            {:ok,
+             [
+               %{
+                 rating_key: "metadata://themes/abc123def",
+                 key: "/k",
+                 selected: false,
+                 origin: :local,
+                 agent: nil
+               }
+             ]}
+      end)
+
+      # The 500 a live server actually answered.
+      expect(Fanfarr.PlexClientMock, :select_theme, fn _c, _k, _t ->
+        {:error, {:http, 500, ""}}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :upload_theme, fn _c, _k, {:file, _path} ->
+        Agent.update(:uploaded?, fn _ -> true end)
+        :ok
+      end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+      assert Fanfarr.Library.get_media_item!(item.id).plex_theme_origin == :uploaded
+    end
+
+    test "an upload Plex will not take still leaves a good write", ctx do
+      themerr_hit()
+      item = item(ctx)
+      downloads_ok()
+
+      stub(Fanfarr.PlexClientMock, :scan_directory, fn _c, _s, _p -> :ok end)
+      stub(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> :ok end)
+      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k -> {:ok, %{}} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k -> {:ok, []} end)
+
+      expect(Fanfarr.PlexClientMock, :upload_theme, fn _c, _k, _f ->
+        {:error, {:http, 500, "no"}}
+      end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+      assert File.read!(Path.join(ctx.media, "theme.mp3")) == "the-audio"
+      [outcome | _] = history(item)
+      assert outcome.status == :succeeded
     end
 
     test "a Plex that refuses every step does not fail a good write", ctx do

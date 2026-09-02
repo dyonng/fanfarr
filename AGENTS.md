@@ -93,6 +93,32 @@ file, so a film sitting loose among others resolves to the shared folder, where
 a `theme.mp3` would attach to every neighbouring film. `destination_dir/1`
 refuses that case.
 
+## Why a local theme.mp3 sometimes never plays
+
+**Plex will not write a metadata field it has been told to lock.** Verified on
+the reference server: a show with `theme` among its locked fields keeps a
+perfectly good `theme.mp3` listed in its theme list and unselected forever, no
+matter how many times the folder is scanned or the item refreshed. The scanner
+finds the file; the agent is simply forbidden from adopting it.
+
+Locked fields are read from the item's own metadata (`Field` entries carrying
+`locked`). Fanfarr carried a `theme_locked` attribute from the first migration
+and never populated it -- it defaulted to false and the UI printed "Locked: no"
+as fact, which was fiction of the same kind as the `provider` field this
+project invented and deleted.
+
+**Uploading is the way past it**, because an upload sets the field directly
+rather than asking an agent to. That is what Themerr-plex did, and it works on
+a locked item: the uploaded theme (`upload://themes/<sha>`) becomes the one
+playing while the local file stays listed and unselected beneath it.
+
+So the apply pipeline tries the local route first -- it is the lighter touch,
+and leaves no second copy inside Plex -- and uploads when the field is locked
+or when selection is refused.
+
+A correlation with single-season shows looked convincing for several rounds
+and was coincidence. The locked field was the cause throughout.
+
 ## Deployment decisions
 
 **Mounts follow *arr convention: one numbered mount per library location.**

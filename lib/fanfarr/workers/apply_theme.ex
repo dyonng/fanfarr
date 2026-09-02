@@ -243,12 +243,13 @@ defmodule Fanfarr.Workers.ApplyTheme do
     with {:ok, config} <- Fanfarr.Config.plex_config(),
          {:ok, _before, state} <-
            Fanfarr.Plex.ThemeCheck.refresh_and_reread(config, item.plex_rating_key, scan(item)) do
-      state = promote(config, item, state)
+      state = promote(config, item, plan, state)
 
       Library.record_plex_theme!(item, %{
         plex_theme_url: state.url,
         plex_theme_origin: state.origin,
-        plex_theme_agent: state.agent
+        plex_theme_agent: state.agent,
+        theme_locked: "theme" in (state[:locked_fields] || [])
       })
 
       log_outcome(item, plan, state)
@@ -263,16 +264,52 @@ defmodule Fanfarr.Workers.ApplyTheme do
     end
   end
 
-  # A theme Plex has listed and not selected is the state a freshly scanned
-  # theme.mp3 lands in, and the only way out is to ask for it by name.
-  defp promote(config, item, %{listed_not_selected: true, themes: [theme | _]}) do
-    case Fanfarr.Plex.ThemeCheck.select(config, item.plex_rating_key, theme.rating_key) do
-      {:ok, state} -> state
-      {:error, _reason} -> %{url: nil, origin: :none, agent: nil}
+  # Plex is already serving something. Nothing to do.
+  defp promote(_config, _item, _plan, %{url: url} = state) when is_binary(url), do: state
+
+  # The theme field is locked, so Plex's agents will not write it however many
+  # times the folder is scanned. Verified on a live server: a show with
+  # `theme` locked kept its theme.mp3 listed and unselected forever, and an
+  # upload took immediately -- an upload sets the field rather than asking an
+  # agent to. Locking is why the local-file route cannot work here, so this
+  # does not waste a request finding that out again.
+  defp promote(config, item, plan, %{locked_fields: locked} = state) when is_list(locked) do
+    if "theme" in locked do
+      upload(config, item, plan, state)
+    else
+      select_then_upload(config, item, plan, state)
     end
   end
 
-  defp promote(_config, _item, state), do: state
+  defp promote(config, item, plan, state), do: select_then_upload(config, item, plan, state)
+
+  # Selecting is the lighter touch -- it adopts the file already on disk rather
+  # than storing a second copy inside Plex -- so it is tried first, and the
+  # upload is the fallback when Plex will not take it.
+  defp select_then_upload(
+         config,
+         item,
+         plan,
+         %{listed_not_selected: true, themes: [theme | _]} = state
+       ) do
+    case Fanfarr.Plex.ThemeCheck.select(config, item.plex_rating_key, theme.rating_key) do
+      {:ok, %{url: url} = selected} when is_binary(url) -> selected
+      _ -> upload(config, item, plan, state)
+    end
+  end
+
+  defp select_then_upload(config, item, plan, state), do: upload(config, item, plan, state)
+
+  defp upload(config, item, plan, state) do
+    case Fanfarr.Plex.ThemeCheck.upload(config, item.plex_rating_key, plan.path) do
+      {:ok, uploaded} ->
+        uploaded
+
+      {:error, reason} ->
+        Logger.warning("Plex would not take an upload of #{plan.path}: #{inspect(reason)}")
+        state
+    end
+  end
 
   defp log_outcome(item, plan, %{url: url}) when is_binary(url) do
     Logger.info("Plex is serving #{plan.path} for #{item.title}")
