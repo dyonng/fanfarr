@@ -49,3 +49,7 @@ npm-debug.log
 /appdata/
 # BEAM crash dumps.
 erl_crash.dump
+
+# Python bytecode from the icon scripts.
+__pycache__/
+*.pyc

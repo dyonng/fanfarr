@@ -73,9 +73,14 @@ MIN_WINDOW = 200
 def render(chrome, svg_bytes, size, background):
     """Render the SVG at exactly size x size, via a crop out of a larger shot."""
     bg = background or "transparent"
-    win = max(size, MIN_WINDOW)
+    # Room to spare around the image, and no scrollbars even if something is a
+    # pixel over: a window merely as big as the image gets scrollbars, and a
+    # scrollbar shifts and clips what is then cropped out of the top-left. That
+    # rendered the 180px touch icon at two thirds scale, pushed right, while
+    # the 16-48px ones -- far below the old 200px floor -- came out fine.
+    win = max(size + 200, MIN_WINDOW)
     html = (
-        f'<body style="margin:0;background:{bg}">'
+        f'<body style="margin:0;background:{bg};overflow:hidden">'
         f'<img src="icon.svg" width="{size}" height="{size}" '
         f'style="display:block;position:absolute;top:0;left:0">'
         f"</body>"
