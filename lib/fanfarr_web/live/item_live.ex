@@ -354,11 +354,7 @@ defmodule FanfarrWeb.ItemLive.Show do
     # Store it the same way a sync would, so the status badge and the Plex card
     # agree with what we just read rather than with the last full sync.
     item =
-      Library.record_plex_theme!(socket.assigns.item, %{
-        plex_theme_url: current.url,
-        plex_theme_origin: current.origin,
-        plex_theme_agent: current.agent
-      })
+      Library.record_plex_theme!(socket.assigns.item, plex_theme_attrs(current))
 
     {level, message} = ThemeCheck.verdict(current, item)
 
@@ -394,11 +390,7 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   def handle_async(:select_theme, {:ok, {:ok, current}}, socket) do
     item =
-      Library.record_plex_theme!(socket.assigns.item, %{
-        plex_theme_url: current.url,
-        plex_theme_origin: current.origin,
-        plex_theme_agent: current.agent
-      })
+      Library.record_plex_theme!(socket.assigns.item, plex_theme_attrs(current))
 
     {:noreply,
      socket
@@ -414,11 +406,7 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   def handle_async(:upload_theme, {:ok, {:ok, current}}, socket) do
     item =
-      Library.record_plex_theme!(socket.assigns.item, %{
-        plex_theme_url: current.url,
-        plex_theme_origin: current.origin,
-        plex_theme_agent: current.agent
-      })
+      Library.record_plex_theme!(socket.assigns.item, plex_theme_attrs(current))
 
     {:noreply,
      socket
@@ -524,6 +512,22 @@ defmodule FanfarrWeb.ItemLive.Show do
     socket
     |> assign(:plex_theme_state, state)
     |> put_flash(:error, "Plex refused: #{inspect(reason)}")
+  end
+
+  # theme_locked is only known when Plex was actually asked; a read that did
+  # not report the fields must not be taken as "unlocked".
+  defp plex_theme_attrs(%{locked_fields: locked} = state) when is_list(locked) do
+    state |> plex_theme_attrs(:base) |> Map.put(:theme_locked, "theme" in locked)
+  end
+
+  defp plex_theme_attrs(state), do: plex_theme_attrs(state, :base)
+
+  defp plex_theme_attrs(state, :base) do
+    %{
+      plex_theme_url: state.url,
+      plex_theme_origin: state.origin,
+      plex_theme_agent: state.agent
+    }
   end
 
   defp restate(previous, current, item) do
@@ -955,6 +959,15 @@ defmodule FanfarrWeb.ItemLive.Show do
                 <div>
                   <p class="font-semibold text-muted-foreground">The file on disk</p>
                   <p class="mt-0.5 font-mono">{file_summary(@plex_diagnosis[:file])}</p>
+                </div>
+
+                <div :if={is_list(@plex_diagnosis[:locked_fields])}>
+                  <p class="font-semibold text-muted-foreground">Fields Plex has locked</p>
+                  <p class="mt-0.5">
+                    {if @plex_diagnosis.locked_fields == [],
+                      do: "none",
+                      else: Enum.join(@plex_diagnosis.locked_fields, ", ")}
+                  </p>
                 </div>
 
                 <div :if={is_list(@plex_diagnosis.seasons)}>

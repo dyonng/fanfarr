@@ -69,6 +69,7 @@ defmodule Fanfarr.Plex.ThemeCheck do
          agent: url && selected && selected[:agent],
          rating_key: url && selected && selected[:rating_key],
          listed_not_selected: ThemeOrigin.listed_not_selected?(themes),
+         locked_fields: locked_fields(meta),
          themes: themes
        }}
     end
@@ -209,8 +210,16 @@ defmodule Fanfarr.Plex.ThemeCheck do
       plex_locations: locations(config, item.plex_rating_key),
       wrote_to: item.local_theme_path,
       plex_path: item.plex_path,
-      seasons: seasons(config, item)
+      seasons: seasons(config, item),
+      locked_fields: item_locked_fields(config, item)
     }
+  end
+
+  defp item_locked_fields(config, item) do
+    case Client.impl().metadata(config, item.plex_rating_key) do
+      {:ok, meta} -> locked_fields(meta)
+      {:error, _reason} -> nil
+    end
   end
 
   # Reported because a pattern was noticed, not because we know it matters:
@@ -343,6 +352,21 @@ defmodule Fanfarr.Plex.ThemeCheck do
     {:ok, "Plex is serving the local file — the theme Fanfarr wrote is the one playing."}
   end
 
+  def verdict(%{locked_fields: locked} = state, item) when is_list(locked) do
+    if "theme" in locked do
+      {:warning,
+       """
+       This item's theme field is locked in Plex, so its agents will not set it \
+       — a locked field is one Plex has been told not to touch, and that is why \
+       the file sits in the theme list unselected however many times it is \
+       scanned or refreshed. Unlock it in Plex (the item's edit view, the \
+       padlock beside Theme), then refresh here.\
+       """}
+    else
+      verdict(Map.delete(state, :locked_fields), item)
+    end
+  end
+
   def verdict(%{origin: :none, listed_not_selected: true}, %{local_theme_present: true}) do
     {:warning,
      """
@@ -428,6 +452,34 @@ defmodule Fanfarr.Plex.ThemeCheck do
     Map.take(before, [:url, :origin, :agent, :rating_key]) !=
       Map.take(current, [:url, :origin, :agent, :rating_key])
   end
+
+  @doc """
+  The metadata fields Plex has locked against its agents, by name.
+
+  A locked field is one the operator (or a previous tool) pinned, and Plex's
+  agents will not write it. If `theme` is in this list, no amount of scanning
+  or refreshing will make the agent adopt a local theme -- it has been told not
+  to touch that field, and the item sits with its theme listed and unselected.
+
+  Fanfarr has carried a `theme_locked` attribute since the beginning and never
+  once populated it: it defaulted to false and the item page reported that as
+  fact. This is where the real answer comes from.
+  """
+  @spec locked_fields(map()) :: [String.t()]
+  def locked_fields(meta) when is_map(meta) do
+    meta
+    |> Map.get("Field", [])
+    |> List.wrap()
+    |> Enum.filter(&locked?/1)
+    |> Enum.map(& &1["name"])
+    |> Enum.reject(&is_nil/1)
+  end
+
+  def locked_fields(_), do: []
+
+  # Plex sends a real boolean in JSON and "1" in XML; tolerate both.
+  defp locked?(%{"locked" => locked}), do: locked in [true, 1, "1"]
+  defp locked?(_), do: false
 
   defp blank_to_nil(value) when is_binary(value) and value != "", do: value
   defp blank_to_nil(_), do: nil

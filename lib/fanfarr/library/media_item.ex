@@ -77,7 +77,7 @@ defmodule Fanfarr.Library.MediaItem do
     # from "Plex is still playing its agent's theme", and those two look
     # identical from here otherwise.
     update :record_plex_theme do
-      accept [:plex_theme_url, :plex_theme_origin, :plex_theme_agent]
+      accept [:plex_theme_url, :plex_theme_origin, :plex_theme_agent, :theme_locked]
       change set_attribute(:last_synced_at, &DateTime.utc_now/0)
     end
 

@@ -200,6 +200,60 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
     end
   end
 
+  describe "locked_fields/1" do
+    test "reads the fields Plex will not let its agents write" do
+      meta = %{
+        "Field" => [
+          %{"name" => "title", "locked" => true},
+          %{"name" => "summary", "locked" => false},
+          %{"name" => "theme", "locked" => true}
+        ]
+      }
+
+      assert ThemeCheck.locked_fields(meta) == ["title", "theme"]
+    end
+
+    test "XML's \"1\" counts as locked, the same as JSON's true" do
+      assert ThemeCheck.locked_fields(%{"Field" => [%{"name" => "theme", "locked" => "1"}]}) ==
+               ["theme"]
+    end
+
+    test "an item with nothing locked, and one that reports no fields at all" do
+      assert ThemeCheck.locked_fields(%{"Field" => []}) == []
+      assert ThemeCheck.locked_fields(%{}) == []
+      assert ThemeCheck.locked_fields(nil) == []
+    end
+  end
+
+  describe "the locked theme field" do
+    test "a locked theme outranks every other reading" do
+      # Nothing else can help while it holds: the agent has been told not to
+      # write this field, so scanning and refreshing are both beside the point.
+      state = %{
+        origin: :none,
+        listed_not_selected: true,
+        locked_fields: ["theme"],
+        rating_key: nil
+      }
+
+      assert {:warning, message} = ThemeCheck.verdict(state, %{local_theme_present: true})
+      assert message =~ "locked in Plex"
+      assert message =~ "Unlock it"
+    end
+
+    test "other locked fields do not change the reading" do
+      state = %{
+        origin: :none,
+        listed_not_selected: true,
+        locked_fields: ["title", "summary"],
+        rating_key: nil
+      }
+
+      assert {:warning, message} = ThemeCheck.verdict(state, %{local_theme_present: true})
+      assert message =~ "has not made it the item's theme"
+    end
+  end
+
   describe "upload/3" do
     test "hands Plex the bytes, then reports what it serves" do
       Agent.start_link(fn -> false end, name: :uploaded?)
@@ -353,6 +407,12 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
         end
       end)
 
+      # diagnose also asks for the item's locked fields, which come from
+      # metadata rather than raw.
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ ->
+        {:ok, %{"Field" => [%{"name" => "title", "locked" => true}]}}
+      end)
+
       item = %{
         plex_rating_key: "101",
         kind: :show,
@@ -367,6 +427,7 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
       assert report.plex_locations == ["/media/TV/Star City"]
       assert report.wrote_to == "/tv2/Star City/theme.mp3"
       assert report.seasons == ["Season 1", "Season 2"]
+      assert report.locked_fields == ["title"]
 
       # Listed, not interpreted: we do not claim to know which one governs
       # themes on this agent.
@@ -376,6 +437,7 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
 
     test "a section Plex will not describe does not take the whole report down" do
       stub(Fanfarr.PlexClientMock, :raw, fn _config, _path -> {:error, :unauthorized} end)
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:error, :unauthorized} end)
 
       item = %{plex_rating_key: "101", kind: :show, plex_path: nil, local_theme_path: nil}
       report = ThemeCheck.diagnose(@config, item, "2")
@@ -384,6 +446,9 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
       assert report.prefs == []
       assert report.plex_locations == []
       assert report.seasons == nil
+
+      # nil, not [] -- "we could not ask" is not "nothing is locked".
+      assert report.locked_fields == nil
     end
 
     test "seasons are read from the XML element name too" do
@@ -395,6 +460,8 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
         end
       end)
 
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
+
       item = %{plex_rating_key: "7", kind: :show, plex_path: "/t/S", local_theme_path: nil}
       assert ThemeCheck.diagnose(@config, item, "2").seasons == ["Season 1"]
     end
@@ -404,6 +471,8 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
         refute path =~ "children"
         {:ok, %{}}
       end)
+
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
 
       item = %{plex_rating_key: "9", kind: :movie, plex_path: "/m/Heat", local_theme_path: nil}
       assert ThemeCheck.diagnose(@config, item, "1").seasons == nil
