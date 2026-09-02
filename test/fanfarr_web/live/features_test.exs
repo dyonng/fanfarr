@@ -161,6 +161,51 @@ defmodule FanfarrWeb.FeaturesTest do
     end
   end
 
+  describe "the queue widget and the activity page" do
+    test "applying no longer stops to ask", %{conn: conn, item: item} do
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+      refute html =~ "data-confirm"
+    end
+
+    test "a queued job shows in the corner of another page, linking to Activity",
+         %{conn: conn, item: item} do
+      {:ok, _job} =
+        %{media_item_id: item.id, dry_run: false}
+        |> Fanfarr.Workers.ApplyTheme.new()
+        |> Oban.insert()
+
+      {:ok, view, _html} = live(conn, "/settings")
+
+      assert has_element?(view, ~s(a[href="/activity"]), "queued")
+    end
+
+    test "the widget stays out of the way when nothing is queued", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+      refute has_element?(view, ~s(a[href="/activity"]), "queued")
+    end
+
+    test "Activity itself does not show the widget", %{conn: conn, item: item} do
+      {:ok, _job} =
+        %{media_item_id: item.id} |> Fanfarr.Workers.ApplyTheme.new() |> Oban.insert()
+
+      {:ok, view, _html} = live(conn, "/activity")
+
+      refute has_element?(view, ~s(a.fixed[href="/activity"]))
+    end
+
+    test "the queue names the title, not just the worker", %{conn: conn, item: item} do
+      {:ok, _job} =
+        %{media_item_id: item.id, dry_run: false}
+        |> Fanfarr.Workers.ApplyTheme.new()
+        |> Oban.insert()
+
+      {:ok, _view, html} = live(conn, "/activity")
+
+      assert html =~ "Apply theme to One Piece"
+      assert html =~ "background, so you can leave this page"
+    end
+  end
+
   describe "the in-flight card clearing itself" do
     test "it goes away once the job leaves the queue, with no further broadcast",
          %{conn: conn, item: item} do

@@ -48,7 +48,8 @@ defmodule FanfarrWeb.Router do
   scope "/", FanfarrWeb do
     pipe_through :browser
 
-    ash_authentication_live_session :authenticated_routes do
+    ash_authentication_live_session :authenticated_routes,
+      on_mount: [FanfarrWeb.QueueStatus] do
       live "/", LibraryLive.Index, :index
       live "/library/:id", ItemLive.Show, :show
       live "/activity", ActivityLive.Index, :index

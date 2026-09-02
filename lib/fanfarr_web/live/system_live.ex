@@ -162,7 +162,12 @@ defmodule FanfarrWeb.SystemLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_path={:system} current_user={@current_user}>
+    <Layouts.app
+      flash={@flash}
+      current_path={:system}
+      current_user={@current_user}
+      queue_summary={@queue_summary}
+    >
       <div class="max-w-3xl space-y-6">
         <div class="flex items-center justify-between">
           <div>

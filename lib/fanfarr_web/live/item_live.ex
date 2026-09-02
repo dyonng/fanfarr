@@ -490,7 +490,12 @@ defmodule FanfarrWeb.ItemLive.Show do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_path={:library} current_user={@current_user}>
+    <Layouts.app
+      flash={@flash}
+      current_path={:library}
+      current_user={@current_user}
+      queue_summary={@queue_summary}
+    >
       <div class="space-y-6">
         <div class="flex items-start gap-5">
           <img
@@ -530,7 +535,6 @@ defmodule FanfarrWeb.ItemLive.Show do
               </button>
               <button
                 phx-click="apply"
-                data-confirm={"Write theme.mp3 next to #{@item.title}? Deleting the file undoes it."}
                 disabled={@applying or @item.theme_locked}
                 class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                 title={apply_title(@item)}

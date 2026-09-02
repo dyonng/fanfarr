@@ -185,7 +185,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_path={:library} current_user={@current_user}>
+    <Layouts.app
+      flash={@flash}
+      current_path={:library}
+      current_user={@current_user}
+      queue_summary={@queue_summary}
+    >
       <div class="space-y-4">
         <div class="flex items-center justify-between">
           <div>

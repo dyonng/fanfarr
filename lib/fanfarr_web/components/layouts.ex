@@ -33,6 +33,10 @@ defmodule FanfarrWeb.Layouts do
 
   attr :current_user, :map, default: nil, doc: "the signed-in user, when there is one"
 
+  attr :queue_summary, :map,
+    default: nil,
+    doc: "counts from Fanfarr.Jobs.summary/0, kept current by FanfarrWeb.QueueStatus"
+
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -109,6 +113,29 @@ defmodule FanfarrWeb.Layouts do
         </main>
       </div>
     </div>
+
+    <%!-- Bottom right, and only when there is something to say. Clicking a
+    button queues an Oban job and the page is then free to be navigated away
+    from -- but nothing said so, and a spinner on the page you started from is
+    not a queue. Hidden on Activity, which is the queue in full. --%>
+    <.link
+      :if={@queue_summary && @current_path != :activity && Fanfarr.Jobs.busy?(@queue_summary)}
+      navigate={~p"/activity"}
+      class="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs shadow-lg hover:bg-accent hover:text-accent-foreground"
+      title="What the background queue is doing"
+    >
+      <.icon
+        :if={@queue_summary.running > 0}
+        name="lucide-loader-circle"
+        class="size-3.5 animate-spin text-primary"
+      />
+      <.icon :if={@queue_summary.running == 0} name="lucide-clock" class="size-3.5" />
+      <span>
+        <span :if={@queue_summary.running > 0}>{@queue_summary.running} running</span>
+        <span :if={@queue_summary.running > 0 and @queue_summary.queued > 0}> · </span>
+        <span :if={@queue_summary.queued > 0}>{@queue_summary.queued} queued</span>
+      </span>
+    </.link>
 
     <.flash_group flash={@flash} />
     """

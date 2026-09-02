@@ -9,8 +9,6 @@ defmodule FanfarrWeb.ActivityLive.Index do
 
   on_mount {FanfarrWeb.LiveUserAuth, :live_user_required}
 
-  import Ecto.Query, only: [from: 2]
-
   @refresh_ms 3_000
 
   @impl true
@@ -39,40 +37,54 @@ defmodule FanfarrWeb.ActivityLive.Index do
   end
 
   defp load(socket) do
-    jobs =
-      Fanfarr.Repo.all(
-        from j in Oban.Job,
-          order_by: [desc: j.id],
-          limit: 30,
-          select: [:id, :worker, :state, :queue, :attempt, :max_attempts, :errors, :inserted_at]
-      )
-
     socket
-    |> assign(:jobs, jobs)
+    |> assign(:jobs, Fanfarr.Jobs.recent())
+    |> assign(:summary, Fanfarr.Jobs.summary())
     |> assign(:failures, Fanfarr.Themes.list_theme_failures!() |> Enum.take(20))
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_path={:activity} current_user={@current_user}>
+    <Layouts.app
+      flash={@flash}
+      current_path={:activity}
+      current_user={@current_user}
+      queue_summary={@queue_summary}
+    >
       <div class="space-y-6">
         <div>
           <h1 class="text-2xl font-semibold tracking-tight">Activity</h1>
-          <p class="text-sm text-muted-foreground">Jobs refresh every few seconds.</p>
+          <p class="text-sm text-muted-foreground">
+            <span :if={Fanfarr.Jobs.busy?(@summary)}>
+              {@summary.running} running · {@summary.queued} waiting. Everything here runs in the
+              background, so you can leave this page.
+            </span>
+            <span :if={not Fanfarr.Jobs.busy?(@summary)}>
+              Nothing running. Jobs refresh every few seconds.
+            </span>
+          </p>
         </div>
 
         <section class="rounded-lg border border-border bg-card">
           <h2 class="border-b border-border px-4 py-3 text-sm font-semibold text-card-foreground">
             Queue
           </h2>
+          <%!-- Running and waiting work sorts first however old it is. Ordered
+          purely by id, a job still going gets buried under whatever finished
+          while it ran, which is the opposite of what this page is for. --%>
           <div :if={@jobs == []} class="px-4 py-6 text-sm text-muted-foreground">
             No jobs yet. A library sync or theme refresh will appear here.
           </div>
           <table :if={@jobs != []} class="w-full text-sm">
             <tbody>
               <tr :for={job <- @jobs} class="border-b border-border/60 last:border-0">
-                <td class="px-4 py-2 font-mono text-xs">{short_worker(job.worker)}</td>
+                <td class="px-4 py-2">
+                  <p class="text-sm">{job.label}</p>
+                  <p class="font-mono text-xs text-muted-foreground">
+                    {Fanfarr.Jobs.short_worker(job.worker)}
+                  </p>
+                </td>
                 <td class="px-2 py-2">
                   <span class={[
                     "rounded-full px-2 py-0.5 text-xs font-medium",
@@ -137,8 +149,6 @@ defmodule FanfarrWeb.ActivityLive.Index do
     </Layouts.app>
     """
   end
-
-  defp short_worker(worker), do: worker |> String.split(".") |> List.last()
 
   defp last_error(%{errors: []}), do: ""
 
