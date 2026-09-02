@@ -208,6 +208,140 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
   end
 
+  describe "handing the written file over to Plex" do
+    setup do
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+      :ok
+    end
+
+    defp downloads_ok do
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        file = Path.join(dir, "theme.mp3")
+        File.write!(file, "the-audio")
+        {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 88.0}}
+      end)
+    end
+
+    test "scans the folder, refreshes, and promotes a theme Plex listed but did not serve",
+         ctx do
+      themerr_hit()
+      item = item(ctx)
+      downloads_ok()
+
+      key = "metadata://themes/46f33324b3bba73680ef38c5de0cd89664a55a1c"
+      test_pid = self()
+
+      expect(Fanfarr.PlexClientMock, :scan_directory, fn _c, "1", path ->
+        assert path == ctx.media
+        send(test_pid, :scanned)
+        :ok
+      end)
+
+      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k ->
+        send(test_pid, :refreshed)
+        :ok
+      end)
+
+      # Listed and unselected until asked for by name; served afterwards.
+      Agent.start_link(fn -> false end, name: :selected?)
+
+      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k ->
+        if Agent.get(:selected?, & &1),
+          do: {:ok, %{"theme" => "/library/metadata/1/theme/9"}},
+          else: {:ok, %{}}
+      end)
+
+      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k ->
+        {:ok,
+         [
+           %{
+             rating_key: key,
+             key: "/library/metadata/1/file",
+             selected: Agent.get(:selected?, & &1),
+             origin: :local,
+             agent: nil
+           }
+         ]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :select_theme, fn _c, _k, asked ->
+        assert asked == key
+        Agent.update(:selected?, fn _ -> true end)
+        send(test_pid, :selected)
+        :ok
+      end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+
+      assert_received :scanned
+      assert_received :refreshed
+      assert_received :selected
+
+      # What Plex ended up serving is stored, so the badge agrees with it.
+      reloaded = Fanfarr.Library.get_media_item!(item.id)
+      assert reloaded.plex_theme_origin == :local
+      assert reloaded.plex_theme_url == "/library/metadata/1/theme/9"
+    end
+
+    test "a theme Plex is already serving is not re-selected", ctx do
+      themerr_hit()
+      item = item(ctx)
+      downloads_ok()
+
+      stub(Fanfarr.PlexClientMock, :scan_directory, fn _c, _s, _p -> :ok end)
+      stub(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> :ok end)
+
+      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k ->
+        {:ok, %{"theme" => "/library/metadata/1/theme/9"}}
+      end)
+
+      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k ->
+        {:ok,
+         [
+           %{
+             rating_key: "metadata://themes/46f33324b3bba73680ef38c5de0cd89664a55a1c",
+             key: "/k",
+             selected: true,
+             origin: :local,
+             agent: nil
+           }
+         ]}
+      end)
+
+      # No select_theme expectation: verify_on_exit! fails the test if one is
+      # called, which is the assertion.
+      assert :ok = run(item, %{"dry_run" => false})
+    end
+
+    test "a Plex that refuses every step does not fail a good write", ctx do
+      themerr_hit()
+      item = item(ctx)
+      downloads_ok()
+
+      stub(Fanfarr.PlexClientMock, :scan_directory, fn _c, _s, _p -> {:error, {:http, 500}} end)
+      stub(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> {:error, :timeout} end)
+      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k -> {:error, :timeout} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k -> {:error, :timeout} end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+
+      # The bytes are on disk and correct, which is what the job was for.
+      assert File.read!(Path.join(ctx.media, "theme.mp3")) == "the-audio"
+      [outcome | _] = history(item)
+      assert outcome.status == :succeeded
+    end
+
+    test "a dry run tells Plex nothing", ctx do
+      themerr_hit()
+      item = item(ctx)
+
+      # No downloader and no Plex expectations at all: a preview that touched
+      # the server would not be a preview.
+      assert :ok = run(item, %{"dry_run" => true})
+    end
+  end
+
   describe "which URL gets applied" do
     test "the operator's pick outranks ThemerrDB", ctx do
       themerr_hit("https://www.youtube.com/watch?v=fromthemerr")

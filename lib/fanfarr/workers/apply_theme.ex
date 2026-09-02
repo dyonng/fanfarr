@@ -223,13 +223,83 @@ defmodule Fanfarr.Workers.ApplyTheme do
       # subscriber that reloads before this ran would see the previous file's
       # timestamp -- which is what left the audio player on the item page
       # playing the old theme until the page was refreshed by hand.
-      Library.record_local_theme!(item, %{local_theme_present: true, local_theme_path: plan.path})
+      item =
+        Library.record_local_theme!(item, %{
+          local_theme_present: true,
+          local_theme_path: plan.path
+        })
+
       record_outcome(item, plan, dry_run, :succeeded, nil, download)
+      hand_over_to_plex(item, plan)
       :ok
     else
       {:error, reason} ->
         record_outcome(item, plan, dry_run, :failed, reason)
         retry_or_stop(reason)
+    end
+  end
+
+  # Writing the file is only half of it. Plex finds files and fetches metadata
+  # in two separate stages, and neither runs on its own schedule when a sidecar
+  # appears: without this the operator writes a theme, sees nothing play, and
+  # goes looking for a button. So the same sequence the item page runs by hand
+  # happens here -- scan the folder so Plex sees the file, refresh the item so
+  # the agents run, then promote the theme if Plex listed it and served none.
+  #
+  # None of it can fail the apply. The file is on disk and correct either way,
+  # and a Plex that is unreachable, or that refuses any step, is a thing to
+  # report rather than a reason to mark a good write failed and retry it.
+  defp hand_over_to_plex(item, plan) do
+    with {:ok, config} <- Fanfarr.Config.plex_config(),
+         {:ok, _before, state} <-
+           Fanfarr.Plex.ThemeCheck.refresh_and_reread(config, item.plex_rating_key, scan(item)) do
+      state = promote(config, item, state)
+
+      Library.record_plex_theme!(item, %{
+        plex_theme_url: state.url,
+        plex_theme_origin: state.origin,
+        plex_theme_agent: state.agent
+      })
+
+      log_outcome(item, plan, state)
+    else
+      {:error, :plex_not_configured} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "wrote #{plan.path} but could not get Plex to pick it up: #{inspect(reason)}"
+        )
+    end
+  end
+
+  # A theme Plex has listed and not selected is the state a freshly scanned
+  # theme.mp3 lands in, and the only way out is to ask for it by name.
+  defp promote(config, item, %{listed_not_selected: true, themes: [theme | _]}) do
+    case Fanfarr.Plex.ThemeCheck.select(config, item.plex_rating_key, theme.rating_key) do
+      {:ok, state} -> state
+      {:error, _reason} -> %{url: nil, origin: :none, agent: nil}
+    end
+  end
+
+  defp promote(_config, _item, state), do: state
+
+  defp log_outcome(item, plan, %{url: url}) when is_binary(url) do
+    Logger.info("Plex is serving #{plan.path} for #{item.title}")
+  end
+
+  defp log_outcome(item, plan, _state) do
+    Logger.warning(
+      "wrote #{plan.path} for #{item.title} but Plex is still serving no theme; " <>
+        "check that the library has \"Use local assets\" on"
+    )
+  end
+
+  defp scan(item) do
+    section = Ash.load!(item, :section).section
+
+    if is_binary(item.plex_path) and item.plex_path != "" and is_binary(section.plex_key) do
+      {section.plex_key, item.plex_path}
     end
   end
 
