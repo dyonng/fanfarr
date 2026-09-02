@@ -169,6 +169,31 @@ defmodule Fanfarr.Diagnostics do
     |> Redactor.redact()
   end
 
+  @doc """
+  Whether a log line is routine web traffic rather than something that happened.
+
+  A single library page fetches fifty posters, and each one logs a request and
+  a response, so the console filled with `GET /posters/<uuid>` and `Sent 200`
+  and the one line worth reading scrolled away. These are hidden by default.
+
+  Deliberately narrow. Only static and image routes are treated as noise, and
+  only successful responses: a `Sent 500` stays, and so does the request line
+  for anything that is not a poster or an asset, because the pairing is how you
+  tell which request failed. Hiding every request line would have hidden which
+  one produced the 500 that started this.
+  """
+  @static_request ~r{^(GET|HEAD) /(posters/|assets/|favicon|apple-touch-icon|robots\.txt)}
+  @ok_response ~r/^Sent ([123]\d\d) /
+  @socket_connect ~r/^CONNECTED TO /
+
+  @spec routine_web?(String.t()) :: boolean()
+  def routine_web?(message) when is_binary(message) do
+    Regex.match?(@static_request, message) or Regex.match?(@ok_response, message) or
+      Regex.match?(@socket_connect, message)
+  end
+
+  def routine_web?(_), do: false
+
   @doc "Log entries rendered as plain text, newest last so it reads like a log."
   @spec log_text([Fanfarr.Log.Buffer.entry()]) :: String.t()
   def log_text([]), do: "(nothing captured yet)"

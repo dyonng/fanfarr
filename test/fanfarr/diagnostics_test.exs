@@ -206,4 +206,40 @@ defmodule Fanfarr.DiagnosticsTest do
       assert Diagnostics.video_probe("https://evil.example/x") =~ "Not a YouTube URL"
     end
   end
+
+  describe "routine_web?/1" do
+    test "poster and asset traffic is noise" do
+      for message <- [
+            "GET /posters/20dd2a5a-31c5-4d99-8625-fd3fed80e604",
+            "GET /assets/js/app-1e26.js",
+            "GET /favicon.svg",
+            "HEAD /apple-touch-icon.png",
+            "GET /robots.txt",
+            "Sent 200 in 3ms",
+            "Sent 304 in 1ms",
+            "CONNECTED TO Phoenix.LiveView.Socket in 83\u00b5s"
+          ] do
+        assert Fanfarr.Diagnostics.routine_web?(message), message
+      end
+    end
+
+    test "a failed response is never noise" do
+      # The 500 that started this was next to fifty poster requests. Hiding
+      # those must not hide it.
+      for message <- ["Sent 500 in 11ms", "Sent 404 in 2ms", "Sent 422 in 5ms"] do
+        refute Fanfarr.Diagnostics.routine_web?(message), message
+      end
+    end
+
+    test "requests that are not static keep their line, so a failure can be paired" do
+      refute Fanfarr.Diagnostics.routine_web?("GET /library/ede41b43/theme")
+      refute Fanfarr.Diagnostics.routine_web?("POST /settings")
+    end
+
+    test "anything the app itself logged is kept" do
+      refute Fanfarr.Diagnostics.routine_web?("Plex is serving /tv2/X/theme.mp3 for X")
+      refute Fanfarr.Diagnostics.routine_web?("loudness -16.5 -> -14.5 LUFS")
+      refute Fanfarr.Diagnostics.routine_web?(nil)
+    end
+  end
 end

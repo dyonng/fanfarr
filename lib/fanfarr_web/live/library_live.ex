@@ -25,7 +25,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
     {:ok,
      socket
-     |> assign(:sections, Fanfarr.Library.list_sections!())
      |> assign(:selected, MapSet.new())
      |> assign(:page_title, "Library")}
   end
@@ -35,7 +34,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
     filters = %{
       status: params["status"],
       kind: params["kind"],
-      section: params["section"],
       q: params["q"],
       page: max(String.to_integer(params["page"] || "1"), 1)
     }
@@ -49,7 +47,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
       %{
         "status" => params["status"],
         "kind" => params["kind"],
-        "section" => params["section"],
         "q" => params["q"]
       }
       |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
@@ -129,7 +126,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
     {:noreply, load_items(socket)}
   end
 
-  # Filtering happens in the query where AshSqlite supports it (kind, section,
+  # Filtering happens in the query where AshSqlite supports it (kind and
   # title search); theme_status is a calculation that reads the application
   # log, so the status filter applies after load. The page is capped either
   # way, so the post-filter never scans more than one page's worth beyond need.
@@ -144,13 +141,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
         "show" -> Ash.Query.filter(query, kind == :show)
         "movie" -> Ash.Query.filter(query, kind == :movie)
         _ -> query
-      end
-
-    query =
-      case filters.section do
-        nil -> query
-        "" -> query
-        id -> Ash.Query.filter(query, section_id == ^id)
       end
 
     query =
@@ -237,12 +227,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
             <option value="all" selected={@filters.kind in [nil, "", "all"]}>Shows & movies</option>
             <option value="show" selected={@filters.kind == "show"}>Shows</option>
             <option value="movie" selected={@filters.kind == "movie"}>Movies</option>
-          </select>
-          <select name="section" class="h-9 rounded-md border border-input bg-background px-2 text-sm">
-            <option value="" selected={@filters.section in [nil, ""]}>All libraries</option>
-            <option :for={s <- @sections} value={s.id} selected={@filters.section == s.id}>
-              {s.title}
-            </option>
           </select>
         </form>
 
@@ -473,7 +457,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
     %{
       "status" => filters.status,
       "kind" => filters.kind,
-      "section" => filters.section,
       "q" => filters.q,
       "page" => page
     }

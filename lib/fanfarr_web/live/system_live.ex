@@ -27,6 +27,7 @@ defmodule FanfarrWeb.SystemLive.Index do
       |> assign(:running, false)
       |> assign(:about, about())
       |> assign(:log_level, "info")
+      |> assign(:hide_noise, true)
       |> assign(:tool, nil)
       |> assign(:tool_output, nil)
       |> assign(:tool_running, false)
@@ -52,6 +53,10 @@ defmodule FanfarrWeb.SystemLive.Index do
 
   def handle_event("set_log_level", %{"level" => level}, socket) when level in @log_levels do
     {:noreply, socket |> assign(:log_level, level) |> load_logs()}
+  end
+
+  def handle_event("toggle_noise", _params, socket) do
+    {:noreply, socket |> assign(:hide_noise, not socket.assigns.hide_noise) |> load_logs()}
   end
 
   def handle_event("clear_logs", _params, socket) do
@@ -135,7 +140,16 @@ defmodule FanfarrWeb.SystemLive.Index do
 
   defp load_logs(socket) do
     level = String.to_existing_atom(socket.assigns.log_level)
-    assign(socket, :logs, Fanfarr.Log.Buffer.entries(level: level, limit: 200))
+    entries = Fanfarr.Log.Buffer.entries(level: level, limit: 400)
+
+    kept =
+      if socket.assigns.hide_noise,
+        do: Enum.reject(entries, &Fanfarr.Diagnostics.routine_web?(&1.message)),
+        else: entries
+
+    socket
+    |> assign(:logs, Enum.take(kept, 200))
+    |> assign(:hidden_count, length(entries) - length(kept))
   end
 
   defp run_checks(socket) do
@@ -226,6 +240,9 @@ defmodule FanfarrWeb.SystemLive.Index do
               <p class="text-xs text-muted-foreground">
                 The last 400 lines, held in memory. Secrets are removed as they are captured, so
                 this is safe to paste into a bug report.
+                <span :if={@hide_noise and @hidden_count > 0}>
+                  {@hidden_count} routine web requests hidden.
+                </span>
               </p>
             </div>
             <div class="flex items-center gap-2">
@@ -244,6 +261,18 @@ defmodule FanfarrWeb.SystemLive.Index do
                 </select>
               </form>
               <button
+                phx-click="toggle_noise"
+                class={[
+                  "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs",
+                  @hide_noise && "border-primary bg-primary/10 text-primary",
+                  !@hide_noise && "border-border hover:bg-accent hover:text-accent-foreground"
+                ]}
+                title="Hide poster and asset requests, and successful responses"
+              >
+                <.icon name="lucide-funnel" class="size-3.5" />
+                {if @hide_noise, do: "Noise hidden", else: "Showing everything"}
+              </button>
+              <button
                 phx-click="refresh_logs"
                 class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
               >
@@ -258,10 +287,60 @@ defmodule FanfarrWeb.SystemLive.Index do
               </button>
             </div>
           </div>
-          <pre
+          <%!-- Rows rather than one block of text: a level cannot be coloured
+          inside a <pre>, and innerText still copies as lines, so the copy
+          button keeps working. Newest last, so it reads downwards like a log
+          and tailing means the bottom. --%>
+          <div
             id="log-output"
-            class="max-h-96 overflow-auto whitespace-pre-wrap break-all px-4 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground"
-          >{Diagnostics.log_text(@logs)}</pre>
+            phx-hook=".TailLog"
+            class="max-h-96 overflow-auto px-4 py-3 font-mono text-[11px] leading-relaxed"
+          >
+            <p :if={@logs == []} class="text-muted-foreground">(nothing captured yet)</p>
+            <p
+              :for={entry <- Enum.reverse(@logs)}
+              class={[
+                "whitespace-pre-wrap break-all",
+                entry.level in [:error, :critical, :alert, :emergency] &&
+                  "text-destructive",
+                entry.level == :warning && "text-amber-600 dark:text-amber-400",
+                entry.level == :info && "text-foreground/80",
+                entry.level in [:debug, :notice] && "text-muted-foreground"
+              ]}
+            >
+              <span class="text-muted-foreground/60">
+                {Calendar.strftime(entry.at, "%H:%M:%S")}
+              </span>
+              <span class="font-semibold">[{entry.level}]</span>
+              {entry.message}
+            </p>
+          </div>
+
+          <script :type={Phoenix.LiveView.ColocatedHook} name=".TailLog">
+            export default {
+              mounted() {
+                // Follow the tail, but stop the moment the reader scrolls up:
+                // yanking someone back to the bottom while they are reading an
+                // error is worse than not following at all. Coming back to the
+                // bottom re-arms it.
+                this.follow = true
+
+                this.el.addEventListener("scroll", () => {
+                  const distance =
+                    this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight
+                  this.follow = distance < 24
+                })
+
+                this.toBottom = () => {
+                  if (this.follow) { this.el.scrollTop = this.el.scrollHeight }
+                }
+
+                this.toBottom()
+              },
+
+              updated() { this.toBottom() }
+            }
+          </script>
         </section>
 
         <section class="rounded-lg border border-border bg-card">
