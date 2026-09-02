@@ -354,10 +354,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
         <div
           :if={@pages > 1}
-          class="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground"
+          class="flex flex-col items-center gap-2 text-sm text-muted-foreground"
         >
-          <span>Page {@page} of {@pages}</span>
-          <nav class="flex flex-wrap items-center gap-1" aria-label="Pagination">
+          <nav class="flex flex-wrap items-center justify-center gap-1" aria-label="Pagination">
             <.link
               :if={@page > 1}
               patch={~p"/?#{filter_params(@filters, @page - 1)}"}
@@ -390,6 +389,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
               Next
             </.link>
           </nav>
+          <span>Page {@page} of {@pages}</span>
         </div>
       </div>
     </Layouts.app>
