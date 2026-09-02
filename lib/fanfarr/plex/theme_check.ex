@@ -198,9 +198,8 @@ defmodule Fanfarr.Plex.ThemeCheck do
   @doc """
   Preferences whose name mentions local assets.
 
-  A filter over `diagnose/3`'s `prefs`, not a claim about which one decides
-  the theme. Kept separate so the page can lead with the likely ones and still
-  show the rest.
+  A filter over `diagnose/3`'s `prefs`. Kept separate so a page can lead with
+  the likely ones and still show the rest.
   """
   @spec local_asset_prefs([map()]) :: [map()]
   def local_asset_prefs(prefs) do
@@ -208,6 +207,35 @@ defmodule Fanfarr.Plex.ThemeCheck do
       text = String.downcase("#{pref.id} #{pref.label}")
       String.contains?(text, "local") or String.contains?(text, "theme")
     end)
+  end
+
+  @doc """
+  Whether the library has "Use local assets" switched off.
+
+  This is the setting that decides whether Plex reads sidecar files beside the
+  media at all, `theme.mp3` among them. With it off, writing the file is
+  wasted work: the scanner and the agents are both behaving correctly and are
+  simply not looking, so a refresh reports no theme however many times it is
+  run. Verified on a live server -- a library showing `false` here never
+  picked up a theme.mp3 sitting in the right folder.
+
+  Matched on the label as well as the id, since the id differs across agent
+  generations while the label has been stable. `nil` when the library did not
+  report the setting, which is not the same as it being on.
+  """
+  @spec local_assets_off?([map()]) :: boolean() | nil
+  def local_assets_off?(prefs) do
+    Enum.find_value(prefs, fn pref ->
+      text = String.downcase("#{pref.id} #{pref.label}")
+
+      if String.contains?(text, "local assets") or String.contains?(text, "localassets") do
+        {:found, pref.value in [false, "false", 0, "0"]}
+      end
+    end)
+    |> case do
+      {:found, off?} -> off?
+      nil -> nil
+    end
   end
 
   @doc """

@@ -273,6 +273,51 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
     end
   end
 
+  describe "local_assets_off?/1" do
+    # Copied from a live server: the library that would not pick up a theme.mp3
+    # sitting in exactly the right folder.
+    @observed_prefs [
+      %{id: "prefLocalArtwork", label: "Prefer artwork based on library language", value: true},
+      %{id: "enableLocalAssets", label: "Use local assets", value: false},
+      %{id: "preferLocalMetadata", label: "Prefer local metadata", value: false}
+    ]
+
+    test "the observed library reads as off" do
+      assert ThemeCheck.local_assets_off?(@observed_prefs) == true
+    end
+
+    test "on is on" do
+      prefs = [%{id: "enableLocalAssets", label: "Use local assets", value: true}]
+      assert ThemeCheck.local_assets_off?(prefs) == false
+    end
+
+    test "Plex's several ways of spelling false all count" do
+      for value <- [false, "false", 0, "0"] do
+        prefs = [%{id: "enableLocalAssets", label: "Use local assets", value: value}]
+        assert ThemeCheck.local_assets_off?(prefs) == true
+      end
+    end
+
+    test "matched on the label too, since the id differs across agent generations" do
+      prefs = [%{id: "someOtherId", label: "Use local assets", value: false}]
+      assert ThemeCheck.local_assets_off?(prefs) == true
+    end
+
+    test "a library that did not report the setting is nil, not off" do
+      assert ThemeCheck.local_assets_off?([]) == nil
+
+      assert ThemeCheck.local_assets_off?([
+               %{id: "collectionMode", label: "Collections", value: 0}
+             ]) ==
+               nil
+    end
+
+    test "'Prefer local metadata' is a different setting and is not mistaken for it" do
+      prefs = [%{id: "preferLocalMetadata", label: "Prefer local metadata", value: false}]
+      assert ThemeCheck.local_assets_off?(prefs) == nil
+    end
+  end
+
   describe "changed?/2" do
     test "a failed pre-refresh read is never reported as a change" do
       refute ThemeCheck.changed?(nil, %{origin: :none})

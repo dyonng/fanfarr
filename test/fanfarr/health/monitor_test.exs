@@ -20,7 +20,16 @@ defmodule Fanfarr.Health.MonitorTest do
     assert %{results: results, at: %DateTime{}} = snapshot
 
     assert Enum.map(results, & &1.id) ==
-             [:plex, :ytdlp, :ffmpeg, :root_folders, :paths, :themerrdb, :database]
+             [
+               :plex,
+               :ytdlp,
+               :ffmpeg,
+               :root_folders,
+               :local_assets,
+               :paths,
+               :themerrdb,
+               :database
+             ]
 
     assert Monitor.latest() == snapshot
   end

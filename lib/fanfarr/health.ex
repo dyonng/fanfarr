@@ -35,6 +35,7 @@ defmodule Fanfarr.Health do
       ytdlp(),
       ffmpeg(),
       root_folders(),
+      local_assets(),
       path_resolution(),
       themerrdb(),
       database()
@@ -122,6 +123,65 @@ defmodule Fanfarr.Health do
 
       {:error, reason} ->
         result(:ffmpeg, "ffmpeg", :warning, "Not working", describe(reason))
+    end
+  end
+
+  @doc """
+  Every enabled library set to read local assets.
+
+  The check that would have saved an afternoon. A library with "Use local
+  assets" off never reads a sidecar file beside the media, `theme.mp3`
+  included, so Fanfarr can write a perfectly good theme into a perfectly
+  correct folder and Plex will go on reporting none -- with the scanner and
+  the agents both working exactly as designed. Nothing else in the app can
+  compensate for it, and it is invisible until someone reads the library's
+  settings.
+  """
+  def local_assets do
+    with {:ok, config} <- Fanfarr.Config.plex_config(),
+         sections when sections != [] <- Fanfarr.Library.list_sections!() do
+      config = Map.put(config, :req_options, @probe)
+
+      off =
+        sections
+        |> Enum.filter(& &1.enabled)
+        |> Enum.filter(&(local_assets_off?(config, &1) == true))
+        |> Enum.map(& &1.title)
+
+      case off do
+        [] ->
+          result(:local_assets, "Local assets", :ok, "Libraries are reading local assets", nil)
+
+        titles ->
+          result(
+            :local_assets,
+            "Local assets",
+            :error,
+            "#{Enum.join(titles, ", ")} #{if length(titles) == 1, do: "has", else: "have"} \"Use local assets\" off",
+            "Plex will not read theme.mp3 beside the media there. In Plex: the library → Edit → Advanced → Use local assets."
+          )
+      end
+    else
+      {:error, :plex_not_configured} ->
+        result(:local_assets, "Local assets", :warning, "Plex is not configured", nil)
+
+      [] ->
+        result(:local_assets, "Local assets", :warning, "No libraries synced yet", nil)
+    end
+  end
+
+  defp local_assets_off?(config, section) do
+    case Fanfarr.Plex.Client.impl().raw(config, "/library/sections/#{section.plex_key}/prefs") do
+      {:ok, body} ->
+        body
+        |> get_in(["MediaContainer", "Setting"])
+        |> List.wrap()
+        |> Enum.map(&%{id: &1["id"], label: &1["label"], value: &1["value"]})
+        |> Fanfarr.Plex.ThemeCheck.local_assets_off?()
+
+      # A library we cannot ask about is not a library we can accuse.
+      {:error, _reason} ->
+        nil
     end
   end
 

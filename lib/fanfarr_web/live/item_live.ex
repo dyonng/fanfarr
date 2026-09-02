@@ -670,6 +670,20 @@ defmodule FanfarrWeb.ItemLive.Show do
               inventing a mapping we have not verified is how the `provider`
               field got made up in the first place. --%>
               <div :if={@plex_diagnosis} class="mt-3 space-y-3 text-xs">
+                <%!-- The one setting that decides whether Plex reads sidecar
+                files at all. With it off the scanner and the agents are both
+                behaving correctly and simply not looking, so this outranks
+                everything else the check reports. --%>
+                <p
+                  :if={ThemeCheck.local_assets_off?(@plex_diagnosis.prefs) == true}
+                  class="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive-foreground"
+                >
+                  <strong>This library has "Use local assets" turned off.</strong>
+                  Plex will not read theme.mp3 beside the media while that is off, so no amount of
+                  refreshing will pick it up. In Plex: {@plex_diagnosis.section["title"]} → Edit →
+                  Advanced → Use local assets, then refresh here again.
+                </p>
+
                 <div>
                   <p class="font-semibold text-muted-foreground">Library</p>
                   <p class="mt-0.5 font-mono">
