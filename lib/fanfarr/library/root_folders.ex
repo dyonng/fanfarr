@@ -17,6 +17,15 @@ defmodule Fanfarr.Library.RootFolders do
   Root folders are optional. With none configured, the reported path is used
   as-is and the pool decides placement.
 
+  ## Nesting
+
+  A title is not always a direct child of its library folder. Collections get
+  grouped -- `Movies/Harry Potter/<film>` -- and matching only the item's own
+  directory name against each root finds nothing for those. Longer tails of the
+  reported path are tried in turn, shortest first, so a grouped title resolves
+  to `<root>/Harry Potter/<film>` without the operator having to configure the
+  grouping folder as a root of its own.
+
   ## Ambiguity
 
   A show can exist on more than one branch of a pool -- the directory is created
@@ -32,6 +41,11 @@ defmodule Fanfarr.Library.RootFolders do
   """
 
   @theme_filename "theme.mp3"
+
+  # How many trailing path segments to try when matching a reported directory
+  # against a root. One is the common case; more covers a library that groups
+  # titles, like Movies/Harry Potter/<film>.
+  @max_depth 4
 
   @type root :: String.t()
   @type resolution ::
@@ -82,13 +96,33 @@ defmodule Fanfarr.Library.RootFolders do
   """
   @spec candidates(String.t(), [root()]) :: [String.t()]
   def candidates(reported_dir, roots) do
-    # A pool presents the same relative structure as its branches, so an item's
-    # directory name is the same under the pool and under the drive holding it.
-    name = Path.basename(normalize(reported_dir))
+    # A pool presents the same relative structure as its branches, so an item
+    # sits at the same place under the pool and under the drive holding it.
+    #
+    # How much of that structure to reuse is the question. Matching only the
+    # last segment assumes every title is a direct child of a root, which a
+    # library that groups them is not: a film at
+    # .../Movies/Harry Potter/<film> has no <root>/<film> to find, and the
+    # whole item was reported unresolvable. So progressively longer tails are
+    # tried and the shortest that exists wins. Shortest rather than longest so
+    # that an item resolving today keeps resolving to the same place: one
+    # segment is what was tried before, and a deeper tail is only consulted
+    # when that finds nothing. The cost is that a same-named directory sitting
+    # directly under another root would win over the grouped one, which is a
+    # collision we have not seen and would rather have than a silent change to
+    # where existing items are written.
+    segments = reported_dir |> normalize() |> Path.split() |> Enum.reject(&(&1 == "/"))
+    roots = Enum.map(roots, &normalize/1)
 
-    roots
-    |> Enum.map(&Path.join(normalize(&1), name))
-    |> Enum.filter(&File.dir?/1)
+    1..min(@max_depth, length(segments))//1
+    |> Enum.map(fn depth ->
+      tail = segments |> Enum.take(-depth) |> Path.join()
+
+      roots
+      |> Enum.map(&Path.join(&1, tail))
+      |> Enum.filter(&File.dir?/1)
+    end)
+    |> Enum.find([], &(&1 != []))
   end
 
   defp disambiguate(dirs) do

@@ -40,6 +40,49 @@ defmodule Fanfarr.Library.RootFoldersTest do
     end
   end
 
+  describe "a title grouped inside a collection folder" do
+    # The reference library groups sequels:
+    #   .../MorePlex/Movies/Harry Potter/Harry Potter and the Chamber of Secrets (2002) (...)
+    # Matching only the film's own directory name against each root found
+    # nothing, and the item reported :no_matching_root.
+    test "resolves through the grouping folder", %{roots: roots, pool: pool} do
+      root = Enum.at(roots, 0)
+      expected = show(Path.join(root, "Harry Potter"), "Chamber of Secrets (2002)")
+      reported = Path.join([pool, "Harry Potter", "Chamber of Secrets (2002)"])
+
+      assert {:ok, ^expected, :root_folder} = RootFolders.resolve(reported, roots)
+    end
+
+    test "the shortest tail that resolves is the one used", %{roots: roots, pool: pool} do
+      # The same film name exists directly under one root and inside a grouping
+      # folder under another. Shortest-first is the rule, so the direct one
+      # wins -- it is also what resolved before deeper tails were tried, which
+      # is why the rule is this way round: an item that resolves today must
+      # keep resolving to the same place.
+      shallow = show(Enum.at(roots, 0), "Goblet (2005)")
+      show(Path.join(Enum.at(roots, 1), "Harry Potter"), "Goblet (2005)")
+
+      reported = Path.join([pool, "Harry Potter", "Goblet (2005)"])
+      assert {:ok, ^shallow, :root_folder} = RootFolders.resolve(reported, roots)
+    end
+
+    test "grouping is still reported as not found when nothing holds it", %{
+      roots: roots,
+      pool: pool
+    } do
+      reported = Path.join([pool, "Harry Potter", "A Film Nobody Has (1999)"])
+      assert {:error, :not_found} = RootFolders.resolve(reported, roots)
+    end
+
+    test "a grouped title on two drives is still disambiguated", %{roots: roots, pool: pool} do
+      busy = show(Path.join(Enum.at(roots, 0), "Harry Potter"), "Azkaban (2004)", ~w(a.mkv b.srt))
+      show(Path.join(Enum.at(roots, 1), "Harry Potter"), "Azkaban (2004)")
+
+      reported = Path.join([pool, "Harry Potter", "Azkaban (2004)"])
+      assert {:ok, ^busy, :root_folder} = RootFolders.resolve(reported, roots)
+    end
+  end
+
   describe "resolving a pool path to a real drive" do
     test "finds the single drive holding the show", %{roots: roots, pool: pool} do
       expected = show(Enum.at(roots, 1), "Breaking Bad (2008)", ["s01e01.mkv"])
