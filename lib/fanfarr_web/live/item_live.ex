@@ -291,7 +291,11 @@ defmodule FanfarrWeb.ItemLive.Show do
         {:noreply,
          socket
          |> assign(:diagnosing, true)
-         |> start_async(:diagnose, fn -> ThemeCheck.diagnose(config, item, section_key) end)}
+         |> start_async(:diagnose, fn ->
+           config
+           |> ThemeCheck.diagnose(item, section_key)
+           |> Map.put(:file, Fanfarr.Themes.FileCheck.inspect_file(item.local_theme_path))
+         end)}
     end
   end
 
@@ -474,6 +478,30 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> assign(:search_results, [])
      |> assign(:search_error, "Search crashed: #{inspect(reason, limit: 5)}")}
   end
+
+  defp file_summary({:ok, info}) do
+    [
+      info.format || "unknown format",
+      info.codec,
+      info.duration && "#{info.duration}s",
+      info.sample_rate && "#{info.sample_rate} Hz",
+      info.channels && "#{info.channels} ch",
+      info.bit_rate && "#{div(info.bit_rate, 1000)} kbps",
+      format_bytes(info.bytes)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp file_summary({:error, {:empty, _}}), do: "the file is zero bytes"
+
+  defp file_summary({:error, {:unreadable, bytes}}),
+    do:
+      "#{format_bytes(bytes)} on disk, but ffprobe cannot decode it — this is not playable audio"
+
+  defp file_summary({:error, {:missing, reason}}), do: "cannot be read: #{inspect(reason)}"
+  defp file_summary({:error, :no_file}), do: "nothing written yet"
+  defp file_summary(_), do: "not checked"
 
   defp scan_result(:ok), do: "Plex accepted the scan request"
   defp scan_result(:not_attempted), do: "not attempted — Plex path unknown"
@@ -919,6 +947,14 @@ defmodule FanfarrWeb.ItemLive.Show do
                     {@plex_diagnosis.section["title"]} · agent {@plex_diagnosis.section["agent"] ||
                       "unknown"} · scanner {@plex_diagnosis.section["scanner"] || "unknown"}
                   </p>
+                </div>
+
+                <%!-- Plex listing a theme it will not serve, and answering 500
+                when asked to select that one, are both consistent with a file
+                it can index and not decode. ffprobe settles it. --%>
+                <div>
+                  <p class="font-semibold text-muted-foreground">The file on disk</p>
+                  <p class="mt-0.5 font-mono">{file_summary(@plex_diagnosis[:file])}</p>
                 </div>
 
                 <div :if={is_list(@plex_diagnosis.seasons)}>
