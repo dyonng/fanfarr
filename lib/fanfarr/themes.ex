@@ -15,6 +15,10 @@ defmodule Fanfarr.Themes do
       define :list_stale_themerr_entries, action: :stale
       define :list_themerr_entries, action: :read
 
+      define :themerr_entries_by_external_ids,
+        action: :by_external_ids,
+        args: [:external_ids]
+
       define :themerr_entry_for,
         action: :lookup,
         args: [:item_type, :database, :external_id],

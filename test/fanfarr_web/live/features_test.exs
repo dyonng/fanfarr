@@ -193,16 +193,30 @@ defmodule FanfarrWeb.FeaturesTest do
       refute has_element?(view, ~s(a.fixed[href="/activity"]))
     end
 
-    test "the queue names the title, not just the worker", %{conn: conn, item: item} do
+    test "the queue names the title in its own column, linked to the item",
+         %{conn: conn, item: item} do
       {:ok, _job} =
         %{media_item_id: item.id, dry_run: false}
         |> Fanfarr.Workers.ApplyTheme.new()
         |> Oban.insert()
 
-      {:ok, _view, html} = live(conn, "/activity")
+      {:ok, view, html} = live(conn, "/activity")
 
-      assert html =~ "Apply theme to One Piece"
+      assert html =~ "Apply theme"
       assert html =~ "background, so you can leave this page"
+
+      # Its own cell, and a way through to the item rather than a dead string.
+      assert has_element?(view, ~s(a[href="/library/#{item.id}"]), "One Piece")
+    end
+
+    test "a job for an item that has since been deleted still renders", %{conn: conn} do
+      {:ok, _job} =
+        %{media_item_id: Ash.UUID.generate(), dry_run: false}
+        |> Fanfarr.Workers.ApplyTheme.new()
+        |> Oban.insert()
+
+      {:ok, _view, html} = live(conn, "/activity")
+      assert html =~ "removed item"
     end
   end
 

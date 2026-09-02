@@ -173,8 +173,13 @@ defmodule FanfarrWeb.LibraryLive.Index do
     pages = max(ceil(total / @page_size), 1)
     page = min(filters.page, pages)
 
+    visible = Enum.slice(items, (page - 1) * @page_size, @page_size)
+
     socket
-    |> assign(:items, Enum.slice(items, (page - 1) * @page_size, @page_size))
+    |> assign(:items, visible)
+    # Only the page being rendered: the whole filtered set can be thousands of
+    # items, and nothing off-screen needs an answer.
+    |> assign(:sources, Fanfarr.Themes.Choice.sources(visible))
     |> assign(:all_ids, Enum.map(items, & &1.id))
     |> assign(:total, total)
     |> assign(:page, page)
@@ -305,6 +310,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 <th class="px-3 py-2 font-medium">Title</th>
                 <th class="px-3 py-2 font-medium">Year</th>
                 <th class="px-3 py-2 font-medium">Type</th>
+                <th class="px-3 py-2 font-medium">Source</th>
                 <th class="px-3 py-2 font-medium">Theme</th>
               </tr>
             </thead>
@@ -349,6 +355,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 <td class="px-3 py-2 text-muted-foreground">{item.year}</td>
                 <td class="px-3 py-2 text-muted-foreground">
                   {if item.kind == :show, do: "Series", else: "Movie"}
+                </td>
+                <%!-- What Apply would actually use. Without it, a bulk apply
+                over a cold cache skips most of the selection for a reason
+                nothing on this page mentioned. --%>
+                <td class="px-3 py-2">
+                  <.source_badge source={Map.get(@sources, item.id, :unknown)} />
                 </td>
                 <td class="px-3 py-2"><.status_badge status={item.theme_status} /></td>
               </tr>
@@ -424,6 +436,38 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp insert_gaps([a, b | rest]) when b - a > 2, do: [a, :gap | insert_gaps([b | rest])]
   defp insert_gaps([a | rest]), do: [a | insert_gaps(rest)]
   defp insert_gaps([]), do: []
+
+  attr :source, :atom, required: true
+
+  defp source_badge(assigns) do
+    ~H"""
+    <span
+      class={[
+        "rounded-full px-2 py-0.5 text-xs",
+        @source == :pick && "bg-primary/15 text-primary",
+        @source == :themerrdb && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+        @source == :none && "bg-muted text-muted-foreground",
+        @source == :unknown && "border border-dashed border-border text-muted-foreground"
+      ]}
+      title={source_hint(@source)}
+    >
+      {source_label(@source)}
+    </span>
+    """
+  end
+
+  defp source_label(:pick), do: "your pick"
+  defp source_label(:themerrdb), do: "ThemerrDB"
+  defp source_label(:none), do: "none"
+  defp source_label(:unknown), do: "not looked up"
+
+  defp source_hint(:pick), do: "Apply will use the theme you chose for this item"
+  defp source_hint(:themerrdb), do: "Apply will use ThemerrDB's suggestion"
+  defp source_hint(:none), do: "ThemerrDB has no theme for this title — pick one by hand"
+
+  defp source_hint(:unknown),
+    do:
+      "Nobody has asked ThemerrDB about this yet, so Apply would skip it. Run Look up ThemerrDB first."
 
   defp filter_params(filters, page) do
     %{

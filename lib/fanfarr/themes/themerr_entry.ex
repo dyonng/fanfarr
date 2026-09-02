@@ -70,6 +70,13 @@ defmodule Fanfarr.Themes.ThemerrEntry do
              )
     end
 
+    # The library table asks about a page of items at once. One query keyed on
+    # the external ids they mention beats a hundred lookups.
+    read :by_external_ids do
+      argument :external_ids, {:array, :string}, allow_nil?: false
+      filter expr(external_id in ^arg(:external_ids))
+    end
+
     read :stale do
       argument :ttl_seconds, :integer, default: 86_400
 

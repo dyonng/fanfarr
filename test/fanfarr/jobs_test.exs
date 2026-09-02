@@ -34,36 +34,50 @@ defmodule Fanfarr.JobsTest do
     job
   end
 
-  describe "describe/2" do
-    test "names the title, not the worker module", %{item: item} do
+  describe "the action and its subject" do
+    test "the title is carried separately, so the table can link it", %{item: item} do
       enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false})
 
       assert [job] = Jobs.recent()
-      assert job.label == "Apply theme to WITCH WATCH"
+      assert job.label == "Apply theme"
+      assert job.item_title == "WITCH WATCH"
+      assert job.item_id == item.id
     end
 
     test "a dry run says so", %{item: item} do
       enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: true})
 
       assert [job] = Jobs.recent()
-      assert job.label == "Apply theme to WITCH WATCH (dry run)"
+      assert job.label == "Apply theme (dry run)"
     end
 
     test "a lookup reads as a lookup", %{item: item} do
       enqueue(Fanfarr.Workers.LookupTheme, %{media_item_id: item.id})
 
       assert [job] = Jobs.recent()
-      assert job.label == "Look up WITCH WATCH in ThemerrDB"
+      assert job.label == "Look up in ThemerrDB"
+      assert job.item_title == "WITCH WATCH"
     end
 
-    test "a job about an item that no longer exists still reads as a sentence" do
+    test "a job whose item is gone keeps the id and has no title" do
       enqueue(Fanfarr.Workers.ApplyTheme, %{
         media_item_id: "00000000-0000-0000-0000-000000000000",
         dry_run: false
       })
 
       assert [job] = Jobs.recent()
-      assert job.label == "Apply theme to an item"
+      assert job.label == "Apply theme"
+      assert job.item_title == nil
+      assert job.item_id == "00000000-0000-0000-0000-000000000000"
+    end
+
+    test "a job about no particular item has neither", %{item: _item} do
+      enqueue(Fanfarr.Workers.RefreshThemerr, %{})
+
+      assert [job] = Jobs.recent()
+      assert job.label == "Refresh ThemerrDB entries"
+      assert job.item_id == nil
+      assert job.item_title == nil
     end
 
     test "an unrecognised worker falls back to its short name" do

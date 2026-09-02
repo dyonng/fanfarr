@@ -116,38 +116,10 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
   defp check_eligible(_item), do: :ok
 
-  # Precedence: a URL passed with the job (just previewed in the UI), then the
-  # operator's stored pick, then ThemerrDB. The operator's choice outranks the
-  # database's because it was made looking at this specific title.
-  defp theme_url(_item, %{"theme_url" => url} = args) when is_binary(url) and url != "" do
-    {:ok, url, source_atom(args["source"], :youtube)}
-  end
-
-  defp theme_url(%{manual_theme_url: url}, _args) when is_binary(url) and url != "" do
-    {:ok, url, :youtube}
-  end
-
-  defp theme_url(item, _args) do
-    # ThemerrDB is keyed by external id, so the entry is looked up the same way
-    # LookupTheme wrote it.
-    item_type = if item.kind == :show, do: :tv_shows, else: :movies
-
-    [imdb: item.imdb_id, themoviedb: item.tmdb_id]
-    |> Enum.filter(fn {_db, id} -> is_binary(id) and id != "" end)
-    |> Enum.find_value({:error, :no_themerrdb_entry}, fn {db, id} ->
-      case Themes.themerr_entry_for(item_type, db, id) do
-        {:ok, %{found: true, youtube_theme_url: url}} when is_binary(url) and url != "" ->
-          {:ok, url, :themerrdb}
-
-        _ ->
-          nil
-      end
-    end)
-  end
-
-  defp source_atom("themerrdb", _), do: :themerrdb
-  defp source_atom("youtube", _), do: :youtube
-  defp source_atom(_, default), do: default
+  # Precedence lives in Fanfarr.Themes.Choice, shared with the library table.
+  # The table says ahead of time whether pressing Apply will do anything, and
+  # it can only do that honestly if both read the same rule.
+  defp theme_url(item, args), do: Fanfarr.Themes.Choice.url(item, args)
 
   @doc """
   The directory a theme for this item would be written to, or why not.

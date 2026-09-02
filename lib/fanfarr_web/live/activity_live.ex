@@ -85,6 +85,23 @@ defmodule FanfarrWeb.ActivityLive.Index do
                     {Fanfarr.Jobs.short_worker(job.worker)}
                   </p>
                 </td>
+                <td class="px-3 py-2">
+                  <.link
+                    :if={job.item_id && job.item_title}
+                    navigate={~p"/library/#{job.item_id}"}
+                    class="text-sm hover:underline"
+                  >
+                    {job.item_title}
+                  </.link>
+                  <span
+                    :if={job.item_id && is_nil(job.item_title)}
+                    class="text-sm text-muted-foreground"
+                    title="The item this job was queued for no longer exists"
+                  >
+                    removed item
+                  </span>
+                  <span :if={is_nil(job.item_id)} class="text-xs text-muted-foreground">—</span>
+                </td>
                 <td class="px-2 py-2">
                   <span class={[
                     "rounded-full px-2 py-0.5 text-xs font-medium",

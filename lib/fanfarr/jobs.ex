@@ -78,22 +78,32 @@ defmodule Fanfarr.Jobs do
     titles = titles_for(jobs)
 
     jobs
-    |> Enum.map(&Map.put(&1, :label, describe(&1, titles)))
+    |> Enum.map(fn job ->
+      id = subject_id(job)
+
+      job
+      |> Map.put(:label, describe(job))
+      |> Map.put(:item_id, id)
+      |> Map.put(:item_title, id && Map.get(titles, id))
+    end)
     |> Enum.sort_by(&{&1.state not in @active, -&1.id})
   end
 
   @doc """
-  A line describing one job, given a map of media item ids to titles.
-  """
-  @spec describe(map(), %{optional(String.t()) => String.t()}) :: String.t()
-  def describe(job, titles \\ %{}) do
-    case {short_worker(job.worker), job.args} do
-      {"ApplyTheme", %{"media_item_id" => id} = args} ->
-        dry = if args["dry_run"], do: " (dry run)", else: ""
-        "Apply theme to #{title(titles, id)}#{dry}"
+  What the job is doing, with no mention of what it is doing it to.
 
-      {"LookupTheme", %{"media_item_id" => id}} ->
-        "Look up #{title(titles, id)} in ThemerrDB"
+  The title is carried separately so the table can put it in its own column
+  and link it: folded into the sentence it is unclickable, and columns of
+  running prose do not scan.
+  """
+  @spec describe(map()) :: String.t()
+  def describe(job) do
+    case {short_worker(job.worker), job.args} do
+      {"ApplyTheme", args} ->
+        if args["dry_run"], do: "Apply theme (dry run)", else: "Apply theme"
+
+      {"LookupTheme", _args} ->
+        "Look up in ThemerrDB"
 
       {"SyncSection", _args} ->
         "Sync a library section from Plex"
@@ -106,18 +116,21 @@ defmodule Fanfarr.Jobs do
     end
   end
 
+  @doc "The media item a job is about, when it is about one."
+  @spec subject_id(map()) :: String.t() | nil
+  def subject_id(%{args: args}) when is_map(args), do: args["media_item_id"]
+  def subject_id(_), do: nil
+
   @doc "The worker module without its namespace."
   @spec short_worker(String.t()) :: String.t()
   def short_worker(worker) when is_binary(worker), do: worker |> String.split(".") |> List.last()
   def short_worker(_), do: "job"
 
-  defp title(titles, id), do: Map.get(titles, id, "an item")
-
   # One query for every item mentioned by the batch, rather than one per job.
   defp titles_for(jobs) do
     ids =
       jobs
-      |> Enum.map(&get_in(&1.args, ["media_item_id"]))
+      |> Enum.map(&subject_id/1)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
