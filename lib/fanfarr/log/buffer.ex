@@ -73,12 +73,42 @@ defmodule Fanfarr.Log.Buffer do
     %{
       at: timestamp(meta),
       level: level,
-      message: msg |> message() |> Fanfarr.Diagnostics.Redactor.redact(),
+      message: text(msg),
       where: where(meta)
     }
   end
 
-  defp message({:string, chardata}), do: IO.chardata_to_string(chardata)
+  # An event that cannot be formatted is degraded, never dropped.
+  #
+  # Formatting used to sit inside the caller's rescue, so anything that raised
+  # here vanished without trace -- and the events most likely to raise are
+  # exactly the ones worth keeping. A crash report carries raw binaries and
+  # improper chardata, either of which can defeat chardata_to_string or the
+  # redactor's regexes. The symptom is a console showing a 500 with no error
+  # beside it, which is precisely what it must not do.
+  defp text(msg) do
+    msg |> message() |> printable() |> Fanfarr.Diagnostics.Redactor.redact()
+  rescue
+    error -> "[entry could not be formatted: #{inspect(error.__struct__)}]"
+  catch
+    kind, reason -> "[entry could not be formatted: #{inspect({kind, reason})}]"
+  end
+
+  # The redactor runs regexes, which raise on a binary that is not valid UTF-8.
+  # Log messages carrying raw bytes are not rare enough to lose.
+  defp printable(string) do
+    if String.valid?(string) do
+      string
+    else
+      String.replace_invalid(string)
+    end
+  end
+
+  defp message({:string, chardata}) do
+    IO.chardata_to_string(chardata)
+  rescue
+    _ -> inspect(chardata, limit: 30, printable_limit: 2048)
+  end
 
   defp message({:report, report}) when is_map(report) or is_list(report),
     do: inspect(report, limit: 30, printable_limit: 2048)

@@ -17,6 +17,8 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   import FanfarrWeb.LibraryLive.Index, only: [status_badge: 1]
 
+  require Logger
+
   alias Fanfarr.Library
   alias Fanfarr.Plex.ThemeCheck
   alias Fanfarr.Themes.Downloader
@@ -231,6 +233,11 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   def handle_event("select_theme", %{"key" => theme_key}, socket) do
     item = socket.assigns.item
+
+    # Logged on arrival, before anything can go wrong with it. Without this a
+    # click that never reached the server and a click that reached it and
+    # failed look identical in the console -- which is where an afternoon went.
+    Logger.info("select_theme clicked for #{item.title}: #{theme_key}")
 
     case Fanfarr.Config.plex_config() do
       {:error, :plex_not_configured} ->

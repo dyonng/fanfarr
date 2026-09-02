@@ -19,6 +19,41 @@ defmodule Fanfarr.Log.BufferTest do
   # barrier that guarantees the cast has been processed.
   defp settle, do: Buffer.entries(limit: 1)
 
+  describe "events that defeat formatting" do
+    test "a message with invalid UTF-8 is kept, not dropped" do
+      # The redactor runs regexes, which raise on a binary that is not valid
+      # UTF-8. This used to take the whole entry down silently -- and a crash
+      # report carrying raw bytes is exactly the entry worth keeping.
+      Logger.error(["broken: ", <<0xFF, 0xFE>>])
+      settle()
+
+      assert [entry | _] = Buffer.entries(level: :error)
+      assert entry.level == :error
+      assert entry.message =~ "broken"
+      assert String.valid?(entry.message)
+    end
+
+    test "chardata that cannot be flattened still produces an entry" do
+      :logger.log(:error, {:string, [:not_chardata, 1_114_112]}, %{})
+      settle()
+
+      assert [entry | _] = Buffer.entries(level: :error)
+      assert entry.level == :error
+      assert entry.message != ""
+    end
+
+    test "a report the formatter chokes on is degraded, and says so" do
+      # A format string and arguments that do not line up: :io_lib.format/2
+      # raises, and the entry must survive as something rather than nothing.
+      :logger.log(:error, {"~ts ~ts", ["only one"]}, %{})
+      settle()
+
+      assert [entry | _] = Buffer.entries(level: :error)
+      assert entry.level == :error
+      assert entry.message != ""
+    end
+  end
+
   test "captures log lines, newest first" do
     Logger.error("first thing")
     Logger.error("second thing")
