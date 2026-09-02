@@ -4,6 +4,16 @@ defmodule FanfarrWeb.FeaturesTest do
 
   import Phoenix.LiveViewTest
   import Mox
+  import Ecto.Query, only: [from: 2]
+
+  # The page re-asks on a timer, so the assertion has to outlast one tick.
+  defp eventually(check, attempts \\ 40) do
+    cond do
+      check.() -> true
+      attempts == 0 -> false
+      true -> Process.sleep(100) && eventually(check, attempts - 1)
+    end
+  end
 
   setup :set_mox_global
   setup :verify_on_exit!
@@ -148,6 +158,35 @@ defmodule FanfarrWeb.FeaturesTest do
 
       assert has_element?(view, ~s(button[phx-click="apply"][disabled]))
       assert html =~ "disabled until local theme files for movies are verified"
+    end
+  end
+
+  describe "the in-flight card clearing itself" do
+    test "it goes away once the job leaves the queue, with no further broadcast",
+         %{conn: conn, item: item} do
+      # Exactly the shape that left it up for ten minutes: a job still marked
+      # executing when the page reloads, because the worker broadcasts from
+      # inside perform/1 and then carries on talking to Plex. No second
+      # broadcast ever comes, so the page has to re-ask.
+      {:ok, job} =
+        %{media_item_id: item.id, dry_run: false}
+        |> Fanfarr.Workers.ApplyTheme.new()
+        |> Oban.insert()
+
+      {:ok, view, html} = live(conn, "/library/#{item.id}")
+      assert html =~ "Working on this item"
+
+      # The job finishes. Nothing tells the page.
+      Fanfarr.Repo.update_all(
+        from(j in Oban.Job, where: j.id == ^job.id),
+        set: [state: "completed"]
+      )
+
+      assert html =~ "Working on this item"
+
+      # The poll is what gets it back, unaided.
+      assert eventually(fn -> render(view) =~ "Apply theme" end)
+      refute render(view) =~ "Working on this item"
     end
   end
 

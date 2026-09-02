@@ -24,6 +24,8 @@ defmodule Fanfarr.Plex.ThemeCheck do
   reports the state as it stands rather than pretending to a conclusion.
   """
 
+  require Logger
+
   alias Fanfarr.Plex.Client
   alias Fanfarr.Plex.ThemeOrigin
 
@@ -134,8 +136,20 @@ defmodule Fanfarr.Plex.ThemeCheck do
   """
   @spec select(map(), String.t(), String.t()) :: {:ok, state()} | {:error, term()}
   def select(config, rating_key, theme_rating_key) do
-    with :ok <- Client.impl().select_theme(config, rating_key, theme_rating_key) do
-      read(config, rating_key)
+    before =
+      case read(config, rating_key) do
+        {:ok, state} -> state
+        {:error, _reason} -> nil
+      end
+
+    result = Client.impl().select_theme(config, rating_key, theme_rating_key)
+    Logger.info("asked Plex to serve #{theme_rating_key} for #{rating_key}: #{inspect(result)}")
+
+    with :ok <- result do
+      # Polled rather than read once. Plex answers the request before it has
+      # acted on it, and reading straight back reports a selection that has not
+      # landed yet as a failure.
+      poll(config, rating_key, before, poll_delays())
     end
   end
 
@@ -280,9 +294,8 @@ defmodule Fanfarr.Plex.ThemeCheck do
     {:warning,
      """
      Plex has found the file — it is in the item's theme list — but has not \
-     made it the item's theme, so nothing plays. Try the refresh once more; if \
-     it stays listed and unselected, Plex has to be told to use it, either \
-     from Plex itself or by an API call Fanfarr does not make yet.\
+     made it the item's theme, so nothing plays. Use the "use this one" button \
+     beside it below, which asks Plex to serve it.\
      """}
   end
 

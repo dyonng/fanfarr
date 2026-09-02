@@ -25,6 +25,10 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   @search_limit 8
 
+  # Long enough not to hammer the database, short enough that a finished job
+  # does not look stuck.
+  @applying_poll 2_000
+
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Fanfarr.PubSub, "item:#{id}")
@@ -42,7 +46,9 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:plex_diagnosis, nil)
       |> assign(:diagnosing, false)
       |> assign(:selecting, false)
+      |> assign(:poll_scheduled, false)
       |> load()
+      |> track_applying()
       |> maybe_lookup()
 
     {:ok, assign(socket, :search_query, default_query(socket.assigns.item))}
@@ -70,6 +76,27 @@ defmodule FanfarrWeb.ItemLive.Show do
   end
 
   defp maybe_lookup(socket), do: socket
+
+  # While a job is in flight, re-ask rather than waiting to be told.
+  #
+  # The worker broadcasts from *inside* perform/1, so Oban still has the job as
+  # `executing` when the page reloads on that broadcast -- and there is no
+  # second broadcast when it finally finishes. That was always a race the page
+  # happened to win, because the gap between the broadcast and the job ending
+  # was microseconds. Handing the file over to Plex put ten seconds in that gap
+  # and the page started losing every time, leaving "Working on this item" up
+  # forever. Polling ends the race rather than tightening it, and it also
+  # recovers from a job that is discarded or killed, which no broadcast covers.
+  defp track_applying(%{assigns: %{applying: true, poll_scheduled: false}} = socket) do
+    if connected?(socket) do
+      Process.send_after(self(), :recheck_applying, @applying_poll)
+      assign(socket, :poll_scheduled, true)
+    else
+      socket
+    end
+  end
+
+  defp track_applying(socket), do: socket
 
   defp load(socket) do
     item = Library.get_media_item!(socket.assigns.id, load: [:theme_status, :section])
@@ -280,7 +307,8 @@ defmodule FanfarrWeb.ItemLive.Show do
         # Set immediately rather than waiting for the worker's broadcast: the
         # click has to visibly do something, and on a busy queue the job may
         # not start for minutes.
-        {:noreply, socket |> assign(:applying, true) |> put_flash(:info, flash)}
+        {:noreply,
+         socket |> assign(:applying, true) |> track_applying() |> put_flash(:info, flash)}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Could not queue the job")}
@@ -338,37 +366,21 @@ defmodule FanfarrWeb.ItemLive.Show do
         plex_theme_agent: current.agent
       })
 
-    # Whether Plex took the instruction is decided by the read-back, not by
-    # its response to the request. The endpoint is inferred from Plex's poster
-    # convention and a 200 from it has never been evidence of much.
-    {flash_level, message} =
-      if current.url do
-        {:info, "Plex is serving it now."}
-      else
-        {:error, "Plex accepted the request but is still serving no theme."}
-      end
-
     {:noreply,
      socket
      |> assign(:selecting, false)
      |> assign(:item, item)
      |> assign(:plex_theme_state, restate(socket.assigns.plex_theme_state, current, item))
-     |> load()
-     |> put_flash(flash_level, message)}
+     |> load()}
   end
 
   def handle_async(:select_theme, {:ok, {:error, reason}}, socket) do
-    {:noreply,
-     socket
-     |> assign(:selecting, false)
-     |> put_flash(:error, "Plex refused: #{inspect(reason)}")}
+    {:noreply, socket |> assign(:selecting, false) |> select_failed(reason)}
   end
 
   def handle_async(:select_theme, {:exit, reason}, socket) do
     {:noreply,
-     socket
-     |> assign(:selecting, false)
-     |> put_flash(:error, "Selecting crashed: #{inspect(reason, limit: 5)}")}
+     socket |> assign(:selecting, false) |> select_failed({:crashed, inspect(reason, limit: 5)})}
   end
 
   def handle_async(:diagnose, {:ok, report}, socket) do
@@ -410,8 +422,36 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   # Keeps whatever the last refresh established about the steps it took, and
   # replaces only what Plex now serves.
+  # Failures land in the panel beside the evidence, not only in a flash. A
+  # flash that has already faded is indistinguishable from a button that did
+  # nothing, which is what "nothing happened" turned out to mean.
+  defp select_failed(socket, reason) do
+    state =
+      (socket.assigns.plex_theme_state || %{})
+      |> Map.merge(%{
+        level: :warning,
+        message: "Plex refused the request to serve that theme: #{inspect(reason)}"
+      })
+
+    socket
+    |> assign(:plex_theme_state, state)
+    |> put_flash(:error, "Plex refused: #{inspect(reason)}")
+  end
+
   defp restate(previous, current, item) do
     {level, message} = ThemeCheck.verdict(current, item)
+
+    # A 200 from Plex is not evidence the selection took, so the verdict is
+    # drawn from the read-back and the panel says which of the two happened.
+    {level, message} =
+      if current.url do
+        {level, message}
+      else
+        {:warning,
+         "Plex accepted the request but is still serving no theme. " <>
+           "The endpoint that selects a theme is inferred from Plex's convention " <>
+           "for posters, so this may mean it is not the right call. " <> message}
+      end
 
     previous
     |> Kernel.||(%{})
@@ -428,7 +468,15 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   @impl true
   def handle_info({:item_updated, _id}, socket),
-    do: {:noreply, socket |> load() |> assign(:looking_up, false)}
+    do: {:noreply, socket |> load() |> track_applying() |> assign(:looking_up, false)}
+
+  def handle_info(:recheck_applying, socket) do
+    {:noreply,
+     socket
+     |> assign(:poll_scheduled, false)
+     |> load()
+     |> track_applying()}
+  end
 
   # --- render ---------------------------------------------------------------
 
@@ -510,9 +558,10 @@ defmodule FanfarrWeb.ItemLive.Show do
           <div>
             <p class="font-medium">Working on this item</p>
             <p class="text-xs text-muted-foreground">
-              Downloading the audio and writing it beside the media. This page updates itself when
-              it finishes — downloads take a few seconds, and a queued job waits its turn behind
-              any others.
+              Downloading the audio, writing it beside the media, and then getting Plex to pick it
+              up — a scan of the folder, a refresh, and a nudge if Plex lists the theme without
+              playing it. That last part takes a few seconds on its own. This page updates itself
+              when the job finishes, and a queued job waits its turn behind any others.
             </p>
           </div>
         </div>

@@ -150,21 +150,30 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
   end
 
   describe "select/3" do
+    @local_key "metadata://themes/46f33324b3bba73680ef38c5de0cd89664a55a1c"
+
     test "asks Plex to serve the theme, then reports what it actually serves" do
+      # Plex answers the request before it has acted on it, so the state only
+      # changes on a later read. Reading once would call this a failure.
+      Agent.start_link(fn -> false end, name: :done?)
+
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ ->
+        if Agent.get(:done?, & &1),
+          do: {:ok, %{"theme" => "/library/metadata/1/theme/9"}},
+          else: {:ok, %{}}
+      end)
+
+      stub(Fanfarr.PlexClientMock, :themes, fn _, _ ->
+        {:ok, [theme(@local_key, Agent.get(:done?, & &1))]}
+      end)
+
       expect(Fanfarr.PlexClientMock, :select_theme, fn @config, "1", key ->
-        assert key == @agent_key
+        assert key == @local_key
+        Agent.update(:done?, fn _ -> true end)
         :ok
       end)
 
-      expect(Fanfarr.PlexClientMock, :metadata, fn _, _ ->
-        {:ok, %{"theme" => "/library/metadata/1/theme/9"}}
-      end)
-
-      expect(Fanfarr.PlexClientMock, :themes, fn _, _ ->
-        {:ok, [theme("metadata://themes/46f33324b3bba73680ef38c5de0cd89664a55a1c")]}
-      end)
-
-      assert {:ok, state} = ThemeCheck.select(@config, "1", @agent_key)
+      assert {:ok, state} = ThemeCheck.select(@config, "1", @local_key)
       assert state.origin == :local
       assert state.url == "/library/metadata/1/theme/9"
     end
@@ -172,23 +181,22 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
     test "a 200 that changed nothing is not reported as success" do
       # The endpoint is inferred from Plex's poster convention, so the
       # read-back is what decides, never the response to the request.
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _, _ -> {:ok, [theme(@local_key, false)]} end)
       expect(Fanfarr.PlexClientMock, :select_theme, fn _, _, _ -> :ok end)
-      expect(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
 
-      expect(Fanfarr.PlexClientMock, :themes, fn _, _ ->
-        {:ok, [theme(@agent_key, false)]}
-      end)
-
-      assert {:ok, state} = ThemeCheck.select(@config, "1", @agent_key)
+      assert {:ok, state} = ThemeCheck.select(@config, "1", @local_key)
       assert state.url == nil
       assert state.origin == :none
       assert state.listed_not_selected
     end
 
-    test "a refusal is passed through and nothing is read back" do
+    test "a refusal is passed through and no selection is claimed" do
+      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _, _ -> {:ok, [theme(@local_key, false)]} end)
       expect(Fanfarr.PlexClientMock, :select_theme, fn _, _, _ -> {:error, {:http, 404}} end)
 
-      assert {:error, {:http, 404}} = ThemeCheck.select(@config, "1", @agent_key)
+      assert {:error, {:http, 404}} = ThemeCheck.select(@config, "1", @local_key)
     end
   end
 
