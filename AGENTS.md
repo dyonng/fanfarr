@@ -78,6 +78,20 @@ agent supplies no themes at all; only the TV agent does. That gap is the entire
 reason Themerr-plex existed and is the bulk of Fanfarr's job: 1,785 movies from
 nothing, plus 346 shows.
 
+Movies were refused by the apply pipeline for a while, on the grounds that
+whether Plex reads a local theme file for a movie was unverified. That is
+**still unverified**, but refusing was a way of never finding out. The pipeline
+now reads back what Plex serves after every write, so an ignored file reports
+itself rather than being guessed at, and the write is undone by deleting it.
+If movies turn out to need the upload path instead, `upload_theme/3` and
+`lock_theme/3` are already in the client, still unexercised.
+
+One thing movies do need that shows do not: **a folder of their own.** A show's
+path is a directory by construction, but a movie's is derived from its media
+file, so a film sitting loose among others resolves to the shared folder, where
+a `theme.mp3` would attach to every neighbouring film. `destination_dir/1`
+refuses that case.
+
 ## Deployment decisions
 
 **Mounts follow *arr convention: one numbered mount per library location.**

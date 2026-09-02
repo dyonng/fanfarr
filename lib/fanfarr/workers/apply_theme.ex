@@ -21,10 +21,17 @@ defmodule Fanfarr.Workers.ApplyTheme do
   files are also the well-established path for **TV shows**, which is the use
   case this exists for.
 
-  Movies are a different question -- Plex's movie agent supplies no themes at
-  all, and whether it reads a local theme file for a movie is **not something
-  we have verified**. Rather than guess, movies are refused with a clear
-  reason until that is tested on a real server. See AGENTS.md.
+  Movies go through the same path. Whether Plex reads a local theme file for a
+  movie is still not something we have verified -- but refusing them was a way
+  of not finding out, and the pipeline now reads back what Plex serves after a
+  write, so an ignored file reports itself instead of being guessed at. The
+  file is reversible either way: deleting it undoes it.
+
+  What movies do need is a folder of their own. A show's path is a directory
+  by construction; a movie's is derived from its media file, so a film sitting
+  loose among others yields the shared folder, and a theme written there would
+  attach to everything in it. `destination_dir/1` refuses that case rather
+  than writing.
 
   ## Ordering
 
@@ -101,9 +108,12 @@ defmodule Fanfarr.Workers.ApplyTheme do
     end
   end
 
-  defp check_eligible(%{theme_locked: true}), do: {:error, :theme_locked}
+  defp shared_root?(dir, roots) do
+    target = Path.expand(dir)
+    Enum.any?(roots, &(Path.expand(&1) == target))
+  end
 
-  defp check_eligible(%{kind: :movie}), do: {:error, :movies_not_supported_yet}
+  defp check_eligible(%{theme_locked: true}), do: {:error, :theme_locked}
 
   defp check_eligible(_item), do: :ok
 
@@ -174,10 +184,19 @@ defmodule Fanfarr.Workers.ApplyTheme do
       {:ok, dir, how} ->
         warn_if_ambiguous(item, dir, how)
 
-        if File.dir?(dir) do
-          {:ok, dir}
-        else
-          {:error, {:destination_missing, dir}}
+        cond do
+          not File.dir?(dir) ->
+            {:error, {:destination_missing, dir}}
+
+          # A movie's directory is derived from its media file, so a film
+          # sitting loose in a library root resolves to the root itself. A
+          # theme written there is not this movie's theme, it is every
+          # neighbouring file's, so it is refused rather than written.
+          shared_root?(dir, roots) ->
+            {:error, {:not_in_own_folder, dir}}
+
+          true ->
+            {:ok, dir}
         end
 
       {:error, :not_found} ->

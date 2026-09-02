@@ -142,7 +142,7 @@ defmodule FanfarrWeb.FeaturesTest do
       assert Enum.all?(jobs, &(&1.args["media_item_id"] == item.id))
     end
 
-    test "the apply button is disabled for a movie, with the reason", %{
+    test "a movie can be applied, and says what is unverified about it", %{
       conn: conn,
       section: section
     } do
@@ -156,8 +156,10 @@ defmodule FanfarrWeb.FeaturesTest do
 
       {:ok, view, html} = live(conn, "/library/#{movie.id}")
 
-      assert has_element?(view, ~s(button[phx-click="apply"][disabled]))
-      assert html =~ "disabled until local theme files for movies are verified"
+      refute has_element?(view, ~s(button[phx-click="apply"][disabled]))
+      # Enabled, but not pretending the outcome is known.
+      assert html =~ "is not something we have"
+      assert html =~ "actually serves"
     end
   end
 

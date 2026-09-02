@@ -524,7 +524,7 @@ defmodule FanfarrWeb.ItemLive.Show do
               <button
                 phx-click="apply"
                 data-confirm={"Write theme.mp3 next to #{@item.title}? Deleting the file undoes it."}
-                disabled={@applying or @item.theme_locked or @item.kind == :movie}
+                disabled={@applying or @item.theme_locked}
                 class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                 title={apply_title(@item)}
               >
@@ -544,8 +544,10 @@ defmodule FanfarrWeb.ItemLive.Show do
               </button>
             </div>
             <p :if={@item.kind == :movie} class="mt-2 text-xs text-muted-foreground">
-              Applying to movies is disabled until local theme files for movies are verified against
-              a real server. Previews and manual picks still work.
+              Whether Plex reads a local theme file for a <em>movie</em> is not something we have
+              confirmed — its movie agent supplies no themes of its own. The write happens either
+              way and is undone by deleting the file, and the check afterwards reports what Plex
+              actually serves, so you will see which it is rather than having to guess.
             </p>
           </div>
         </div>
@@ -1364,7 +1366,6 @@ defmodule FanfarrWeb.ItemLive.Show do
   end
 
   defp apply_title(%{theme_locked: true}), do: "This item's theme is locked in Plex"
-  defp apply_title(%{kind: :movie}), do: "Movies are not supported yet"
   defp apply_title(_), do: "Download the theme and write theme.mp3 next to the media"
 
   defp format_bytes(bytes) when bytes >= 1_048_576,

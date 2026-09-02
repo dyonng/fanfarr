@@ -56,6 +56,17 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     })
   end
 
+  # ThemerrDB keys movies separately from shows, so a movie needs its own entry.
+  defp themerr_movie_hit(url \\ "https://www.youtube.com/watch?v=abc123") do
+    Themes.record_themerr_lookup!(%{
+      item_type: :movies,
+      database: :imdb,
+      external_id: "tt0388629",
+      found: true,
+      youtube_theme_url: url
+    })
+  end
+
   defp run(item, args \\ %{}) do
     ApplyTheme.perform(%Oban.Job{
       args: Map.merge(%{"media_item_id" => item.id}, args)
@@ -610,13 +621,43 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       assert {:cancel, :theme_locked} = run(item, %{"dry_run" => false})
     end
 
-    test "movies are refused until the behaviour is verified on a real server", ctx do
-      item = item(ctx, %{kind: :movie, title: "Heat"})
+    test "a movie in its own folder is written like anything else", ctx do
+      themerr_movie_hit()
+      media = Path.join([ctx.root, "movies", "Heat (1995)"])
+      File.mkdir_p!(media)
 
-      # Plex's movie agent supplies no themes, and whether it reads a local
-      # theme file for a movie is unverified. Refusing beats guessing on 1,785
-      # irreversible writes.
-      assert {:cancel, :movies_not_supported_yet} = run(item, %{"dry_run" => false})
+      Fanfarr.Library.create_root_folder!(%{
+        path: Path.join(ctx.root, "movies"),
+        kind: :movie,
+        enabled: true
+      })
+
+      item = item(ctx, %{kind: :movie, title: "Heat", plex_path: media})
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        file = Path.join(dir, "theme.mp3")
+        File.write!(file, "the-audio")
+        {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 88.0}}
+      end)
+
+      assert :ok = run(item, %{"dry_run" => false})
+      assert File.read!(Path.join(media, "theme.mp3")) == "the-audio"
+    end
+
+    test "a movie loose in a library root is refused rather than themed", ctx do
+      themerr_movie_hit()
+      movies = Path.join(ctx.root, "movies")
+      File.mkdir_p!(movies)
+
+      Fanfarr.Library.create_root_folder!(%{path: movies, kind: :movie, enabled: true})
+
+      # Plex reports a movie's folder from its media file, so Heat.mkv sitting
+      # directly in the root resolves to the root. theme.mp3 written there is
+      # every neighbouring film's theme, not this one's.
+      item = item(ctx, %{kind: :movie, title: "Heat", plex_path: movies})
+
+      assert {:cancel, {:not_in_own_folder, _}} = run(item, %{"dry_run" => false})
+      refute File.exists?(Path.join(movies, "theme.mp3"))
     end
 
     test "an item Plex gave no path at all is a configuration problem, not a retry", ctx do
