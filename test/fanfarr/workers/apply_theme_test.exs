@@ -85,28 +85,30 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
   end
 
   describe "an unwritable destination" do
+    @describetag :requires_mount
+
     setup ctx do
-      # A read-only mount rather than chmod: the suite runs as root here, and
-      # root ignores permission bits, so a chmod-based test would pass while
-      # proving nothing. CI cannot mount, so it skips rather than failing --
-      # visibly, as a reported skip.
+      # A read-only mount rather than chmod: the suite runs as root where it
+      # can mount, and root ignores permission bits, so a chmod-based test
+      # would pass while proving nothing. Where mounting is not permitted the
+      # tag excludes these tests outright -- see test_helper.exs.
       ro = Path.join(ctx.root, "readonly")
       media = Path.join(ro, "One Piece (1999)")
       File.mkdir_p!(ro)
 
-      with {_, 0} <-
-             System.cmd("mount", ["-t", "tmpfs", "-o", "size=1m", "tmpfs", ro],
-               stderr_to_stdout: true
-             ),
-           :ok <- File.mkdir_p(media),
-           {_, 0} <- System.cmd("mount", ["-o", "remount,ro", ro], stderr_to_stdout: true) do
-        on_exit(fn -> System.cmd("umount", [ro], stderr_to_stdout: true) end)
-        %{readonly_media: media}
-      else
-        _ ->
-          System.cmd("umount", [ro], stderr_to_stdout: true)
-          {:skip, "needs privileges to mount a read-only filesystem"}
-      end
+      {output, status} =
+        System.cmd("mount", ["-t", "tmpfs", "-o", "size=1m", "tmpfs", ro], stderr_to_stdout: true)
+
+      assert status == 0, "could not mount tmpfs: #{output}"
+      File.mkdir_p!(media)
+
+      {remount, remount_status} =
+        System.cmd("mount", ["-o", "remount,ro", ro], stderr_to_stdout: true)
+
+      assert remount_status == 0, "could not remount read-only: #{remount}"
+      on_exit(fn -> System.cmd("umount", [ro], stderr_to_stdout: true) end)
+
+      %{readonly_media: media}
     end
 
     test "a dry run reports it rather than succeeding", ctx do

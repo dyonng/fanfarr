@@ -1,10 +1,9 @@
 name: Bump version
 
-# Deliberately manual. An automatic bump on every push to main would add a
-# commit per merge and produce version numbers that say nothing the commit sha
-# does not already say -- and the sha is already baked into every image and
-# shown on the System page. A version number is a statement that a set of
-# changes is a release, which is a judgement, not a side effect of pushing.
+# Patch versions increment automatically on every push to main -- see the
+# version job in docker.yml. This workflow is for the bumps that are a
+# judgement rather than a side effect: a minor or a major, and the git tag and
+# GitHub release that go with a deliberate version.
 on:
   workflow_dispatch:
     inputs:
@@ -12,7 +11,7 @@ on:
         description: "Which part to increment"
         required: true
         type: choice
-        default: patch
+        default: minor
         options: [patch, minor, major]
 
 permissions:

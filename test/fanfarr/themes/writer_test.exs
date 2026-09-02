@@ -64,25 +64,28 @@ defmodule Fanfarr.Themes.WriterTest do
   end
 
   describe "across a filesystem boundary" do
+    @describetag :requires_mount
+
     setup ctx do
       # tmpfs mounted at a second path gives a genuine EXDEV, which is the
       # whole point: mergerfs with category.create=mfs returns it routinely,
       # and a test that only ever renames within one filesystem proves
       # nothing about the deployment this code was written for.
+      #
+      # test_helper has already established that mounting works here, so a
+      # failure now is real and should fail rather than quietly pass.
       other = Path.join(ctx.root, "otherfs")
       File.mkdir_p!(other)
 
-      case System.cmd("mount", ["-t", "tmpfs", "-o", "size=8m", "tmpfs", other],
-             stderr_to_stdout: true
-           ) do
-        {_, 0} ->
-          on_exit(fn -> System.cmd("umount", [other], stderr_to_stdout: true) end)
-          %{other: other}
+      {output, status} =
+        System.cmd("mount", ["-t", "tmpfs", "-o", "size=8m", "tmpfs", other],
+          stderr_to_stdout: true
+        )
 
-        {out, _} ->
-          # Unprivileged CI cannot mount. Say so rather than passing quietly.
-          {:skip, "cannot mount tmpfs for a real EXDEV test: #{String.trim(out)}"}
-      end
+      assert status == 0, "could not mount tmpfs: #{output}"
+      on_exit(fn -> System.cmd("umount", [other], stderr_to_stdout: true) end)
+
+      %{other: other}
     end
 
     test "falls back to copy when rename crosses filesystems", ctx do

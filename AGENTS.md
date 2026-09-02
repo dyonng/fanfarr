@@ -248,6 +248,16 @@ cache 404s too. Details in `docs/themerrdb.md`.
   and crops.
 - Icons are linked at their plain paths with a `?v=` query, never through `~p`,
   which rewrites them to the digested filename. See root.html.heex.
+- **`{:skip, reason}` is not a valid return from an ExUnit `setup` callback.**
+  A setup may return only `:ok`, a keyword or a map; anything else raises. Two
+  mount-dependent tests "skipped gracefully" in CI for four runs this way --
+  passing locally as root, raising on every runner. Conditional skipping is a
+  **tag plus a capability probe**: `test_helper.exs` tries a tmpfs mount once
+  and excludes `:requires_mount` when it cannot, which ExUnit then reports as
+  "N excluded" rather than hiding it.
+- **`mix precommit` passing locally is not CI passing.** The runner is not
+  root and cannot mount, and that difference alone broke the suite. Check the
+  Tests workflow, not only the Docker one.
 - **Every show synced with no path**, so every apply was skipped with
   `:no_plex_path`. A section listing gives a movie its `Media/Part/file` and is
   supposed to give a show a `Location`; the reference server gave neither. The
@@ -384,14 +394,25 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
 - `plex_probe/1` only accepts server-relative paths, so it can reach the
   operator's own Plex and nothing else.
 
-## Versioning is a decision, not a side effect
+## Versioning
 
-`.github/workflows/version.yml` is `workflow_dispatch` only. An automatic bump
-per push would add a commit per merge and produce numbers that say nothing the
-commit sha does not -- and the sha is already baked into every image and shown
-on the System page. The workflow rewrites `mix.exs` and tags the same commit,
-so an image tagged `v1.2.3` reports `1.2.3`; `test/runtime_deps_test.exs`
-guards that pairing.
+Patch versions bump **automatically** on every push to main, in the `version`
+job of `docker.yml`. A semver is what a person can actually hold in their head
+and quote back ("I'm on 0.1.7"), which a sha is not, and automating it means it
+cannot be forgotten.
+
+The bump runs **before** the build, in the same workflow, and the build checks
+out the commit it produced -- otherwise the image would be tagged with a
+version it does not report. Images get `latest`, `sha-<sha>` and `X.Y.Z`.
+
+There is no loop, because a push made with `GITHUB_TOKEN` does not trigger
+workflows. That is also why the bump cannot live in its own workflow reacting
+to the commit: nothing would react to it.
+
+`version.yml` remains for the bumps that are a judgement -- a minor or major,
+plus the git tag and GitHub release that go with a deliberate version.
+`test/runtime_deps_test.exs` guards that both paths rewrite `mix.exs` and that
+the build depends on the bump.
 
 ## Conventions
 
