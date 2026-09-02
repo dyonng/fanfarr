@@ -18,8 +18,10 @@ defmodule FanfarrWeb.ItemLive.Show do
   import FanfarrWeb.LibraryLive.Index, only: [status_badge: 1]
 
   alias Fanfarr.Library
+  alias Fanfarr.Plex.ThemeCheck
   alias Fanfarr.Themes.Downloader
   alias Fanfarr.Workers.ApplyTheme
+  alias Fanfarr.Workers.LookupTheme
 
   @search_limit 8
 
@@ -35,10 +37,36 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:searching, false)
       |> assign(:previewing, nil)
       |> assign(:refreshing, false)
+      |> assign(:looking_up, false)
+      |> assign(:plex_theme_state, nil)
       |> load()
+      |> maybe_lookup()
 
     {:ok, assign(socket, :search_query, default_query(socket.assigns.item))}
   end
+
+  # Opening an item is a request to know what ThemerrDB has for it, so the
+  # lookup happens on arrival rather than behind a button nobody thinks to
+  # press. The worker's own uniqueness window (an hour, keyed on the item)
+  # means revisiting the page costs nothing upstream, and misses are cached,
+  # so a title ThemerrDB does not know is asked about once.
+  defp maybe_lookup(%{assigns: %{themerr: nil, item: item}} = socket) do
+    cond do
+      not connected?(socket) ->
+        socket
+
+      item.imdb_id in [nil, ""] and item.tmdb_id in [nil, ""] ->
+        socket
+
+      true ->
+        case %{media_item_id: item.id} |> LookupTheme.new() |> Oban.insert() do
+          {:ok, _job} -> assign(socket, :looking_up, true)
+          {:error, _reason} -> socket
+        end
+    end
+  end
+
+  defp maybe_lookup(socket), do: socket
 
   defp load(socket) do
     item = Library.get_media_item!(socket.assigns.id, load: [:theme_status, :section])
@@ -100,10 +128,20 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   def handle_event("lookup", _params, socket) do
     case %{media_item_id: socket.assigns.item.id}
-         |> Fanfarr.Workers.LookupTheme.new()
+         |> LookupTheme.new()
          |> Oban.insert() do
-      {:ok, _} -> {:noreply, put_flash(socket, :info, "ThemerrDB lookup queued")}
+      {:ok, _} -> {:noreply, socket |> assign(:looking_up, true)}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Could not queue the lookup")}
+    end
+  end
+
+  def handle_event("use_themerr", _params, socket) do
+    case socket.assigns.themerr do
+      %{youtube_theme_url: url} when is_binary(url) and url != "" ->
+        set_manual(socket, url, "ThemerrDB suggestion")
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "ThemerrDB has no suggestion for this item")}
     end
   end
 
@@ -156,7 +194,7 @@ defmodule FanfarrWeb.ItemLive.Show do
          socket
          |> assign(:refreshing, true)
          |> start_async(:refresh_plex, fn ->
-           Fanfarr.Plex.Client.impl().refresh_metadata(config, item.plex_rating_key)
+           ThemeCheck.refresh_and_reread(config, item.plex_rating_key)
          end)}
     end
   end
@@ -200,14 +238,32 @@ defmodule FanfarrWeb.ItemLive.Show do
   end
 
   @impl true
-  def handle_async(:refresh_plex, {:ok, :ok}, socket) do
+  def handle_async(:refresh_plex, {:ok, {:ok, before, current}}, socket) do
+    # Store it the same way a sync would, so the status badge and the Plex card
+    # agree with what we just read rather than with the last full sync.
+    item =
+      Library.record_plex_theme!(socket.assigns.item, %{
+        plex_theme_url: current.url,
+        plex_theme_origin: current.origin,
+        plex_theme_agent: current.agent
+      })
+
+    {level, message} = ThemeCheck.verdict(current, item)
+
+    state =
+      current
+      |> Map.put(:changed, ThemeCheck.changed?(before, current))
+      |> Map.put(:level, level)
+      |> Map.put(:message, message)
+
+    # The reading itself is a paragraph and belongs on the page, next to the
+    # evidence it is drawn from. The flash only says the round trip finished.
     {:noreply,
      socket
      |> assign(:refreshing, false)
-     |> put_flash(
-       :info,
-       "Asked Plex to refresh this item. Give it a moment, then play the show in Plex."
-     )}
+     |> assign(:plex_theme_state, state)
+     |> load()
+     |> put_flash(:info, "Plex refreshed — see what it serves now, below.")}
   end
 
   def handle_async(:refresh_plex, {:ok, {:error, reason}}, socket) do
@@ -253,7 +309,8 @@ defmodule FanfarrWeb.ItemLive.Show do
   defp search_error(other), do: "Search failed: #{inspect(other)}"
 
   @impl true
-  def handle_info({:item_updated, _id}, socket), do: {:noreply, load(socket)}
+  def handle_info({:item_updated, _id}, socket),
+    do: {:noreply, socket |> load() |> assign(:looking_up, false)}
 
   # --- render ---------------------------------------------------------------
 
@@ -506,6 +563,59 @@ defmodule FanfarrWeb.ItemLive.Show do
             show has no theme in Plex yet, use Refresh in Plex above — Plex does not notice a new
             local theme file on its own.
           </p>
+
+          <%!-- The read-back from the refresh. The raw ratingKeys are shown on
+          purpose: which scheme Plex uses for a theme it picked up from a local
+          file is the one case we have not been able to verify against a live
+          server, so when it appears here it is worth being able to read it. --%>
+          <div
+            :if={@plex_theme_state}
+            class={[
+              "mt-3 rounded-md border p-3 text-sm",
+              @plex_theme_state.level == :warning &&
+                "border-destructive/40 bg-destructive/10 text-destructive-foreground",
+              @plex_theme_state.level != :warning && "border-border bg-background"
+            ]}
+          >
+            <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              What Plex serves now
+            </p>
+            <p class="mt-1">{@plex_theme_state.message}</p>
+
+            <dl class="mt-3 space-y-1 text-xs">
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Theme</dt>
+                <dd class="break-all text-right font-mono">{@plex_theme_state.url || "none"}</dd>
+              </div>
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Origin</dt>
+                <dd>
+                  {@plex_theme_state.origin}{if @plex_theme_state.agent,
+                    do: " · #{@plex_theme_state.agent}"}
+                </dd>
+              </div>
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Changed by the refresh</dt>
+                <dd>{if @plex_theme_state.changed, do: "yes", else: "no"}</dd>
+              </div>
+            </dl>
+
+            <details :if={@plex_theme_state.themes != []} class="mt-2">
+              <summary class="cursor-pointer text-xs text-muted-foreground hover:underline">
+                {length(@plex_theme_state.themes)} theme{if length(@plex_theme_state.themes) != 1,
+                  do: "s"} listed by Plex
+              </summary>
+              <ul class="mt-1 space-y-1">
+                <li
+                  :for={theme <- @plex_theme_state.themes}
+                  class="break-all font-mono text-xs text-muted-foreground"
+                >
+                  <span :if={theme.selected} class="text-foreground">▸ </span>{theme.rating_key ||
+                    theme.key}
+                </li>
+              </ul>
+            </details>
+          </div>
         </section>
 
         <div class="grid gap-4 lg:grid-cols-3">
@@ -543,41 +653,95 @@ defmodule FanfarrWeb.ItemLive.Show do
           </section>
 
           <section class="rounded-lg border border-border bg-card p-4">
-            <h2 class="text-sm font-semibold text-card-foreground">ThemerrDB</h2>
-            <div :if={@themerr == nil} class="mt-3 text-sm text-muted-foreground">
-              Not looked up yet.
+            <div class="flex items-center justify-between gap-3">
+              <h2 class="text-sm font-semibold text-card-foreground">ThemerrDB</h2>
+              <button
+                :if={not @looking_up}
+                phx-click="lookup"
+                class="text-xs text-muted-foreground hover:underline"
+                title="Ask ThemerrDB again"
+              >
+                look up again
+              </button>
+              <span
+                :if={@looking_up}
+                class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+              >
+                <.icon name="lucide-loader-circle" class="size-3.5 animate-spin" /> looking up…
+              </span>
             </div>
+
+            <div :if={@themerr == nil} class="mt-3 text-sm text-muted-foreground">
+              <span :if={@looking_up}>Asking ThemerrDB about this title…</span>
+              <span :if={
+                not @looking_up and (@item.imdb_id not in [nil, ""] or @item.tmdb_id not in [nil, ""])
+              }>
+                No answer yet.
+              </span>
+              <span :if={
+                not @looking_up and @item.imdb_id in [nil, ""] and @item.tmdb_id in [nil, ""]
+              }>
+                Plex reports no IMDB or TMDB id for this item, and ThemerrDB is keyed on those.
+                Nothing to look up.
+              </span>
+            </div>
+
             <dl :if={@themerr} class="mt-3 space-y-2 text-sm">
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">In database</dt>
                 <dd>{if @themerr.found, do: "yes", else: "no"}</dd>
-              </div>
-              <div :if={@themerr.youtube_theme_url} class="flex justify-between gap-4">
-                <dt class="text-muted-foreground">Suggests</dt>
-                <dd>
-                  <button
-                    :if={Downloader.youtube_id(@themerr.youtube_theme_url)}
-                    phx-click="preview_video"
-                    phx-value-id={Downloader.youtube_id(@themerr.youtube_theme_url)}
-                    class="text-primary hover:underline"
-                  >
-                    play preview
-                  </button>
-                  <a
-                    href={@themerr.youtube_theme_url}
-                    target="_blank"
-                    rel="noopener"
-                    class="ml-2 text-muted-foreground hover:underline"
-                  >
-                    ↗
-                  </a>
-                </dd>
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Checked</dt>
                 <dd>{Calendar.strftime(@themerr.fetched_at, "%Y-%m-%d %H:%M")}</dd>
               </div>
             </dl>
+
+            <div
+              :if={@themerr && @themerr.youtube_theme_url}
+              class="mt-3 space-y-2 border-t border-border/60 pt-3"
+            >
+              <p class="text-xs text-muted-foreground">Suggests</p>
+              <p
+                class="break-all font-mono text-xs text-muted-foreground"
+                title={@themerr.youtube_theme_url}
+              >
+                {@themerr.youtube_theme_url}
+              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  :if={Downloader.youtube_id(@themerr.youtube_theme_url)}
+                  phx-click="preview_video"
+                  phx-value-id={Downloader.youtube_id(@themerr.youtube_theme_url)}
+                  class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs hover:bg-accent hover:text-accent-foreground"
+                >
+                  <.icon name="lucide-play" class="size-3.5" /> Preview
+                </button>
+                <button
+                  :if={@item.manual_theme_url != @themerr.youtube_theme_url}
+                  phx-click="use_themerr"
+                  class="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                  title="Pin this as the item's pick so a later ThemerrDB edit cannot change it"
+                >
+                  <.icon name="lucide-check" class="size-3.5" /> Use this
+                </button>
+                <a
+                  href={@themerr.youtube_theme_url}
+                  target="_blank"
+                  rel="noopener"
+                  class="text-xs text-muted-foreground hover:underline"
+                >
+                  open on YouTube ↗
+                </a>
+              </div>
+            </div>
+
+            <p
+              :if={@themerr != nil and @themerr.found and @themerr.youtube_theme_url in [nil, ""]}
+              class="mt-3 text-sm text-muted-foreground"
+            >
+              ThemerrDB knows this title but has no theme for it.
+            </p>
           </section>
 
           <section class="rounded-lg border border-border bg-card p-4">

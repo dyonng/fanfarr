@@ -71,6 +71,16 @@ defmodule Fanfarr.Library.MediaItem do
       change set_attribute(:local_theme_checked_at, &DateTime.utc_now/0)
     end
 
+    # What Plex serves for one item, re-read on demand rather than waiting for
+    # the next full sync. Asking Plex to refresh an item and then reporting
+    # what it now serves is the only way to tell "the local file was picked up"
+    # from "Plex is still playing its agent's theme", and those two look
+    # identical from here otherwise.
+    update :record_plex_theme do
+      accept [:plex_theme_url, :plex_theme_origin, :plex_theme_agent]
+      change set_attribute(:last_synced_at, &DateTime.utc_now/0)
+    end
+
     # The operator's own pick, chosen from a YouTube search or pasted in. It
     # outranks ThemerrDB from then on, so a re-apply after a Plex refresh
     # reuses the choice rather than reverting to the database's suggestion.

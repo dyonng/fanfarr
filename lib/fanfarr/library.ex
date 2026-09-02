@@ -43,6 +43,7 @@ defmodule Fanfarr.Library do
       define :media_items_in_section, action: :by_section, args: [:section_id]
       define :sync_media_item_from_plex, action: :sync_from_plex
       define :record_local_theme, action: :record_local_theme
+      define :record_plex_theme, action: :record_plex_theme
       define :set_manual_theme, action: :set_manual_theme
     end
 

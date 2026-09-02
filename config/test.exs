@@ -37,3 +37,7 @@ config :phoenix,
 
 config :fanfarr, req_options: [plug: {Req.Test, Fanfarr.PlexReq}]
 config :fanfarr, health_monitor: false
+
+# The refresh read-back polls the server; there is nothing to wait for when the
+# client is a mock.
+config :fanfarr, plex_theme_poll_delays: [0, 0]

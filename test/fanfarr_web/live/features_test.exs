@@ -179,6 +179,83 @@ defmodule FanfarrWeb.FeaturesTest do
     end
   end
 
+  defp lookup_jobs do
+    Oban.Job
+    |> Fanfarr.Repo.all()
+    |> Enum.filter(&(&1.worker =~ "LookupTheme"))
+  end
+
+  describe "ThemerrDB on the item page" do
+    test "opening an item asks ThemerrDB about it", %{conn: conn, item: item} do
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+
+      assert html =~ "Asking ThemerrDB about this title"
+
+      assert [job] = lookup_jobs()
+      assert job.args["media_item_id"] == item.id
+    end
+
+    test "an item Plex gave no ids for says so instead of queueing a hopeless lookup",
+         %{conn: conn, other: other} do
+      {:ok, _view, html} = live(conn, "/library/#{other.id}")
+
+      assert html =~ "ThemerrDB is keyed on those"
+      assert lookup_jobs() == []
+    end
+
+    test "an answer already on file is shown without asking again",
+         %{conn: conn, item: item} do
+      {:ok, _entry} =
+        Fanfarr.Themes.record_themerr_lookup(%{
+          item_type: :tv_shows,
+          database: :imdb,
+          external_id: item.imdb_id,
+          found: true,
+          youtube_theme_url: "https://www.youtube.com/watch?v=abc12345678"
+        })
+
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+
+      assert html =~ "youtube.com/watch?v=abc12345678"
+      assert lookup_jobs() == []
+    end
+
+    test "the suggestion can be pinned as the item's pick", %{conn: conn, item: item} do
+      {:ok, _entry} =
+        Fanfarr.Themes.record_themerr_lookup(%{
+          item_type: :tv_shows,
+          database: :imdb,
+          external_id: item.imdb_id,
+          found: true,
+          youtube_theme_url: "https://www.youtube.com/watch?v=abc12345678"
+        })
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+
+      html = view |> element("button[phx-click=use_themerr]") |> render_click()
+
+      assert html =~ "ThemerrDB suggestion"
+
+      assert Fanfarr.Library.get_media_item!(item.id).manual_theme_url ==
+               "https://www.youtube.com/watch?v=abc12345678"
+    end
+
+    test "a title ThemerrDB knows but has no theme for is not left ambiguous",
+         %{conn: conn, item: item} do
+      {:ok, _entry} =
+        Fanfarr.Themes.record_themerr_lookup(%{
+          item_type: :tv_shows,
+          database: :imdb,
+          external_id: item.imdb_id,
+          found: true,
+          youtube_theme_url: nil
+        })
+
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+      assert html =~ "has no theme for it"
+    end
+  end
+
   describe "listening to what was written" do
     setup %{item: item} do
       dir = Path.join(System.tmp_dir!(), "fanfarr-play-#{:erlang.unique_integer([:positive])}")
@@ -230,7 +307,29 @@ defmodule FanfarrWeb.FeaturesTest do
       assert html =~ "Listen before trusting it"
     end
 
-    test "asking Plex to refresh reports what Plex said", %{conn: conn, item: item} do
+    test "a refresh that Plex ignores says so instead of implying success",
+         %{conn: conn, item: item} do
+      # The failure the operator actually hits: the file is on disk, Plex is
+      # told to look again, and Plex goes on serving its own agent's theme.
+      agent_key = "metadata://themes/tv.plex.agents.series_b008372"
+
+      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k ->
+        {:ok, %{"theme" => "/library/metadata/101/theme/17"}}
+      end)
+
+      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k ->
+        {:ok,
+         [
+           %{
+             rating_key: agent_key,
+             key: "/library/metadata/101/file",
+             selected: true,
+             origin: :plex_agent,
+             agent: "tv.plex.agents.series"
+           }
+         ]}
+      end)
+
       expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _config, rating_key ->
         assert rating_key == item.plex_rating_key
         :ok
@@ -242,10 +341,52 @@ defmodule FanfarrWeb.FeaturesTest do
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
       render_click(view, "refresh_plex", %{})
 
-      assert render_async(view, 10_000) =~ "Asked Plex to refresh"
+      html = render_async(view, 10_000)
+
+      assert html =~ "What Plex serves now"
+      assert html =~ "serving a theme from its own agent"
+      assert html =~ "tv.plex.agents.series"
+      # The ratingKey is shown verbatim: it is the evidence for the verdict.
+      assert html =~ agent_key
+
+      # And what was read is stored, so the badge stops disagreeing with it.
+      reloaded = Fanfarr.Library.get_media_item!(item.id)
+      assert reloaded.plex_theme_origin == :plex_agent
+      assert reloaded.plex_theme_agent == "tv.plex.agents.series"
+    end
+
+    test "a theme Plex does not attribute to an agent reads as the local file taking",
+         %{conn: conn, item: item} do
+      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k ->
+        {:ok, %{"theme" => "/library/metadata/101/theme/17"}}
+      end)
+
+      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k ->
+        {:ok,
+         [
+           %{
+             rating_key: "media://themes/abc",
+             key: "/library/metadata/101/file",
+             selected: true,
+             origin: :unknown,
+             agent: nil
+           }
+         ]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> :ok end)
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "refresh_plex", %{})
+
+      assert render_async(view, 10_000) =~ "consistent with it having picked up the local file"
     end
 
     test "a refusal from Plex is reported, not swallowed", %{conn: conn, item: item} do
+      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k -> {:ok, %{}} end)
+      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k -> {:ok, []} end)
       expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> {:error, {:http, 403}} end)
       Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
       Fanfarr.Settings.put_setting!("plex_token", "t")
