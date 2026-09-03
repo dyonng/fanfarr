@@ -138,4 +138,52 @@ defmodule FanfarrWeb.ThemeControllerTest do
 
     assert conn |> get(~p"/library/#{item.id}/theme") |> response(401)
   end
+
+  describe "the local-address bypass" do
+    setup %{item: item, dir: dir} do
+      path = Path.join(dir, "theme.mp3")
+      File.write!(path, "x")
+
+      item =
+        Fanfarr.Library.record_local_theme!(item, %{
+          local_theme_present: true,
+          local_theme_path: path
+        })
+
+      Fanfarr.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_password, %{
+        username: "operator",
+        password: "a-long-password",
+        password_confirmation: "a-long-password"
+      })
+      |> Ash.create!(authorize?: false)
+
+      %{item: item}
+    end
+
+    test "lets a local request through once enabled, with no session at all", %{
+      conn: conn,
+      item: item
+    } do
+      Fanfarr.Accounts.AuthMode.set_bypass_enabled(true)
+
+      # Phoenix.ConnTest's default conn has remote_ip 127.0.0.1 -- a genuine
+      # local address, not a spoofed header.
+      assert conn |> get(~p"/library/#{item.id}/theme") |> response(200)
+    end
+
+    test "still requires a login from a non-local address", %{conn: conn, item: item} do
+      Fanfarr.Accounts.AuthMode.set_bypass_enabled(true)
+
+      conn = %{conn | remote_ip: {8, 8, 8, 8}}
+      assert conn |> get(~p"/library/#{item.id}/theme") |> response(401)
+    end
+
+    test "a local request still requires a login when the setting is off", %{
+      conn: conn,
+      item: item
+    } do
+      assert conn |> get(~p"/library/#{item.id}/theme") |> response(401)
+    end
+  end
 end

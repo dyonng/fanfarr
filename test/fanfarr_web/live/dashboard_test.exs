@@ -46,6 +46,38 @@ defmodule FanfarrWeb.DashboardTest do
 
       assert :error = Phoenix.Router.route_info(FanfarrWeb.Router, "GET", "/reset", "example.com")
     end
+
+    test "the local-address bypass opens the dashboard with no session at all", %{conn: conn} do
+      Fanfarr.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_password, %{
+        username: "operator",
+        password: "a-long-password",
+        password_confirmation: "a-long-password"
+      })
+      |> Ash.create!(authorize?: false)
+
+      Fanfarr.Accounts.AuthMode.set_bypass_enabled(true)
+
+      # Phoenix.ConnTest's default conn has remote_ip 127.0.0.1.
+      for path <- ["/", "/activity", "/settings"] do
+        assert {:ok, _view, _html} = live(conn, path)
+      end
+    end
+
+    test "the local-address bypass does not apply from a non-local address", %{conn: conn} do
+      Fanfarr.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_password, %{
+        username: "operator",
+        password: "a-long-password",
+        password_confirmation: "a-long-password"
+      })
+      |> Ash.create!(authorize?: false)
+
+      Fanfarr.Accounts.AuthMode.set_bypass_enabled(true)
+
+      conn = %{conn | remote_ip: {8, 8, 8, 8}}
+      assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/")
+    end
   end
 
   describe "page titles" do
@@ -266,6 +298,17 @@ defmodule FanfarrWeb.DashboardTest do
 
       view |> element(~s(button[phx-value-id="#{s.id}"])) |> render_click()
       assert Fanfarr.Library.get_section!(s.id).enabled == true
+    end
+
+    test "toggling the local-address bypass persists it", %{conn: conn} do
+      refute Fanfarr.Accounts.AuthMode.bypass_enabled?()
+      {:ok, view, html} = live(conn, "/settings")
+      assert html =~ "Disabled"
+
+      view |> element("button", "Disabled") |> render_click()
+
+      assert Fanfarr.Accounts.AuthMode.bypass_enabled?()
+      assert render(view) =~ "Enabled"
     end
   end
 end

@@ -195,6 +195,21 @@ few lines above it in `endpoint.ex`, which has never set `secure: true` either.
 put TLS in front still gets a `Secure` cookie -- this is not "insecure by
 default", it is "secure when the request actually was."
 
+**The local-address auth bypass reads `conn.remote_ip`, deliberately not any
+`X-Forwarded-For`-style header.** `Plug.RewriteOn` trusts forwarding headers
+for host/port/scheme because getting those wrong only breaks a redirect or a
+generated URL; trusting a header for *this* decision would let anyone claim
+to be local and skip the password outright, which is the one thing the
+setting must not allow. The cost is that a reverse proxy makes every request
+look like it came from the proxy's own (typically also-local) address --
+documented in the README rather than solved, the same trade-off Sonarr and
+Radarr make. `Fanfarr.Accounts.AuthMode.required?/1` takes the bypass
+decision as an already-computed boolean instead of a conn, because by the
+time a LiveView's `on_mount` runs the actual conn is gone -- only the narrow
+session `ash_authentication_live_session`'s `session:` MFA hook
+(`FanfarrWeb.LiveUserAuth.extra_session/1`) built from it survives the
+websocket upgrade.
+
 ## Design decisions in the code
 
 - **Theme status is a calculation, never a stored column.** The five states

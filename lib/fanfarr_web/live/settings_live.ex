@@ -33,6 +33,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:path_mappings, Fanfarr.Config.get("path_mappings") || "")
     |> assign(:sections, Fanfarr.Library.list_sections!())
     |> assign(:root_folders, Fanfarr.Library.list_root_folders!())
+    |> assign(:local_auth_bypass, Fanfarr.Accounts.AuthMode.bypass_enabled?())
   end
 
   # Both buttons submit the same form, distinguished by the button's value, so
@@ -95,6 +96,11 @@ defmodule FanfarrWeb.SettingsLive.Index do
   def handle_event("toggle_section", %{"id" => id}, socket) do
     section = Fanfarr.Library.get_section!(id)
     Fanfarr.Library.set_section_enabled!(section, !section.enabled)
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("toggle_local_auth_bypass", _params, socket) do
+    Fanfarr.Accounts.AuthMode.set_bypass_enabled(!socket.assigns.local_auth_bypass)
     {:noreply, load(socket)}
   end
 
@@ -424,6 +430,29 @@ defmodule FanfarrWeb.SettingsLive.Index do
               Save
             </button>
           </form>
+        </section>
+
+        <section class="rounded-lg border border-border bg-card p-4">
+          <h2 class="text-sm font-semibold text-card-foreground">Authentication</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            Skip sign-in for requests from a local address (loopback, 10/8, 172.16/12,
+            192.168/16, link-local) — the same convenience Sonarr and Radarr offer. Checked
+            against the actual connection, not a header, so it cannot be spoofed from outside.
+            If Fanfarr sits behind a reverse proxy, this is the proxy's own address.
+          </p>
+          <div class="mt-3 flex items-center justify-between">
+            <p class="text-sm font-medium">Disable authentication for local addresses</p>
+            <button
+              phx-click="toggle_local_auth_bypass"
+              class={[
+                "rounded-full px-3 py-1 text-xs font-medium",
+                @local_auth_bypass && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                !@local_auth_bypass && "bg-muted text-muted-foreground"
+              ]}
+            >
+              {if @local_auth_bypass, do: "Enabled", else: "Disabled"}
+            </button>
+          </div>
         </section>
       </div>
 

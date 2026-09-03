@@ -122,6 +122,14 @@ browser until whichever comes first: signing out, changing the password (which
 revokes every session and remember-me token at once), or the 30 days running
 out.
 
+Settings also has "Disable authentication for local addresses" — the same
+convenience Sonarr and Radarr offer, off by default. With an account
+configured, requests from loopback or an RFC1918/link-local address skip
+sign-in entirely; anything else still needs the password. It is checked
+against the actual TCP connection, not a header, so it cannot be spoofed --
+though behind a reverse proxy on the same host, that connection is the
+proxy's own address, which is typically local too.
+
 ## Development
 
 Elixir 1.19 / OTP 27 (pinned in `.tool-versions`), Phoenix LiveView, Ash on

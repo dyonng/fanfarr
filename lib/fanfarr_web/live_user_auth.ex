@@ -6,6 +6,17 @@ defmodule FanfarrWeb.LiveUserAuth do
   import Phoenix.Component
   use FanfarrWeb, :verified_routes
 
+  @doc """
+  Passed to `ash_authentication_live_session` as its `:session` hook so the
+  local-address bypass decision -- which needs the conn's real `remote_ip`,
+  not available once we're down to a socket -- rides along in the (narrow)
+  session LiveView mounts and reconnects with, for `:live_user_required`
+  below to read back.
+  """
+  def extra_session(conn) do
+    %{"local_bypass" => Fanfarr.Accounts.AuthMode.bypass_for_request?(conn)}
+  end
+
   # This is used for nested liveviews to fetch the current user.
   # To use, place the following at the top of that liveview:
   # on_mount {FanfarrWeb.LiveUserAuth, :current_user}
@@ -21,16 +32,19 @@ defmodule FanfarrWeb.LiveUserAuth do
     end
   end
 
-  def on_mount(:live_user_required, _params, _session, socket) do
+  def on_mount(:live_user_required, _params, session, socket) do
     cond do
       socket.assigns[:current_user] ->
         {:cont, socket}
 
-      # No operator account means AUTH_USERNAME/AUTH_PASSWORD are unset and
-      # authentication is off, the way the *arrs start. Redirecting to a
-      # sign-in form nobody has credentials for would lock the dashboard
-      # instead of opening it.
-      not Fanfarr.Accounts.AuthMode.required?() ->
+      # Either no operator account exists -- AUTH_USERNAME/AUTH_PASSWORD are
+      # unset and authentication is off, the way the *arrs start -- or one
+      # does but Settings has "disable authentication for local addresses"
+      # on and this request came from one (decided in `extra_session/1`,
+      # since only the conn that generated this session knows the real
+      # remote_ip). Either way, redirecting to a sign-in form would just be
+      # in the way.
+      not Fanfarr.Accounts.AuthMode.required?(session["local_bypass"] || false) ->
         {:cont, Phoenix.Component.assign(socket, :current_user, nil)}
 
       true ->

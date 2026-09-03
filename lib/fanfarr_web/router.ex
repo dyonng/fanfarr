@@ -53,7 +53,8 @@ defmodule FanfarrWeb.Router do
     pipe_through :browser
 
     ash_authentication_live_session :authenticated_routes,
-      on_mount: [FanfarrWeb.QueueStatus] do
+      on_mount: [FanfarrWeb.QueueStatus],
+      session: {FanfarrWeb.LiveUserAuth, :extra_session, []} do
       live "/", LibraryLive.Index, :index
       live "/library/:id", ItemLive.Show, :show
       live "/activity", ActivityLive.Index, :index
