@@ -117,6 +117,11 @@ no credentials to enter. This is the same default Sonarr and Radarr ship with
 -- reasonable on a trusted LAN, unwise if the port is exposed -- and it is
 warned about in the logs on every boot.
 
+"Remember me for 30 days" on the sign-in form skips the password on that
+browser until whichever comes first: signing out, changing the password (which
+revokes every session and remember-me token at once), or the 30 days running
+out.
+
 ## Development
 
 Elixir 1.19 / OTP 27 (pinned in `.tool-versions`), Phoenix LiveView, Ash on

@@ -79,6 +79,14 @@ defmodule FanfarrWeb.AuthOverrides do
           "text-primary-foreground hover:bg-primary/90 transition-colors"
 
     set :error_ul, "text-destructive text-xs mt-1"
+
+    # The upstream defaults are hardcoded gray-on-white, which does not follow
+    # into dark mode the way the rest of this form does. Named to state the
+    # TTL rather than leaving the operator to guess how long it lasts.
+    set :remember_me_class, "mb-1 flex items-center gap-2"
+    set :remember_me_input_label, "Remember me for 30 days"
+    set :checkbox_class, "size-4 rounded border-input"
+    set :checkbox_label_class, "text-sm text-muted-foreground"
   end
 
   override Components.HorizontalRule do

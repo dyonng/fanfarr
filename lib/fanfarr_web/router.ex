@@ -12,6 +12,10 @@ defmodule FanfarrWeb.Router do
     plug :put_root_layout, html: {FanfarrWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    # Must come before load_from_session: it only writes the session, so
+    # load_from_session is what turns that into conn.assigns.current_user for
+    # this request rather than the next one.
+    plug :sign_in_with_remember_me
     plug :load_from_session
   end
 
@@ -80,6 +84,7 @@ defmodule FanfarrWeb.Router do
   pipeline :media do
     plug :accepts, ["html", "*/*"]
     plug :fetch_session
+    plug :sign_in_with_remember_me
     plug :load_from_session
     plug FanfarrWeb.RequireUserPlug
   end

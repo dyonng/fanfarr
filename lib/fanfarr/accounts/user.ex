@@ -95,12 +95,23 @@ defmodule Fanfarr.Accounts.User do
         sensitive? true
       end
 
+      argument :remember_me, :boolean do
+        description "Whether to generate a 30-day remember-me token."
+        allow_nil? true
+      end
+
       # validates the provided username and password and generates a token
       prepare AshAuthentication.Strategy.Password.SignInPreparation
+      prepare AshAuthentication.Strategy.RememberMe.MaybeGenerateTokenPreparation
 
       metadata :token, :string do
         description "A JWT that can be used to authenticate the user."
         allow_nil? false
+      end
+
+      metadata :remember_me, :map do
+        description "A map with the remember-me token and cookie name, when requested."
+        allow_nil? true
       end
     end
 
@@ -112,6 +123,11 @@ defmodule Fanfarr.Accounts.User do
       # This action performs that exchange. If you do not use the generated
       # liveviews, you may remove this action, and set
       # `sign_in_tokens_enabled? false` in the password strategy.
+      #
+      # This is also where a remember-me token actually gets minted: the
+      # LiveView runs in-process with no connection to set a cookie on, so it
+      # skips remember-me generation and forwards the choice as a query param
+      # to this action instead, which runs behind a real controller request.
 
       description "Attempt to sign in using a short-lived sign in token."
       get? true
@@ -122,12 +138,23 @@ defmodule Fanfarr.Accounts.User do
         sensitive? true
       end
 
+      argument :remember_me, :boolean do
+        description "Whether to generate a 30-day remember-me token."
+        allow_nil? true
+      end
+
       # validates the provided sign in token and generates a token
       prepare AshAuthentication.Strategy.Password.SignInWithTokenPreparation
+      prepare AshAuthentication.Strategy.RememberMe.MaybeGenerateTokenPreparation
 
       metadata :token, :string do
         description "A JWT that can be used to authenticate the user."
         allow_nil? false
+      end
+
+      metadata :remember_me, :map do
+        description "A map with the remember-me token and cookie name, when requested."
+        allow_nil? true
       end
     end
 

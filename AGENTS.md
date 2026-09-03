@@ -182,6 +182,19 @@ datacenter addresses far harder than residential ones, and the cookie-file
 fallback is *worse* over a VPN (reads as account compromise). `YTDLP_PROXY`
 exists as the opt-in escape hatch.
 
+**The remember-me cookie's `Secure` flag is decided per-request, not baked in
+at compile time.** `AshAuthentication`'s own default is `secure: Mix.env() !=
+:dev`, which is `true` in `:prod` *and* in `:test` -- only `:dev` is excluded.
+A browser refuses to store a `Secure` cookie sent over plain HTTP, so on the
+library's default this feature would silently never work for the deployment
+this whole app targets: a container reached over `http://192.168.x.x:7373`
+with no reverse proxy. `FanfarrWeb.AuthController.put_remember_me_cookie/3`
+overrides it to `conn.scheme == :https` instead, matching the session cookie a
+few lines above it in `endpoint.ex`, which has never set `secure: true` either.
+`Plug.RewriteOn` already trusts `X-Forwarded-Proto`, so a deployment that does
+put TLS in front still gets a `Secure` cookie -- this is not "insecure by
+default", it is "secure when the request actually was."
+
 ## Design decisions in the code
 
 - **Theme status is a calculation, never a stored column.** The five states
