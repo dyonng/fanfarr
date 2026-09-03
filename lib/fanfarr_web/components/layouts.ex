@@ -29,7 +29,7 @@ defmodule FanfarrWeb.Layouts do
 
   attr :current_path, :atom,
     default: nil,
-    doc: "which sidebar entry to highlight: :library, :activity, :settings or :system"
+    doc: "which sidebar entry to highlight: :library, :activity, :settings, :system or :logs"
 
   attr :current_user, :map, default: nil, doc: "the signed-in user, when there is one"
 
@@ -83,6 +83,12 @@ defmodule FanfarrWeb.Layouts do
             label="System"
             current={@current_path == :system}
             badge={health_badge()}
+          />
+          <.nav_link
+            navigate={~p"/logs"}
+            icon="lucide-logs"
+            label="Logs"
+            current={@current_path == :logs}
           />
         </nav>
 

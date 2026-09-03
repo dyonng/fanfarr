@@ -60,6 +60,7 @@ defmodule FanfarrWeb.Router do
       live "/activity", ActivityLive.Index, :index
       live "/settings", SettingsLive.Index, :index
       live "/system", SystemLive.Index, :index
+      live "/logs", LogsLive.Index, :index
     end
   end
 

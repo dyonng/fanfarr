@@ -85,7 +85,8 @@ defmodule FanfarrWeb.DashboardTest do
       for {path, title} <- [
             {"/", "Library"},
             {"/activity", "Activity"},
-            {"/settings", "Settings"}
+            {"/settings", "Settings"},
+            {"/logs", "Logs"}
           ] do
         {:ok, view, _html} = live(conn, path)
         assert page_title(view) == "Fanfarr - #{title}"

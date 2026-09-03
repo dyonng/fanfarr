@@ -571,88 +571,12 @@ defmodule FanfarrWeb.FeaturesTest do
     end
   end
 
-  describe "the log console's shape" do
-    test "an entry renders as one line, with nothing padding it", %{conn: conn} do
-      Fanfarr.Log.Buffer.clear()
-      Logger.error("something went wrong")
-      Fanfarr.Log.Buffer.entries(limit: 1)
-
-      {:ok, _view, html} = live(conn, "/system")
-
-      # The element preserves whitespace so a stack trace keeps its shape, which
-      # means the template's own newlines and indentation would show up as blank
-      # lines between every entry -- which is exactly what happened.
-      assert [row] =
-               Regex.run(~r{<pre[^>]*>([^<]*something went wrong[^<]*)</pre>}, html,
-                 capture: :all_but_first
-               )
-
-      refute row =~ "\n"
-      assert row =~ ~r/^\d\d:\d\d:\d\d  error  something went wrong$/
-    end
-
-    test "the level is padded so messages line up", %{conn: conn} do
-      Fanfarr.Log.Buffer.clear()
-      Logger.error("short level")
-      Logger.warning("long level")
-      Fanfarr.Log.Buffer.entries(limit: 1)
-
-      {:ok, _view, html} = live(conn, "/system")
-
-      assert html =~ ~r/\d\d:\d\d:\d\d  error  short level/
-      assert html =~ ~r/\d\d:\d\d:\d\d  warni  long level/
-    end
-  end
-
-  describe "system page log and diagnostics" do
+  describe "system page diagnostics" do
     setup do
-      Fanfarr.Log.Buffer.clear()
       Fanfarr.Diagnostics.Redactor.forget_all()
       stub(Fanfarr.ThemeDownloaderMock, :version, fn -> {:ok, "2026.08.01"} end)
       on_exit(fn -> Fanfarr.Diagnostics.Redactor.forget_all() end)
       :ok
-    end
-
-    test "shows captured log lines and filters them by level", %{conn: conn} do
-      require Logger
-      Logger.error("a distinctive error line")
-      Logger.warning("a distinctive warning line")
-      Fanfarr.Log.Buffer.entries(limit: 1)
-
-      {:ok, view, _html} = live(conn, "/system")
-
-      html = render_click(view, "refresh_logs", %{})
-      assert html =~ "a distinctive error line"
-      assert html =~ "a distinctive warning line"
-
-      html = render_change(view, "set_log_level", %{"level" => "error"})
-      assert html =~ "a distinctive error line"
-      refute html =~ "a distinctive warning line"
-    end
-
-    test "a secret logged before the page loaded is not on the page", %{conn: conn} do
-      require Logger
-      Fanfarr.Settings.put_setting!("plex_token", "TOKEN-must-not-appear")
-      Fanfarr.Diagnostics.Redactor.prime()
-      Logger.error("requesting with X-Plex-Token=TOKEN-must-not-appear")
-      Fanfarr.Log.Buffer.entries(limit: 1)
-
-      {:ok, view, _html} = live(conn, "/system")
-      html = render_click(view, "refresh_logs", %{})
-
-      refute html =~ "TOKEN-must-not-appear"
-      assert html =~ "[redacted]"
-    end
-
-    test "clearing empties the log", %{conn: conn} do
-      require Logger
-      Logger.error("soon to be cleared")
-      Fanfarr.Log.Buffer.entries(limit: 1)
-
-      {:ok, view, _html} = live(conn, "/system")
-      html = render_click(view, "clear_logs", %{})
-
-      refute html =~ "soon to be cleared"
     end
 
     test "tracing an item by title explains why it has no path", %{conn: conn, section: section} do

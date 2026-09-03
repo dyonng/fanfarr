@@ -484,6 +484,54 @@ defmodule FanfarrWeb.CoreComponents do
   end
 
   @doc """
+  A button that copies the innerText of the element with id `@target`.
+
+  Falls back to selecting the text when the Clipboard API is unavailable --
+  it needs a secure context, which a LAN address over plain http is not.
+  """
+  attr :target, :string, required: true
+
+  def copy_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-hook=".CopyText"
+      id={"copy-#{@target}"}
+      data-target={@target}
+      class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
+    >
+      <.icon name="lucide-copy" class="size-3.5" />
+      <span data-label>Copy</span>
+    </button>
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".CopyText">
+      export default {
+        mounted() {
+          this.el.addEventListener("click", async () => {
+            const source = document.getElementById(this.el.dataset.target)
+            if (!source) return
+            const label = this.el.querySelector("[data-label]")
+            try {
+              await navigator.clipboard.writeText(source.innerText)
+              label.textContent = "Copied"
+            } catch (_) {
+              // Clipboard access needs a secure context, which a LAN address
+              // over plain http is not. Selecting the text is the fallback.
+              const range = document.createRange()
+              range.selectNodeContents(source)
+              const selection = window.getSelection()
+              selection.removeAllRanges()
+              selection.addRange(range)
+              label.textContent = "Selected — press Ctrl+C"
+            }
+            setTimeout(() => { label.textContent = "Copy" }, 2500)
+          })
+        }
+      }
+    </script>
+    """
+  end
+
+  @doc """
   Translates an error message using gettext.
   """
   def translate_error({msg, opts}) do
