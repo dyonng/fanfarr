@@ -34,6 +34,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:sections, Fanfarr.Library.list_sections!())
     |> assign(:root_folders, Fanfarr.Library.list_root_folders!())
     |> assign(:local_auth_bypass, Fanfarr.Accounts.AuthMode.bypass_enabled?())
+    |> assign(:ytdlp_proxy, Fanfarr.Config.get("ytdlp_proxy") || "")
+    |> assign(:theme_loudness_lufs, Fanfarr.Config.get("theme_loudness_lufs") || "")
   end
 
   # Both buttons submit the same form, distinguished by the button's value, so
@@ -91,6 +93,34 @@ defmodule FanfarrWeb.SettingsLive.Index do
   def handle_event("save_paths", %{"path_mappings" => mappings}, socket) do
     Fanfarr.Settings.put_setting!("path_mappings", String.trim(mappings))
     {:noreply, socket |> load() |> put_flash(:info, "Path mappings saved")}
+  end
+
+  def handle_event("save_ytdlp_proxy", %{"ytdlp_proxy" => proxy}, socket) do
+    Fanfarr.Settings.put_setting!("ytdlp_proxy", String.trim(proxy))
+    {:noreply, socket |> load() |> put_flash(:info, "yt-dlp proxy saved")}
+  end
+
+  def handle_event("save_loudness", %{"theme_loudness_lufs" => value}, socket) do
+    case String.trim(value) do
+      "" ->
+        Fanfarr.Settings.put_setting!("theme_loudness_lufs", nil)
+        {:noreply, socket |> load() |> put_flash(:info, "Loudness target reset to the default")}
+
+      typed ->
+        case Float.parse(typed) do
+          {parsed, ""} when parsed < 0 ->
+            Fanfarr.Settings.put_setting!("theme_loudness_lufs", Float.to_string(parsed))
+            {:noreply, socket |> load() |> put_flash(:info, "Loudness target saved")}
+
+          _ ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "Enter a negative number of LUFS, e.g. -14 -- or leave blank"
+             )}
+        end
+    end
   end
 
   def handle_event("toggle_section", %{"id" => id}, socket) do
@@ -365,7 +395,6 @@ defmodule FanfarrWeb.SettingsLive.Index do
               <button
                 phx-click="delete_root_folder"
                 phx-value-id={rf.id}
-                data-confirm={"Remove #{rf.path}?"}
                 class="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               >
                 <.icon name="lucide-trash-2" class="size-4" />
@@ -426,6 +455,61 @@ defmodule FanfarrWeb.SettingsLive.Index do
               placeholder="/media/merged-storage/TV:/tv"
               class="h-9 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm"
             />
+            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              Save
+            </button>
+          </form>
+        </section>
+
+        <section class="rounded-lg border border-border bg-card p-4">
+          <h2 class="text-sm font-semibold text-card-foreground">Downloads</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            Overrides YTDLP_PROXY and THEME_LOUDNESS_LUFS from the environment.
+          </p>
+          <form
+            id="ytdlp-proxy-form"
+            phx-submit="save_ytdlp_proxy"
+            class="mt-3 flex items-end gap-2"
+          >
+            <div class="flex-1">
+              <label class="text-xs font-medium text-muted-foreground">yt-dlp proxy</label>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                Only yt-dlp's own traffic goes through this — Plex and ThemerrDB are unaffected.
+                YouTube bot-checks a datacenter address harder than a residential one.
+              </p>
+              <input
+                type="text"
+                name="ytdlp_proxy"
+                value={@ytdlp_proxy}
+                placeholder="socks5://host:1080"
+                spellcheck="false"
+                class="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
+              />
+            </div>
+            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              Save
+            </button>
+          </form>
+          <form
+            id="loudness-form"
+            phx-submit="save_loudness"
+            class="mt-4 flex items-end gap-2"
+          >
+            <div class="flex-1">
+              <label class="text-xs font-medium text-muted-foreground">Loudness target (LUFS)</label>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                Every applied theme is normalised to this. -14 matches the streaming services;
+                leave blank to use that default.
+              </p>
+              <input
+                type="text"
+                inputmode="decimal"
+                name="theme_loudness_lufs"
+                value={@theme_loudness_lufs}
+                placeholder="-14"
+                class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+              />
+            </div>
             <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               Save
             </button>

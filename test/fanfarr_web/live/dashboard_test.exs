@@ -292,6 +292,18 @@ defmodule FanfarrWeb.DashboardTest do
       assert render(view) =~ "accessible"
     end
 
+    test "a root folder can be removed with no confirmation to click through", %{conn: conn} do
+      rf =
+        Fanfarr.Library.create_root_folder!(%{path: "/tv1", label: "", kind: :show})
+
+      {:ok, view, html} = live(conn, "/settings")
+      refute html =~ "data-confirm"
+
+      view |> element(~s(button[phx-value-id="#{rf.id}"])) |> render_click()
+
+      assert Fanfarr.Library.list_root_folders!() == []
+    end
+
     test "toggling a library flips enabled", %{conn: conn} do
       s = Fanfarr.Library.sync_section_from_plex!(%{plex_key: "9", title: "Anime", kind: :show})
       {:ok, view, _html} = live(conn, "/settings")
@@ -309,6 +321,51 @@ defmodule FanfarrWeb.DashboardTest do
 
       assert Fanfarr.Accounts.AuthMode.bypass_enabled?()
       assert render(view) =~ "Enabled"
+    end
+
+    test "saving a yt-dlp proxy stores an override", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> element("form#ytdlp-proxy-form")
+      |> render_submit(%{"ytdlp_proxy" => "socks5://127.0.0.1:1080"})
+
+      assert Fanfarr.Config.get("ytdlp_proxy") == "socks5://127.0.0.1:1080"
+    end
+
+    test "saving a loudness target stores an override", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> element("form#loudness-form")
+      |> render_submit(%{"theme_loudness_lufs" => "-16"})
+
+      assert Fanfarr.Config.get("theme_loudness_lufs") == "-16.0"
+      assert Fanfarr.Themes.Normalizer.target() == -16.0
+    end
+
+    test "a non-numeric loudness target is rejected, not stored", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      html =
+        view
+        |> element("form#loudness-form")
+        |> render_submit(%{"theme_loudness_lufs" => "loud please"})
+
+      assert html =~ "Enter a negative number"
+      assert Fanfarr.Config.get("theme_loudness_lufs") == nil
+    end
+
+    test "blanking the loudness target resets it to the default", %{conn: conn} do
+      Fanfarr.Settings.put_setting!("theme_loudness_lufs", "-16.0")
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> element("form#loudness-form")
+      |> render_submit(%{"theme_loudness_lufs" => ""})
+
+      assert Fanfarr.Config.get("theme_loudness_lufs") == nil
+      assert Fanfarr.Themes.Normalizer.target() == -14.0
     end
   end
 end

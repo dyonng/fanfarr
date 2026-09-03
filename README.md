@@ -42,6 +42,9 @@ required for the local-file output path.
   like (`/tv1`, `/tv2`, …), browse to it from Settings, and items are located
   by directory name across the roots so a theme lands on the drive that holds
   the show.
+- **Loudness normalisation** — every applied theme is brought to a consistent
+  level (-14 LUFS by default, adjustable in Settings), so one show is not
+  blasting while the next is inaudible.
 - **System page** — Sonarr-style health checks: Plex reachable, yt-dlp
   present, root folders writable, Plex paths resolving on this side of the
   mount, ThemerrDB up, database healthy. A dot on the sidebar when something

@@ -42,6 +42,9 @@ defmodule FanfarrWeb.ActivityLiveTest do
 
     {:ok, view, html} = live(conn, "/activity")
     assert html =~ "Stop bulk theme work"
+    # Stopping is not destructive -- nothing already applied is undone -- so
+    # it does not stop to ask first.
+    refute html =~ "data-confirm"
 
     html = view |> element("button", "Stop bulk theme work") |> render_click()
 

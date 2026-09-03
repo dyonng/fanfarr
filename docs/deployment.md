@@ -271,7 +271,8 @@ YTDLP_PROXY=http://gluetun:8888
 
 gluetun provides that proxy with `HTTPPROXY=on`. Empty by default, which means
 no proxy. The setting exists so that a home address hitting rate limits is a
-config change rather than a rebuild of the stack's network topology.
+config change rather than a rebuild of the stack's network topology. It can
+also be set from Settings, without touching compose or restarting.
 
 ## Read-only mounts
 

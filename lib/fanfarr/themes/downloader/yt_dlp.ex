@@ -15,6 +15,15 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
   A theme is a short piece of music. The duration and size ceilings exist
   because the alternative to rejecting a ten-hour upload is downloading it
   onto someone's media drive.
+
+  ## Proxy
+
+  `ytdlp_proxy` (`YTDLP_PROXY` by default, overridable in Settings) is passed
+  to yt-dlp as `--proxy` on every call that talks to YouTube. It is separate
+  from any proxy the rest of the app uses for Plex or ThemerrDB: yt-dlp's
+  traffic is the one kind this app makes that plausibly wants to go through a
+  residential connection rather than the server's own -- YouTube bot-checks a
+  datacenter address far harder than one that looks like a home.
   """
   @behaviour Fanfarr.Themes.Downloader
 
@@ -57,7 +66,7 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
         "ytsearch#{min(limit, 25)}:#{query}"
       ]
 
-      case run([@binary | args], @search_timeout_ms) do
+      case run([@binary | proxy_args() ++ args], @search_timeout_ms) do
         {:ok, output} -> {:ok, parse_search(output)}
         {:error, :enoent} -> {:error, :not_installed}
         {:error, reason} -> {:error, reason}
@@ -111,7 +120,7 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
       # a real answer about this video rather than a guess from its metadata.
       args = ["--simulate", "--dump-json", "--no-playlist", "--no-warnings", url]
 
-      case run([@binary | args], @search_timeout_ms) do
+      case run([@binary | proxy_args() ++ args], @search_timeout_ms) do
         {:ok, output} ->
           case parse_search(output) do
             [%{title: title} = hit | _] ->
@@ -212,7 +221,7 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
       url
     ]
 
-    case run([@binary | args], @timeout_ms) do
+    case run([@binary | proxy_args() ++ args], @timeout_ms) do
       {:ok, output} -> collect(work, dir, output)
       {:error, :enoent} -> {:error, :not_installed}
       # Same classification the probe gets. Without it a download failure came
@@ -280,6 +289,19 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
 
   defp validate_url(url) do
     if Fanfarr.Themes.Downloader.youtube_url?(url), do: :ok, else: {:error, :unsupported_url}
+  end
+
+  @doc false
+  # Public only so the suite can assert what actually reaches the yt-dlp
+  # argument list without needing the binary installed. Routes yt-dlp's own
+  # traffic through a proxy, distinct from the app's -- see the moduledoc.
+  # Blank is treated the same as unset, so an empty YTDLP_PROXY does not pass
+  # "--proxy" with nothing after it.
+  def proxy_args do
+    case Fanfarr.Config.get("ytdlp_proxy") do
+      value when is_binary(value) and value != "" -> ["--proxy", value]
+      _ -> []
+    end
   end
 
   defp ensure_dir(dir) do

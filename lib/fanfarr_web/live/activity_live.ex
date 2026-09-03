@@ -77,8 +77,7 @@ defmodule FanfarrWeb.ActivityLive.Index do
           <button
             :if={@bulk_theme_work_pending}
             phx-click="stop_bulk"
-            data-confirm="Stop every queued and running theme apply/lookup? Anything already applied stays applied."
-            class="h-9 shrink-0 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/10"
+            class="h-9 shrink-0 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
           >
             Stop bulk theme work
           </button>
