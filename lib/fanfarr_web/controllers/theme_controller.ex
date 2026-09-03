@@ -52,7 +52,7 @@ defmodule FanfarrWeb.ThemeController do
             conn
             |> put_resp_header("accept-ranges", "bytes")
             |> put_resp_header("content-range", "bytes #{first}-#{last}/#{size}")
-            |> send_file(206, path, first, last - first + 1)
+            |> FanfarrWeb.SendFile.file(206, path, first, last - first + 1)
 
           :unsatisfiable ->
             conn
@@ -71,7 +71,7 @@ defmodule FanfarrWeb.ThemeController do
   defp whole(conn, path) do
     conn
     |> put_resp_header("accept-ranges", "bytes")
-    |> send_file(200, path)
+    |> FanfarrWeb.SendFile.file(200, path)
   end
 
   # Only the single-range forms a media element actually sends.

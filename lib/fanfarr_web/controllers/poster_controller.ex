@@ -15,7 +15,7 @@ defmodule FanfarrWeb.PosterController do
       conn
       |> put_resp_content_type(type)
       |> put_resp_header("cache-control", @cache_control)
-      |> send_file(200, path)
+      |> FanfarrWeb.SendFile.file(200, path)
     else
       _ ->
         # A blank, so a missing poster is an empty frame rather than a broken
