@@ -112,6 +112,49 @@ defmodule Fanfarr.JobsTest do
     end
   end
 
+  describe "bulk_theme_work_pending?/0 and cancel_bulk_theme_work!/0" do
+    test "nothing pending when the queue is empty" do
+      refute Jobs.bulk_theme_work_pending?()
+      assert Jobs.cancel_bulk_theme_work!() == 0
+    end
+
+    test "cancels available, scheduled, retryable and executing apply/lookup jobs", %{
+      item: item
+    } do
+      for state <- ["available", "scheduled", "retryable", "executing"] do
+        # theme_url varies so each lands as its own row rather than colliding
+        # with ApplyTheme's own uniqueness (media_item_id + dry_run + theme_url).
+        enqueue(
+          Fanfarr.Workers.ApplyTheme,
+          %{media_item_id: item.id, dry_run: true, theme_url: "https://example.com/#{state}"},
+          state
+        )
+      end
+
+      enqueue(Fanfarr.Workers.LookupTheme, %{media_item_id: item.id}, "available")
+
+      assert Jobs.bulk_theme_work_pending?()
+      assert Jobs.cancel_bulk_theme_work!() == 5
+
+      states = Fanfarr.Repo.all(from(j in Oban.Job, select: j.state))
+      assert Enum.all?(states, &(&1 == "cancelled"))
+      refute Jobs.bulk_theme_work_pending?()
+    end
+
+    test "leaves finished work and other workers alone", %{item: item} do
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
+      enqueue(Fanfarr.Workers.RefreshThemerr, %{}, "available")
+      enqueue(Fanfarr.Workers.SyncSection, %{section_id: "x"}, "available")
+
+      refute Jobs.bulk_theme_work_pending?()
+      assert Jobs.cancel_bulk_theme_work!() == 0
+
+      states = Fanfarr.Repo.all(from(j in Oban.Job, select: j.state))
+      assert "completed" in states
+      assert Enum.count(states, &(&1 == "available")) == 2
+    end
+  end
+
   describe "recent/1" do
     test "work still in flight sorts above work that has finished", %{item: item} do
       # The running job is the older row, so ordering by id alone buries it.

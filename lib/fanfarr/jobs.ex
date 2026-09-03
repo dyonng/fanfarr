@@ -19,6 +19,11 @@ defmodule Fanfarr.Jobs do
 
   @active ~w(executing available scheduled retryable)
 
+  # The two workers a bulk selection on the Library page can queue -- the
+  # only jobs "Stop" on the Activity page means, so a scheduled sync or
+  # ThemerrDB refresh is never swept up by accident.
+  @bulk_theme_workers ~w(Fanfarr.Workers.ApplyTheme Fanfarr.Workers.LookupTheme)
+
   @type summary :: %{running: non_neg_integer(), queued: non_neg_integer()}
 
   @doc """
@@ -47,6 +52,49 @@ defmodule Fanfarr.Jobs do
 
   @spec busy?(summary()) :: boolean()
   def busy?(%{running: running, queued: queued}), do: running + queued > 0
+
+  @doc """
+  Whether a bulk apply or ThemerrDB lookup is running or waiting, for the
+  Activity page to decide whether "Stop" has anything to do.
+  """
+  @spec bulk_theme_work_pending?() :: boolean()
+  def bulk_theme_work_pending? do
+    Fanfarr.Repo.exists?(
+      from j in Oban.Job,
+        where: j.worker in ^@bulk_theme_workers,
+        where: j.state in ^@active
+    )
+  end
+
+  @doc """
+  Cancels every apply and ThemerrDB-lookup job that has not finished --
+  available, scheduled, retryable, or executing right now.
+
+  An executing job is killed outright, not just marked, and the process gets
+  no chance to run its own cleanup on the way out -- Oban terminates it with
+  an untrapped exit. That is still safe here because `Themes.Writer.place/2`
+  never writes to the real destination path directly: it stages the file
+  under a hidden temporary name in the same directory and only `File.rename/2`s
+  it into place once it is fully on disk. A kill can only ever land before
+  that rename (nothing visible yet) or after it (already a complete file); it
+  can strand a scratch download in `System.tmp_dir!/0` or a stray hidden
+  `.part` file next to the media, but it cannot leave Plex looking at a
+  half-written theme.mp3.
+
+  Returns how many were cancelled.
+  """
+  @spec cancel_bulk_theme_work!() :: non_neg_integer()
+  def cancel_bulk_theme_work! do
+    {:ok, count} =
+      Oban.cancel_all_jobs(
+        from(j in Oban.Job,
+          where: j.worker in ^@bulk_theme_workers,
+          where: j.state in ^@active
+        )
+      )
+
+    count
+  end
 
   @doc """
   Jobs worth showing, newest first, with a human line for each.

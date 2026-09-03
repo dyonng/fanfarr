@@ -28,7 +28,10 @@ required for the local-file output path.
   destination and checks the folder is writable, then stops. Run it on the
   whole library before writing a single file.
 - **Bulk actions** — tick rows, or select everything matching a filter, and
-  preview, look up, or apply in one go.
+  preview, look up, or apply in one go. Each queues one job per item rather
+  than looping in a request, capped at 2 concurrent downloads so a
+  thousand-item run does not hammer YouTube, and stoppable mid-run from
+  Activity without losing whatever already applied.
 - **Local `theme.mp3`, never an upload** — themes are written beside the
   media, where deleting the file undoes them. Plex's upload API cannot be
   undone, so it is not used.
@@ -46,8 +49,9 @@ required for the local-file output path.
 - **Append-only application log** — every attempt Fanfarr makes is recorded
   permanently: what, when, from where, and how it went. Dry runs included,
   but never counted.
-- **Activity view** — live job queue with per-job errors and retry, plus
-  recent theme failures with their actual error message.
+- **Activity view** — live job queue with per-job errors and retry, a "Stop
+  bulk theme work" button that cancels every queued and running apply/lookup
+  in one click, plus recent theme failures with their actual error message.
 - **Login from the environment** — set `AUTH_USERNAME` and `AUTH_PASSWORD` in
   compose and that is the account. No sign-up page, no reset flow. Leave them
   unset and the dashboard is open, as the *arrs also start.

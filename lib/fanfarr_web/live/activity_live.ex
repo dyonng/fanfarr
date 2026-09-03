@@ -36,10 +36,18 @@ defmodule FanfarrWeb.ActivityLive.Index do
     end
   end
 
+  def handle_event("stop_bulk", _params, socket) do
+    count = Fanfarr.Jobs.cancel_bulk_theme_work!()
+
+    {:noreply,
+     socket |> put_flash(:info, "Stopped #{count} queued or running theme job(s)") |> load()}
+  end
+
   defp load(socket) do
     socket
     |> assign(:jobs, Fanfarr.Jobs.recent())
     |> assign(:summary, Fanfarr.Jobs.summary())
+    |> assign(:bulk_theme_work_pending, Fanfarr.Jobs.bulk_theme_work_pending?())
     |> assign(:failures, Fanfarr.Themes.list_theme_failures!() |> Enum.take(20))
   end
 
@@ -53,17 +61,27 @@ defmodule FanfarrWeb.ActivityLive.Index do
       queue_summary={@queue_summary}
     >
       <div class="space-y-6">
-        <div>
-          <h1 class="text-2xl font-semibold tracking-tight">Activity</h1>
-          <p class="text-sm text-muted-foreground">
-            <span :if={Fanfarr.Jobs.busy?(@summary)}>
-              {@summary.running} running · {@summary.queued} waiting. Everything here runs in the
-              background, so you can leave this page.
-            </span>
-            <span :if={not Fanfarr.Jobs.busy?(@summary)}>
-              Nothing running. Jobs refresh every few seconds.
-            </span>
-          </p>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-tight">Activity</h1>
+            <p class="text-sm text-muted-foreground">
+              <span :if={Fanfarr.Jobs.busy?(@summary)}>
+                {@summary.running} running · {@summary.queued} waiting. Everything here runs in the
+                background, so you can leave this page.
+              </span>
+              <span :if={not Fanfarr.Jobs.busy?(@summary)}>
+                Nothing running. Jobs refresh every few seconds.
+              </span>
+            </p>
+          </div>
+          <button
+            :if={@bulk_theme_work_pending}
+            phx-click="stop_bulk"
+            data-confirm="Stop every queued and running theme apply/lookup? Anything already applied stays applied."
+            class="h-9 shrink-0 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/10"
+          >
+            Stop bulk theme work
+          </button>
         </div>
 
         <section class="rounded-lg border border-border bg-card">
