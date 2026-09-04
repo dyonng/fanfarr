@@ -256,6 +256,12 @@ defmodule Fanfarr.Plex.HTTPClient do
       path: item_path(m),
       thumb: m["thumb"],
       theme: m["theme"],
+      # The external scores an agent fetched, and only those. Plex's
+      # `userRating` -- the operator's own stars on a title -- is deliberately
+      # not read: it says how one person felt rather than how the thing was
+      # received, and it would be the only column meaning something different
+      # per install.
+      #
       # Absent for plenty of items -- an agent with no opinion, a library Plex
       # has not enriched -- so these are read if they are there and left nil if
       # they are not. Nothing downstream treats nil as an error; the library

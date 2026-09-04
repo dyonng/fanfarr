@@ -671,10 +671,10 @@ defmodule FanfarrWeb.LibraryLive.Index do
     <td class="px-3 py-2 text-muted-foreground">
       <span
         :if={@score}
-        title={"#{Fanfarr.Library.Score.label(@source)} · #{@score}/10 as Plex has it"}
+        title={"#{Fanfarr.Library.Score.label(@source)} · #{Fanfarr.Library.Score.out_of_ten(@score)}/10 as Plex stores it"}
         class="tabular-nums"
       >
-        {Fanfarr.Library.Score.format(@score, @source)}
+        {Fanfarr.Library.Score.format(@score)}
       </span>
       <%!-- An em dash rather than a zero: no rating is not a bad rating, and
       a column of noughts would read as one. --%>

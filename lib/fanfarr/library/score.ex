@@ -1,19 +1,29 @@
 defmodule Fanfarr.Library.Score do
   @moduledoc """
-  Reading and presenting the ratings Plex holds for an item.
+  Reading and presenting the critic and audience scores Plex holds.
 
-  Plex normalises every provider onto a 0-10 float in `rating` and
-  `audienceRating`, and names the provider in `ratingImage` /
-  `audienceRatingImage` -- strings shaped like
-  `rottentomatoes://image.rating.ripe` or `imdb://image.rating`. Storing the
-  0-10 number is what lets a Rotten Tomatoes score and an IMDb one sort
-  against each other at all.
+  These are the *external* scores an agent fetched -- Rotten Tomatoes, TMDB,
+  IMDb -- carried in `rating` and `audienceRating`, with the provider named in
+  `ratingImage` / `audienceRatingImage` (strings shaped like
+  `rottentomatoes://image.rating.ripe`). Plex's `userRating`, which is the
+  operator's own star rating of a title, is deliberately not read: it is an
+  opinion about the item rather than a fact about how it was received, and it
+  would be the only column on the page that meant something different per
+  install.
 
-  Presenting them on that scale would be wrong, though. A Rotten Tomatoes
-  score is a percentage everywhere it is ever shown, and "8.3" for a film
-  people know as 83% reads as a different number. So the scale is uniform in
-  the database and native at the edge: percentages for Rotten Tomatoes,
-  x.x for the out-of-ten providers.
+  ## One format, whatever the source
+
+  Plex puts every provider on a 0-10 float, which is what makes them sortable
+  against each other, and that is what is stored. They are all shown as
+  percentages.
+
+  Showing each provider's native form instead -- 87% for Rotten Tomatoes but
+  8.3 for IMDb -- was faithful to each service and wrong for the column:
+  which format a row got depended on which agent happened to know that title,
+  so the same page carried two scales and a sorted column read as though it
+  were not sorted. A single scale is worth more here than each service's
+  house style, because the column exists to be compared down rather than read
+  one row at a time.
 
   Which provider a score comes from is per-item, not per-server: Plex's movie
   agent commonly supplies Rotten Tomatoes while a TV agent supplies TMDB, and
@@ -38,21 +48,26 @@ defmodule Fanfarr.Library.Score do
   def provider(_), do: nil
 
   @doc """
-  A score written the way the service that produced it writes it.
+  A score as a percentage, whichever service it came from.
 
-  Rotten Tomatoes is a percentage; everyone else is out of ten. Returns nil
-  for a missing score so callers can render an empty cell rather than a zero,
-  which would read as a damning review rather than as no data.
+  Returns nil for a missing score so callers can render an empty cell rather
+  than a zero, which would read as a damning review rather than as no data.
   """
-  @spec format(number() | nil, String.t() | nil) :: String.t() | nil
-  def format(nil, _source), do: nil
-
-  def format(score, "rottentomatoes"), do: "#{round(score * 10)}%"
+  @spec format(number() | nil) :: String.t() | nil
+  def format(nil), do: nil
 
   # Plex sends a whole number as a JSON integer, so this cannot assume a float.
-  def format(score, _source) do
-    :erlang.float_to_binary(score / 1, decimals: 1)
-  end
+  def format(score), do: "#{round(score * 10)}%"
+
+  @doc """
+  The score on the 0-10 scale Plex stores it on, for a tooltip.
+
+  Worth showing there because it is the number Plex's own UI displays, so
+  anyone cross-checking a row against Plex is comparing like with like.
+  """
+  @spec out_of_ten(number() | nil) :: String.t() | nil
+  def out_of_ten(nil), do: nil
+  def out_of_ten(score), do: :erlang.float_to_binary(score / 1, decimals: 1)
 
   @doc """
   A short label for the service, for a tooltip.

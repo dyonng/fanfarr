@@ -165,7 +165,7 @@ defmodule FanfarrWeb.DashboardTest do
       |> Enum.uniq()
     end
 
-    test "a score is shown the way the service that gave it writes it", %{
+    test "scores from different services are shown on the same scale", %{
       conn: conn,
       item: item
     } do
@@ -179,9 +179,15 @@ defmodule FanfarrWeb.DashboardTest do
 
       {:ok, _view, html} = live(conn, "/")
 
-      # Rotten Tomatoes as a percentage, IMDb out of ten.
+      # Both as percentages, though one came from Rotten Tomatoes and the
+      # other from IMDb. A column mixing 87% with 7.2 read as unsorted.
       assert html =~ "87%"
-      assert html =~ "7.2"
+      assert html =~ "72%"
+      refute html =~ ">7.2<"
+
+      # The service and its own scale stay available on hover.
+      assert html =~ "IMDb"
+      assert html =~ "7.2/10"
     end
 
     test "an item with no rating shows nothing rather than a nought", %{conn: conn} do

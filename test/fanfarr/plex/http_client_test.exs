@@ -230,6 +230,24 @@ defmodule Fanfarr.Plex.HTTPClientTest do
       assert item.audience_score_source == "rottentomatoes"
     end
 
+    test "the operator's own star rating in Plex is not one of the scores" do
+      # userRating is what one person thought, not how the thing was received.
+      # An item rated in Plex but unrated by any service stays blank here.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":1,"title":"Personal Favourite","type":"movie","theme":null,
+         "userRating":10.0}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, [item]} = HTTPClient.items(@config, "1")
+
+      assert item.critic_score == nil
+      assert item.audience_score == nil
+    end
+
     test "an item its agent has no opinion about syncs with no scores" do
       # The common case for anything obscure, and for whole libraries whose
       # agent supplies no ratings at all. It must not fail the sync.

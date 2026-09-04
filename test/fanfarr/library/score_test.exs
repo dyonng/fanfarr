@@ -19,28 +19,33 @@ defmodule Fanfarr.Library.ScoreTest do
     end
   end
 
-  describe "format/2" do
-    test "Rotten Tomatoes is a percentage, which is how anyone has ever seen it" do
-      assert Score.format(8.3, "rottentomatoes") == "83%"
-      assert Score.format(10.0, "rottentomatoes") == "100%"
-      assert Score.format(0.7, "rottentomatoes") == "7%"
-    end
-
-    test "everyone else is out of ten" do
-      assert Score.format(8.3, "imdb") == "8.3"
-      assert Score.format(7.0, "themoviedb") == "7.0"
-      assert Score.format(6.55, nil) == "6.5"
+  describe "format/1" do
+    test "every provider is shown on the same scale" do
+      # Which format a row got used to depend on which agent happened to know
+      # the title, so one column carried two scales and sorting it read as
+      # though it had not sorted.
+      assert Score.format(8.3) == "83%"
+      assert Score.format(10.0) == "100%"
+      assert Score.format(0.7) == "7%"
+      assert Score.format(7.0) == "70%"
     end
 
     test "a whole number arrives as an integer and still formats" do
-      assert Score.format(8, "imdb") == "8.0"
-      assert Score.format(8, "rottentomatoes") == "80%"
+      assert Score.format(8) == "80%"
     end
 
     test "no score is nothing rather than a zero" do
       # A zero would read as a damning review rather than as no data.
-      assert Score.format(nil, "rottentomatoes") == nil
-      assert Score.format(nil, nil) == nil
+      assert Score.format(nil) == nil
+    end
+  end
+
+  describe "out_of_ten/1" do
+    test "keeps Plex's own scale for the tooltip" do
+      assert Score.out_of_ten(8.3) == "8.3"
+      assert Score.out_of_ten(8) == "8.0"
+      assert Score.out_of_ten(6.55) == "6.5"
+      assert Score.out_of_ten(nil) == nil
     end
   end
 
