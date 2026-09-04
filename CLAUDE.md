@@ -75,22 +75,63 @@ through.
 
 ## Current state / not yet built
 
-Built: resource model, auth, dashboard (Library with posters and bulk actions /
-Item with YouTube search, inline preview and manual picks / Activity / Settings
-with a folder browser / System with health checks), sync + ThemerrDB workers,
-Plex HTTP client (**read** paths verified against PMS 1.43.4 and pinned as
-captured-response tests; **write** paths -- `upload_theme`, `lock_theme` -- are
-unused and unverified), theme origin detection, yt-dlp download and search,
-EXDEV-safe writer, ApplyTheme worker (dry run default, local theme.mp3 only,
-movies refused), poster cache, health monitor.
+`ROADMAP.md` is the up-to-date, user-facing list of what's built and what
+isn't -- read that first. What follows here is implementation detail that
+doesn't belong in a roadmap.
+
+Built: resource model, auth (env-based login, remember-me, local-address
+bypass), dashboard (Library with posters, scores, studio/collection filters,
+sortable columns and bulk actions / Item with YouTube search, inline preview
+and manual picks / Activity with an ETA / Settings with a folder browser and
+appearance / System with health checks / a full-page log console), sync +
+ThemerrDB workers, Plex HTTP client (**read** paths verified against PMS
+1.43.4 and pinned as captured-response tests; **write** paths --
+`upload_theme`, `lock_theme` -- are unused and unverified), theme origin
+detection, yt-dlp download and search, EXDEV-safe writer, ApplyTheme worker
+(dry run default, local theme.mp3, **shows and movies both** -- verified on
+the reference server, see below), poster cache, health monitor.
 
 **Plex JSON gotcha:** `/themes` returns `<Track>` in XML but a `"Metadata"`
 array in JSON, and `selected` is a boolean there, not `"1"`. Plex does honour
 `Accept: application/json`. Set `config :fanfarr, req_options: [plug: ...]` to
 serve captured responses through the real client in tests.
 
-**Reference coverage:** Movies 0/1785, TV 396/742, Sets 0/37. Movies at zero is
-correct -- Plex's movie agent supplies no themes at all.
+**Movies were the last big unverified piece and are done.** Plex's movie
+agent supplies no themes at all, so a local `theme.mp3` was the only possible
+path, and whether Plex would even read one was open until it was tried on the
+reference server -- it worked first try. `ApplyTheme` no longer refuses
+`:movie` items. If you find a reference to movies being refused or unverified
+elsewhere (AGENTS.md has some older passages), that text is stale, not the
+behavior.
+
+**Renamed items don't fork a row.** Plex issues a new ratingKey on a folder
+rename rather than updating the item in place, which an earlier version of
+sync treated as a straightforward delete-and-recreate -- losing the
+operator's chosen theme and the application log. Sync now pairs a departing
+item with an arriving one sharing the same imdb/tmdb/tvdb id and re-keys the
+existing row; only what's left unpaired is actually deleted (which cascades
+its history, deliberately -- see `Fanfarr.Library.MediaItem`'s destroy
+action). See `Fanfarr.Workers.SyncSection` for the pairing logic and its
+ambiguity rules.
+
+**Studio and collections** come from the same Plex listing request
+(`includeCollections=1` alongside `includeGuids=1`) plus, for collections, a
+second pass against `/library/sections/<key>/collections` -- the per-item
+Collection tags alone miss agent-built collections (Star Wars, Dune, that
+sort), only reporting the operator's hand-made ones. See
+`Fanfarr.Workers.SyncSection.collections/3`.
+
+**Boot migrations run on a single connection**, not the application's normal
+pool. `Ecto.Migrator`'s own child spec migrates on the already-started pool,
+and SQLite's per-connection schema cache means two migrations touching one
+table in one boot can land on different connections and the second one fails
+with "no such column" on a fresh database. See `Fanfarr.Repo.Migrator`. If
+you add a migration and CI's Docker smoke test fails with a missing-column
+error on a fresh DB, this is almost certainly not it (the fix already
+handles it) -- look at the migration itself first.
+
+**Reference coverage (as last verified):** Movies applying works end to end;
+TV 396/742 themed at last survey.
 
 **Precedence when applying:** URL passed with the job > `manual_theme_url` on
 the item > ThemerrDB entry. Oban uniqueness is per item *and* dry-run flag;
@@ -103,16 +144,11 @@ the library rather than guessing.
 
 **Debugging:** the System page has a redacted log view and diagnostics tools
 (environment, item trace, yt-dlp video check, raw Plex probe, and a one-click
-bug-report bundle). `Fanfarr.Diagnostics.Redactor` must never query the
-database -- see AGENTS.md for why that would loop forever.
+bug-report bundle), plus a full-page, colour-coded log console at `/logs`.
+`Fanfarr.Diagnostics.Redactor` must never query the database -- see AGENTS.md
+for why that would loop forever.
 
-Not built yet, in intended order:
-1. **Movies.** Verify on the real server whether Plex reads a local theme.mp3
-   for a movie. Until then `ApplyTheme` refuses `:movie` items. Do not guess.
-2. `/photo/:/transcode` is what the poster cache asks Plex for; verified in use
-   only once the operator sees posters. Falls back to the raw thumb key.
-3. Codec detection/transcoding (Opus vs Apple TV). Everything is MP3 today.
-4. Per-season themes: Plex has none. Documented as not applicable in README.
+See `ROADMAP.md` for what's next.
 
 ## Testing notes
 

@@ -434,10 +434,9 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
   of 1,785 times.
 - **Local `theme.mp3` only.** Deleting the file undoes it; a Plex API upload
   cannot be undone, and irreversible actions are the project's first rule.
-- **Movies are refused** (`:movies_not_supported_yet`). Plex's movie agent
-  supplies no themes at all, and whether Plex reads a local theme file for a
-  movie is UNVERIFIED. This is the next thing to test on the real server; do
-  not implement it from memory.
+- **Movies are supported.** This section originally refused them pending
+  verification; see "Movies read a local `theme.mp3`" above -- verified on the
+  reference server, and `ApplyTheme` no longer special-cases `:movie`.
 - Destination resolution order is **map, resolve, then verify**: run the Plex
   path through the mappings, resolve it against the root folders, and check
   existence and writability on the *resolved* directory. Never require the

@@ -99,8 +99,7 @@ defmodule FanfarrWeb.Layouts do
           >
             {Fanfarr.Version.display()}
           </div>
-          <div class="flex items-center justify-between px-2 py-1">
-            <.theme_toggle />
+          <div class="flex items-center justify-end px-2 py-1">
             <a
               :if={assigns[:current_user]}
               href={~p"/sign-out"}

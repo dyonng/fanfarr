@@ -272,6 +272,16 @@ defmodule FanfarrWeb.SettingsLive.Index do
         <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
 
         <section class="rounded-lg border border-border bg-card p-4">
+          <h2 class="text-sm font-semibold text-card-foreground">Appearance</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            Stored in this browser, not on the server — each device remembers its own.
+          </p>
+          <div class="mt-3">
+            <Layouts.theme_toggle />
+          </div>
+        </section>
+
+        <section class="rounded-lg border border-border bg-card p-4">
           <h2 class="text-sm font-semibold text-card-foreground">Plex</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Values here override PLEX_URL / PLEX_TOKEN from the environment.
@@ -462,7 +472,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
         </section>
 
         <section class="rounded-lg border border-border bg-card p-4">
-          <h2 class="text-sm font-semibold text-card-foreground">Downloads</h2>
+          <h2 class="text-sm font-semibold text-card-foreground">Theme downloads</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Overrides YTDLP_PROXY and THEME_LOUDNESS_LUFS from the environment.
           </p>
