@@ -74,11 +74,52 @@ defmodule Fanfarr.Workers.SyncSection do
         end)
       end)
 
+      prune(section, items)
+
       Phoenix.PubSub.broadcast(Fanfarr.PubSub, "library", {:section_synced, section.id})
       :ok
     else
       {:error, :plex_not_configured} -> {:cancel, :plex_not_configured}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Items we hold that Plex has stopped listing.
+  #
+  # Rename a folder and Plex does not update the item -- it drops the old one
+  # and adds a new one under a fresh ratingKey. An additive sync therefore
+  # leaves the library showing both, which is what "The Dark Knight" appearing
+  # twice was: one row for the folder as it used to be named, one for its
+  # replacement.
+  #
+  # Marked, not deleted, because the theme application log points at these rows
+  # with no cascade, so SQLite *refuses* the delete for precisely the items
+  # worth keeping -- anything Fanfarr has ever applied a theme to. See
+  # MediaItem's :mark_missing_from_plex.
+  defp prune(section, items) do
+    listed = MapSet.new(items, & &1.rating_key)
+
+    # An empty listing is not evidence that a library is empty. Plex returns
+    # one while a scan is in progress, and a section whose storage is offline
+    # reports no items rather than an error. Believing it would blank the
+    # mirror -- and hide every item until the next successful sync.
+    if MapSet.size(listed) == 0 do
+      Logger.warning(
+        "[fanfarr] Plex listed no items in section #{section.title}; " <>
+          "nothing pruned, since an empty listing is more likely a scan in progress"
+      )
+    else
+      section.id
+      |> Library.present_media_items_in_section!()
+      |> Enum.reject(&MapSet.member?(listed, &1.plex_rating_key))
+      |> Enum.each(fn item ->
+        Logger.info(
+          "[fanfarr] Plex no longer lists #{item.title} (ratingKey #{item.plex_rating_key}); " <>
+            "hiding it from the library"
+        )
+
+        Library.mark_media_item_missing!(item)
+      end)
     end
   end
 

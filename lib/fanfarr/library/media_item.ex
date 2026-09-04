@@ -68,6 +68,21 @@ defmodule Fanfarr.Library.MediaItem do
       ]
 
       change set_attribute(:last_synced_at, &DateTime.utc_now/0)
+
+      # Anything Plex is listing again is here again. Renaming a folder back,
+      # or fixing whatever made Plex drop it, un-marks it on the next sync
+      # rather than leaving it hidden forever.
+      change set_attribute(:missing_from_plex_at, nil)
+    end
+
+    # Plex stopped listing this item. Marked rather than deleted: the
+    # append-only application log holds it by a foreign key with no cascade,
+    # so a delete is *refused* for exactly the items worth keeping -- anything
+    # Fanfarr has ever applied a theme to. Losing that log to tidy the library
+    # would be the wrong trade, and this way the row can come back.
+    update :mark_missing_from_plex do
+      accept []
+      change set_attribute(:missing_from_plex_at, &DateTime.utc_now/0)
     end
 
     update :record_local_theme do
@@ -95,6 +110,20 @@ defmodule Fanfarr.Library.MediaItem do
     read :by_section do
       argument :section_id, :uuid, allow_nil?: false
       filter expr(section_id == ^arg(:section_id))
+    end
+
+    # Everything Plex still lists. The default read deliberately still returns
+    # the lot: a diagnostic tracing "why has this no theme" wants to find an
+    # item that has gone, and so does its own page if someone still has the
+    # link. It is the library table that should not show it.
+    read :present do
+      filter expr(is_nil(missing_from_plex_at))
+    end
+
+    # The ones it does not, for the sync to find without loading the rest.
+    read :present_in_section do
+      argument :section_id, :uuid, allow_nil?: false
+      filter expr(section_id == ^arg(:section_id) and is_nil(missing_from_plex_at))
     end
   end
 
@@ -224,6 +253,20 @@ defmodule Fanfarr.Library.MediaItem do
 
     attribute :added_at, :utc_datetime_usec, public?: true
     attribute :last_synced_at, :utc_datetime_usec, public?: true
+
+    attribute :missing_from_plex_at, :utc_datetime_usec do
+      public? true
+
+      description """
+      When a sync last found Plex no longer listing this item. Nil means Plex
+      still has it, which is all but every row.
+
+      Rename a folder and Plex issues a new ratingKey for it, so the old row
+      would otherwise sit in the library forever beside its replacement. It is
+      stamped rather than deleted because the theme application log points at
+      it with no cascade -- see the :mark_missing_from_plex action.
+      """
+    end
 
     timestamps()
   end

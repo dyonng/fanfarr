@@ -39,9 +39,12 @@ defmodule Fanfarr.Library do
 
     resource Fanfarr.Library.MediaItem do
       define :list_media_items, action: :read
+      define :list_present_media_items, action: :present
       define :get_media_item, action: :read, get_by: [:id]
       define :media_items_in_section, action: :by_section, args: [:section_id]
+      define :present_media_items_in_section, action: :present_in_section, args: [:section_id]
       define :sync_media_item_from_plex, action: :sync_from_plex
+      define :mark_media_item_missing, action: :mark_missing_from_plex
       define :record_local_theme, action: :record_local_theme
       define :record_plex_theme, action: :record_plex_theme
       define :set_manual_theme, action: :set_manual_theme

@@ -235,8 +235,11 @@ defmodule Fanfarr.Health do
 
   @doc "A sample of Plex-reported paths, run through mappings, actually exist here."
   def path_resolution do
+    # Present items only: a path Plex has stopped reporting is very often a
+    # renamed folder, and checking whether the old name still exists on disk
+    # would report a healthy library as broken.
     items =
-      Fanfarr.Library.list_media_items!()
+      Fanfarr.Library.list_present_media_items!()
       |> Enum.filter(&(is_binary(&1.plex_path) and &1.plex_path != ""))
       |> Enum.take(@path_sample)
 

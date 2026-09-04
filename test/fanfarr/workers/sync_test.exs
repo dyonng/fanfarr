@@ -288,6 +288,108 @@ defmodule Fanfarr.Workers.SyncTest do
     end
   end
 
+  describe "items Plex has stopped listing" do
+    setup do
+      expect(Fanfarr.PlexClientMock, :sections, fn _ -> {:ok, [section()]} end)
+      assert :ok = perform_job(Fanfarr.Workers.SyncLibrary, %{})
+      [s] = Fanfarr.Library.list_sections!()
+      %{section: s}
+    end
+
+    test "a renamed folder leaves one visible row, not two", %{section: s} do
+      # What a rename actually looks like from here: Plex does not update the
+      # item, it drops the old ratingKey and adds a new one for the new folder
+      # name. Both rows are the same film.
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok,
+         [
+           plex_item(%{
+             rating_key: "500",
+             title: "The Dark Knight",
+             path: "/media/merged-storage/Movies/Batman The Dark Knight (2008)"
+           })
+         ]}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok,
+         [
+           plex_item(%{
+             rating_key: "501",
+             title: "The Dark Knight",
+             path: "/media/merged-storage/Movies/The Dark Knight (2008)"
+           })
+         ]}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      # Both rows survive -- the application log may point at the old one --
+      # but only the one Plex still lists is present.
+      assert length(Fanfarr.Library.list_media_items!()) == 2
+
+      assert [%{plex_rating_key: "501"}] = Fanfarr.Library.list_present_media_items!()
+    end
+
+    test "an empty listing prunes nothing", %{section: s} do
+      # Plex returns an empty listing mid-scan, and for a section whose storage
+      # is offline. Believing it would hide the entire library.
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, [plex_item()]} end)
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, []} end)
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      assert [%{title: "One Piece"}] = Fanfarr.Library.list_present_media_items!()
+    end
+
+    test "an item that comes back is un-hidden", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(), plex_item(%{rating_key: "102", title: "Fleabag"})]}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, [plex_item()]} end)
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+      refute Enum.any?(Fanfarr.Library.list_present_media_items!(), &(&1.title == "Fleabag"))
+
+      # Rename it back, remount the drive, finish the scan -- whatever it was,
+      # the row that was hidden is the row that returns.
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(), plex_item(%{rating_key: "102", title: "Fleabag"})]}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      assert length(Fanfarr.Library.list_present_media_items!()) == 2
+      assert length(Fanfarr.Library.list_media_items!()) == 2
+    end
+
+    test "pruning does not touch another section", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :sections, fn _ ->
+        {:ok, [section(), section(%{key: "2", title: "Movies", kind: :movie})]}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncLibrary, %{})
+      movies = Enum.find(Fanfarr.Library.list_sections!(), &(&1.plex_key == "2"))
+
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "2" ->
+        {:ok, [plex_item(%{rating_key: "900", title: "Heat", kind: :movie})]}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: movies.id})
+
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, [plex_item()]} end)
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      assert Enum.map(Fanfarr.Library.list_present_media_items!(), & &1.title) |> Enum.sort() ==
+               ["Heat", "One Piece"]
+    end
+  end
+
   test "an unconfigured Plex cancels rather than retries" do
     Fanfarr.Settings.list_settings!() |> Enum.each(&Fanfarr.Settings.delete_setting!/1)
     System.delete_env("PLEX_URL")

@@ -314,6 +314,32 @@ defmodule FanfarrWeb.DashboardTest do
       refute link =~ "evil.example"
     end
 
+    test "an item Plex has stopped listing is not in the table", %{conn: conn} do
+      Fanfarr.Library.list_media_items!()
+      |> Enum.find(&(&1.title == "Fleabag"))
+      |> Fanfarr.Library.mark_media_item_missing!()
+
+      {:ok, _view, html} = live(conn, "/")
+
+      assert html =~ "One Piece"
+      refute html =~ "Fleabag"
+    end
+
+    test "its own page still opens, and says why it is not in the library", %{conn: conn} do
+      # A link from Activity, or the theme history, or a bookmark. The row is
+      # kept precisely so those do not break; it just should not pretend the
+      # item is still there.
+      item =
+        Fanfarr.Library.list_media_items!()
+        |> Enum.find(&(&1.title == "Fleabag"))
+        |> Fanfarr.Library.mark_media_item_missing!()
+
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+
+      assert html =~ "Fleabag"
+      assert html =~ "Plex no longer lists this item"
+    end
+
     test "an item page shows its history section", %{conn: conn} do
       [item | _] = Fanfarr.Library.list_media_items!()
       {:ok, _view, html} = live(conn, "/library/#{item.id}")

@@ -129,6 +129,10 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp load_items(%{assigns: %{filters: filters}} = socket) do
     query =
       MediaItem
+      # Items Plex has stopped listing stay in the database -- the theme
+      # application log points at them -- but the library is a view of what
+      # Plex has, so they do not belong in the table.
+      |> Ash.Query.filter(is_nil(missing_from_plex_at))
       |> Ash.Query.load(:theme_status)
       |> Ash.Query.sort(title: :asc)
 
