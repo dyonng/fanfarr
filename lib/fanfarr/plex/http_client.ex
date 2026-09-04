@@ -15,6 +15,8 @@ defmodule Fanfarr.Plex.HTTPClient do
 
   `includeGuids=1` is load-bearing on the listing call: without it Plex omits
   the per-provider Guid entries, and those IDs are how ThemerrDB is keyed.
+  `includeCollections=1` is the same bargain for Collection tags, and costs
+  the same nothing -- both ride a request the sync already makes.
   """
   @behaviour Fanfarr.Plex.Client
 
@@ -49,7 +51,9 @@ defmodule Fanfarr.Plex.HTTPClient do
 
   @impl true
   def items(config, section_key) do
-    with {:ok, body} <- get(config, "/library/sections/#{section_key}/all?includeGuids=1") do
+    query = "includeGuids=1&includeCollections=1"
+
+    with {:ok, body} <- get(config, "/library/sections/#{section_key}/all?#{query}") do
       items =
         body
         |> containers(["Directory", "Video", "Metadata"])
@@ -270,6 +274,14 @@ defmodule Fanfarr.Plex.HTTPClient do
       critic_score_source: Fanfarr.Library.Score.provider(m["ratingImage"]),
       audience_score: number(m["audienceRating"]),
       audience_score_source: Fanfarr.Library.Score.provider(m["audienceRatingImage"]),
+      # One string, and it is whichever studio the agent decided to name --
+      # often the distributor rather than the production company, so it groups
+      # a library usefully without being an authority on who made anything.
+      studio: presence(m["studio"]),
+      # Collections are the curated answer to the same question, and unlike
+      # studio there can be several. Absent unless includeCollections=1, and
+      # absent anyway for a library nobody has organised.
+      collections: tags(m["Collection"]),
       added_at: unix(m["addedAt"])
     }
   end
@@ -321,6 +333,27 @@ defmodule Fanfarr.Plex.HTTPClient do
   defp unix(nil), do: nil
   defp unix(ts) when is_integer(ts), do: DateTime.from_unix!(ts)
   defp unix(_), do: nil
+
+  # Plex's tag arrays are [%{"tag" => "..."}, ...]. Anything else -- the key
+  # absent, a server that does not honour includeCollections -- is no tags,
+  # which is also the honest answer for an unorganised library.
+  defp tags(list) when is_list(list) do
+    list
+    |> Enum.map(&presence(&1["tag"]))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp tags(_), do: []
+
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp presence(_), do: nil
 
   defp containers(body, names) when is_list(names) do
     container = body["MediaContainer"] || %{}

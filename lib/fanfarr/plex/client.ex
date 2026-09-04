@@ -41,6 +41,11 @@ defmodule Fanfarr.Plex.Client do
           critic_score_source: String.t() | nil,
           audience_score: float() | nil,
           audience_score_source: String.t() | nil,
+          # Whoever the agent named as the studio, and the collections the
+          # item has been put in. Both group a library rather than identify
+          # anything, and both are commonly absent.
+          studio: String.t() | nil,
+          collections: [String.t()],
           added_at: DateTime.t() | nil
         }
 

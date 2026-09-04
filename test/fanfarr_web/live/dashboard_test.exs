@@ -158,6 +158,61 @@ defmodule FanfarrWeb.DashboardTest do
       refute html =~ "One Piece"
     end
 
+    test "the studio filter narrows the table", %{conn: conn, item: item} do
+      item.(%{title: "Toy Story", studio: "Pixar"})
+      item.(%{title: "Heat", studio: "Warner Bros."})
+
+      {:ok, view, _html} = live(conn, "/?studio=Pixar")
+
+      html = render(view)
+      assert html =~ "Toy Story"
+      refute html =~ ">Heat<"
+      refute html =~ "One Piece"
+    end
+
+    test "the collection filter narrows the table", %{conn: conn, item: item} do
+      # The question a studio cannot answer on its own: Iron Man was a
+      # Paramount picture, and it is still an MCU film.
+      item.(%{title: "Iron Man", studio: "Paramount", collections: ["Marvel Cinematic Universe"]})
+      item.(%{title: "Toy Story", studio: "Pixar", collections: ["Pixar Collection"]})
+
+      {:ok, view, _html} = live(conn, "/?collection=Marvel+Cinematic+Universe")
+
+      html = render(view)
+      assert html =~ "Iron Man"
+      refute html =~ "Toy Story"
+    end
+
+    test "both dropdowns keep offering the whole library", %{conn: conn, item: item} do
+      item.(%{title: "Toy Story", studio: "Pixar", collections: ["Pixar Collection"]})
+      item.(%{title: "Heat", studio: "Warner Bros.", collections: ["Crime"]})
+
+      # Narrowed to Pixar, the other options must still be there -- otherwise
+      # picking one is a one-way door out of which the only route is the URL.
+      {:ok, view, _html} = live(conn, "/?studio=Pixar")
+
+      html = render(view)
+      assert html =~ "Warner Bros."
+      assert html =~ "Crime"
+    end
+
+    test "a library with neither shows neither dropdown", %{conn: conn} do
+      # The seeded items have no studio and no collections. A dropdown that
+      # offers only "Any" promises a way to narrow and then has none.
+      {:ok, _view, html} = live(conn, "/")
+
+      refute html =~ "Any studio"
+      refute html =~ "Any collection"
+    end
+
+    test "the studio filter survives being opened and come back from", %{conn: conn, item: item} do
+      item.(%{title: "Toy Story", studio: "Pixar"})
+
+      {:ok, view, _html} = live(conn, "/?studio=Pixar")
+
+      assert view |> element("a", "Toy Story") |> render() =~ "studio=Pixar"
+    end
+
     # The order titles appear in the rendered table.
     defp order(html) do
       Regex.scan(~r/(One Piece|Fleabag|Unrated Thing)/, html)

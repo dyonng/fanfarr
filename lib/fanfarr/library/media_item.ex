@@ -91,6 +91,8 @@ defmodule Fanfarr.Library.MediaItem do
         :critic_score_source,
         :audience_score,
         :audience_score_source,
+        :studio,
+        :collections,
         :plex_theme_url,
         :plex_theme_origin,
         :plex_theme_agent,
@@ -207,6 +209,29 @@ defmodule Fanfarr.Library.MediaItem do
     attribute :audience_score_source, :string do
       public? true
       description "Which service the audience score came from."
+    end
+
+    # Two ways to ask "which of these belong together", both from Plex and
+    # neither authoritative. Studio is one string chosen by the agent and is
+    # frequently the distributor rather than the production company -- several
+    # Marvel films report Paramount or Walt Disney Pictures rather than Marvel
+    # Studios. Collections are curated per library, multi-valued, and are the
+    # better answer when the question is "the MCU films"; they are also empty
+    # for anyone who has never made one.
+    #
+    # Kept as plain values rather than their own resources: nothing here needs
+    # to hang anything off a studio, and a join table would buy a query shape
+    # the library page does not use.
+    attribute :studio, :string do
+      public? true
+      description "The studio Plex names for this item. Often the distributor."
+    end
+
+    attribute :collections, {:array, :string} do
+      public? true
+      allow_nil? false
+      default []
+      description "Plex collection names this item belongs to."
     end
 
     attribute :plex_theme_url, :string do

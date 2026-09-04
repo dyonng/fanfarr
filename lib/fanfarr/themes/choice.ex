@@ -2,11 +2,6 @@ defmodule Fanfarr.Themes.Choice do
   @moduledoc """
   What Fanfarr would apply to an item, and where it would come from.
 
-  One module because two callers need the same answer and must not drift: the
-  worker, which needs the URL, and the library table, which needs to say ahead
-  of time whether pressing Apply will do anything. A table that disagreed with
-  the worker about which items are ready would be worse than no column at all.
-
   ## Precedence
 
   A URL passed with the job outranks everything -- it was chosen in the UI a
@@ -16,16 +11,13 @@ defmodule Fanfarr.Themes.Choice do
   ## The cold cache
 
   ThemerrDB is read from our own cache, never fetched here: this runs inside a
-  worker that has already decided what it is doing, and inside a page render.
-  So an item nobody has looked up yet has no suggestion *as far as the apply
-  is concerned*, and reports `:unknown` rather than `:none` -- the difference
-  between "ThemerrDB has nothing for this" and "we have not asked", which is
-  the difference between a title that cannot be helped and one that only needs
-  a lookup queued first.
+  worker that has already decided what it is doing. So an item nobody has
+  looked up yet has no suggestion *as far as the apply is concerned*, and
+  fails with `:no_themerrdb_entry` the same as a title ThemerrDB genuinely has
+  nothing for -- the remedy differs (queue a lookup, or pick one by hand) but
+  the apply cannot proceed either way.
   """
   alias Fanfarr.Themes
-
-  @type source :: :pick | :themerrdb | :none | :unknown
 
   @doc """
   The URL to apply and where it came from.
@@ -51,35 +43,9 @@ defmodule Fanfarr.Themes.Choice do
     end
   end
 
-  @doc """
-  Where each item's theme would come from, keyed by item id.
-
-  One query for the whole page rather than one per row.
-  """
-  @spec sources([map()]) :: %{optional(String.t()) => source()}
-  def sources([]), do: %{}
-
-  def sources(items) do
-    entries = entries_for(items)
-    Map.new(items, &{&1.id, source(&1, entries)})
-  end
-
-  @doc "Where one item's theme would come from, given entries already loaded."
-  @spec source(map(), [map()]) :: source()
-  def source(%{manual_theme_url: url}, _entries) when is_binary(url) and url != "", do: :pick
-
-  def source(item, entries) do
-    case entry(item, entries) do
-      %{found: true, youtube_theme_url: url} when is_binary(url) and url != "" -> :themerrdb
-      nil -> :unknown
-      _ -> :none
-    end
-  end
-
-  # ThemerrDB is keyed by external id, so the whole page is fetched by the ids
-  # it mentions and matched up in memory. Ash cannot express "this tuple of
-  # three columns is in that set" here, and a query per row would be a hundred
-  # queries to render a table.
+  # ThemerrDB is keyed by external id, so entries are fetched by the ids the
+  # items mention and matched up in memory. Ash cannot express "this tuple of
+  # three columns is in that set" here.
   defp entries_for(items) do
     ids =
       items

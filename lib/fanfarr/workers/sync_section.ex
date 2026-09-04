@@ -70,6 +70,8 @@ defmodule Fanfarr.Workers.SyncSection do
             critic_score_source: item.critic_score_source,
             audience_score: item.audience_score,
             audience_score_source: item.audience_score_source,
+            studio: item.studio,
+            collections: item.collections,
             plex_theme_url: item.theme,
             plex_theme_origin: origin,
             plex_theme_agent: agent,

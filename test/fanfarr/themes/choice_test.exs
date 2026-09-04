@@ -37,59 +37,8 @@ defmodule Fanfarr.Themes.ChoiceTest do
     })
   end
 
-  describe "sources/1" do
-    test "a cold cache reads as not looked up, not as nothing available", ctx do
-      item = item(ctx)
-
-      # The distinction that matters for a bulk apply: this item needs a lookup
-      # queued, it is not a title ThemerrDB cannot help with.
-      assert Choice.sources([item]) == %{item.id => :unknown}
-    end
-
-    test "a cached suggestion is what Apply would use", ctx do
-      item = item(ctx)
-      themerr(item, "https://www.youtube.com/watch?v=abc12345678")
-
-      assert Choice.sources([item]) == %{item.id => :themerrdb}
-    end
-
-    test "a cached miss is a definite no", ctx do
-      item = item(ctx)
-      themerr(item, nil)
-
-      assert Choice.sources([item]) == %{item.id => :none}
-    end
-
-    test "the operator's pick outranks the database", ctx do
-      item = item(ctx)
-      themerr(item, "https://www.youtube.com/watch?v=abc12345678")
-
-      item =
-        Fanfarr.Library.set_manual_theme!(item, %{
-          manual_theme_url: "https://www.youtube.com/watch?v=zzz12345678"
-        })
-
-      assert Choice.sources([item]) == %{item.id => :pick}
-    end
-
-    test "one query answers a whole page", ctx do
-      items = for _ <- 1..5, do: item(ctx)
-      Enum.each(items, &themerr(&1, "https://www.youtube.com/watch?v=abc12345678"))
-
-      sources = Choice.sources(items)
-      assert map_size(sources) == 5
-      assert Enum.all?(items, &(sources[&1.id] == :themerrdb))
-    end
-
-    test "an empty page asks nothing" do
-      assert Choice.sources([]) == %{}
-    end
-  end
-
-  describe "agreeing with what the worker would do" do
-    # The table's promise is only worth anything if it matches the worker. Both
-    # read this module, and these pin that the two answers correspond.
-    test "every source maps to the URL result the worker acts on", ctx do
+  describe "what the worker would apply" do
+    test "each cache state gives the worker the answer it acts on", ctx do
       cold = item(ctx)
 
       hit = item(ctx)
@@ -105,7 +54,10 @@ defmodule Fanfarr.Themes.ChoiceTest do
           manual_theme_url: "https://www.youtube.com/watch?v=zzz12345678"
         })
 
-      assert Choice.source(cold, []) == :unknown
+      # A cold cache and a cached miss both refuse, and deliberately look the
+      # same from here: neither can be applied. Which one it is decides the
+      # remedy -- queue a lookup, or pick a theme by hand -- and that is the
+      # item page's job to explain, not this module's.
       assert {:error, :no_themerrdb_entry} = Choice.url(cold)
 
       assert {:ok, _, :themerrdb} = Choice.url(hit)

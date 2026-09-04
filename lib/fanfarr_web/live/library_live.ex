@@ -34,6 +34,8 @@ defmodule FanfarrWeb.LibraryLive.Index do
     filters = %{
       status: params["status"],
       kind: params["kind"],
+      studio: params["studio"],
+      collection: params["collection"],
       q: params["q"],
       sort: params["sort"],
       page: max(String.to_integer(params["page"] || "1"), 1)
@@ -46,7 +48,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   def handle_event("filter", params, socket) do
     # Only the form's own fields: a phx-change payload also carries _target,
     # which would end up in the URL.
-    overrides = Map.take(params, ["status", "kind", "q"])
+    overrides = Map.take(params, ["status", "kind", "studio", "collection", "q"])
 
     {:noreply, push_patch(socket, to: ~p"/?#{query_params(socket, overrides)}")}
   end
@@ -140,6 +142,14 @@ defmodule FanfarrWeb.LibraryLive.Index do
       end
 
     query =
+      case filters.studio do
+        nil -> query
+        "" -> query
+        "all" -> query
+        studio -> Ash.Query.filter(query, studio == ^studio)
+      end
+
+    query =
       case filters.q do
         nil -> query
         "" -> query
@@ -155,6 +165,18 @@ defmodule FanfarrWeb.LibraryLive.Index do
         status -> Enum.filter(items, &(to_string(&1.theme_status) == status))
       end
 
+    # Collections are a JSON array in SQLite, which has no native membership
+    # operator worth reaching for here. Filtered after load like status is,
+    # and for the same reason: the set is already in memory and one library
+    # is thousands of rows, not millions.
+    items =
+      case filters.collection do
+        nil -> items
+        "" -> items
+        "all" -> items
+        collection -> Enum.filter(items, &(collection in &1.collections))
+      end
+
     items = sort(items, filters.sort)
 
     total = length(items)
@@ -165,14 +187,38 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
     socket
     |> assign(:items, visible)
-    # Only the page being rendered: the whole filtered set can be thousands of
-    # items, and nothing off-screen needs an answer.
-    |> assign(:sources, Fanfarr.Themes.Choice.sources(visible))
+    |> assign(facets())
     |> assign(:all_ids, Enum.map(items, & &1.id))
     |> assign(:total, total)
     |> assign(:page, page)
     |> assign(:pages, pages)
     |> assign(:counts, Enum.frequencies_by(items, & &1.theme_status))
+  end
+
+  # What the two grouping dropdowns can offer.
+  #
+  # Read from the whole library rather than from the current result set: once
+  # you have narrowed to Pixar, Pixar would be the only studio left to pick,
+  # and the filter would be a one-way door. Its own query rather than a reuse
+  # of the items above for the same reason -- that one is already filtered.
+  # Two columns wide over a table the page has just read anyway.
+  defp facets do
+    rows =
+      MediaItem
+      |> Ash.Query.select([:studio, :collections])
+      |> Ash.read!(authorize?: false)
+
+    %{
+      studios: rows |> Enum.map(& &1.studio) |> names(),
+      collections: rows |> Enum.flat_map(& &1.collections) |> names()
+    }
+  end
+
+  defp names(values) do
+    values
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.uniq()
+    |> Enum.sort_by(&String.downcase/1)
   end
 
   # Sorting is a link rather than an event, so it survives a reload and can be
@@ -204,6 +250,8 @@ defmodule FanfarrWeb.LibraryLive.Index do
     %{
       "status" => filters.status,
       "kind" => filters.kind,
+      "studio" => filters.studio,
+      "collection" => filters.collection,
       "q" => filters.q,
       "sort" => filters.sort
     }
@@ -223,7 +271,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # Enum.sort_by/3 is stable and the query arrives ordered by title, so equal
   # keys stay alphabetical instead of shuffling between renders.
 
-  @sortable ~w(title year kind critic audience status)
+  @sortable ~w(title year kind critic audience studio status)
 
   defp sort(items, nil), do: items
 
@@ -245,6 +293,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp key(item, "kind"), do: to_string(item.kind)
   defp key(item, "critic"), do: item.critic_score
   defp key(item, "audience"), do: item.audience_score
+  # Nil rather than "" for the unattributed, so they sort last with the
+  # unrated rather than first under an invisible empty string.
+  defp key(item, "studio"), do: item.studio && String.downcase(item.studio)
   defp key(item, "status"), do: status_rank(item.theme_status)
 
   # The order the operator works down: what needs attention first, what is
@@ -256,7 +307,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # A missing score is not a low score. Sorting nils as if they were zero puts
   # every unrated item at the top of an ascending sort, which buries the thing
   # being looked for; they sort last in both directions instead.
-  defp comparator(column, direction) when column in ~w(critic audience year) do
+  defp comparator(column, direction) when column in ~w(critic audience year studio) do
     fn a, b ->
       cond do
         # Two unrated items are equal, and a stable sort keeps equal elements
@@ -324,6 +375,32 @@ defmodule FanfarrWeb.LibraryLive.Index do
             <option value="all" selected={@filters.kind in [nil, "", "all"]}>Shows & movies</option>
             <option value="show" selected={@filters.kind == "show"}>Shows</option>
             <option value="movie" selected={@filters.kind == "movie"}>Movies</option>
+          </select>
+          <select
+            :if={@studios != []}
+            name="studio"
+            class="h-9 max-w-48 rounded-md border border-input bg-background px-2 text-sm"
+          >
+            <option value="all" selected={@filters.studio in [nil, "", "all"]}>Any studio</option>
+            <option :for={studio <- @studios} value={studio} selected={@filters.studio == studio}>
+              {studio}
+            </option>
+          </select>
+          <select
+            :if={@collections != []}
+            name="collection"
+            class="h-9 max-w-48 rounded-md border border-input bg-background px-2 text-sm"
+          >
+            <option value="all" selected={@filters.collection in [nil, "", "all"]}>
+              Any collection
+            </option>
+            <option
+              :for={collection <- @collections}
+              value={collection}
+              selected={@filters.collection == collection}
+            >
+              {collection}
+            </option>
           </select>
         </form>
 
@@ -413,7 +490,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 >
                   Audience
                 </.column_header>
-                <th class="px-3 py-2 font-medium">Source</th>
+                <.column_header sort={@filters.sort} column="studio" params={@filters}>
+                  Studio
+                </.column_header>
                 <.column_header sort={@filters.sort} column="status" params={@filters}>
                   Theme
                 </.column_header>
@@ -469,8 +548,11 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 <%!-- What Apply would actually use. Without it, a bulk apply
                 over a cold cache skips most of the selection for a reason
                 nothing on this page mentioned. --%>
-                <td class="px-3 py-2">
-                  <.source_badge source={Map.get(@sources, item.id, :unknown)} />
+                <td
+                  class="max-w-40 truncate px-3 py-2 text-muted-foreground"
+                  title={studio_title(item)}
+                >
+                  {item.studio}
                 </td>
                 <td class="px-3 py-2"><.status_badge status={item.theme_status} /></td>
               </tr>
@@ -547,37 +629,17 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp insert_gaps([a | rest]), do: [a | insert_gaps(rest)]
   defp insert_gaps([]), do: []
 
-  attr :source, :atom, required: true
+  # The studio column is truncated, so the tooltip carries the full name --
+  # and the collections, which have nowhere else to show on a row and are
+  # exactly what someone squinting at "Walt Disney Pictures" wants to see.
+  defp studio_title(%{studio: nil, collections: []}), do: nil
+  defp studio_title(%{studio: studio, collections: []}), do: studio
 
-  defp source_badge(assigns) do
-    ~H"""
-    <span
-      class={[
-        "rounded-full px-2 py-0.5 text-xs",
-        @source == :pick && "bg-primary/15 text-primary",
-        @source == :themerrdb && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-        @source == :none && "bg-muted text-muted-foreground",
-        @source == :unknown && "border border-dashed border-border text-muted-foreground"
-      ]}
-      title={source_hint(@source)}
-    >
-      {source_label(@source)}
-    </span>
-    """
+  defp studio_title(item) do
+    [item.studio, Enum.join(item.collections, ", ")]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" -- ")
   end
-
-  defp source_label(:pick), do: "your pick"
-  defp source_label(:themerrdb), do: "ThemerrDB"
-  defp source_label(:none), do: "none"
-  defp source_label(:unknown), do: "not looked up"
-
-  defp source_hint(:pick), do: "Apply will use the theme you chose for this item"
-  defp source_hint(:themerrdb), do: "Apply will use ThemerrDB's suggestion"
-  defp source_hint(:none), do: "ThemerrDB has no theme for this title — pick one by hand"
-
-  defp source_hint(:unknown),
-    do:
-      "Nobody has asked ThemerrDB about this yet, so Apply would skip it. Run Look up ThemerrDB first."
 
   defp filter_params(filters, page) do
     %{
@@ -659,6 +721,8 @@ defmodule FanfarrWeb.LibraryLive.Index do
     %{
       "status" => filters.status,
       "kind" => filters.kind,
+      "studio" => filters.studio,
+      "collection" => filters.collection,
       "q" => filters.q,
       "sort" => sort
     }

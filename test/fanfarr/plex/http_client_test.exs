@@ -284,6 +284,65 @@ defmodule Fanfarr.Plex.HTTPClientTest do
       assert item.critic_score_source == nil
     end
 
+    test "the studio and the collections an item is in are read from the listing" do
+      # Both are for grouping a library. Note the studio here is the
+      # distributor, not the production company -- which is exactly why the
+      # collection is the better answer to "show me the Marvel films".
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":1,"title":"Iron Man","year":2008,"type":"movie","theme":null,
+         "studio":"Paramount Pictures",
+         "Collection":[{"tag":"Marvel Cinematic Universe"},{"tag":"Phase One"}]}
+      ]}}
+      """
+
+      stub(fn conn ->
+        assert conn.query_string =~ "includeCollections=1"
+        json(conn, body)
+      end)
+
+      assert {:ok, [item]} = HTTPClient.items(@config, "1")
+
+      assert item.studio == "Paramount Pictures"
+      assert item.collections == ["Marvel Cinematic Universe", "Phase One"]
+    end
+
+    test "an item in no collection, from an unnamed studio, syncs with neither" do
+      # The common case for anything obscure, and for a whole library nobody
+      # has organised. Neither may fail the sync.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":1,"title":"Some Home Video","type":"movie","theme":null}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, [item]} = HTTPClient.items(@config, "1")
+
+      assert item.studio == nil
+      assert item.collections == []
+    end
+
+    test "a malformed collection entry is dropped rather than kept as nil" do
+      # Belt and braces: this shape is not taken off a live server, so a tag
+      # that is missing or blank must not reach the library as an unnamed
+      # collection that then appears in the filter dropdown.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":1,"title":"Odd One","type":"movie","theme":null,"studio":"   ",
+         "Collection":[{"tag":"Real"},{"tag":"   "},{"nottag":"x"}]}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, [item]} = HTTPClient.items(@config, "1")
+
+      assert item.studio == nil
+      assert item.collections == ["Real"]
+    end
+
     test "a movie's path comes from its file, since that is where theme.mp3 sits" do
       body = ~S"""
       {"MediaContainer":{"Metadata":[

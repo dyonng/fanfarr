@@ -68,7 +68,7 @@ defmodule FanfarrWeb.ItemLive.Show do
   # string on "/", so a hand-edited URL cannot turn this into a link to
   # somewhere else. Arriving from anywhere without them -- Activity, a
   # bookmark, a shared link -- simply goes to the library.
-  @carried ~w(status kind q sort page)
+  @carried ~w(status kind studio collection q sort page)
 
   defp back_path(params) do
     query =

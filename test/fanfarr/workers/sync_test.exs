@@ -40,6 +40,8 @@ defmodule Fanfarr.Workers.SyncTest do
         critic_score_source: "rottentomatoes",
         audience_score: 9.1,
         audience_score_source: "rottentomatoes",
+        studio: "Toei Animation",
+        collections: [],
         added_at: ~U[2024-01-01 00:00:00Z]
       },
       over
