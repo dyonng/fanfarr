@@ -102,6 +102,70 @@ defmodule Fanfarr.Plex.HTTPClientTest do
     end
   end
 
+  describe "collections/2 and collection_items/2" do
+    test "a section's collections come back with the keys to read them by" do
+      # Both kinds are here: one the operator built, one the agent assembled
+      # from TMDB. The endpoint does not distinguish them and neither do we --
+      # the point is that this reports both where the item tags report one.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":"91","title":"Dune Collection","childCount":2},
+        {"ratingKey":"92","title":"Saturday Night","childCount":7}
+      ]}}
+      """
+
+      stub(fn conn ->
+        assert conn.request_path == "/library/sections/1/collections"
+        json(conn, body)
+      end)
+
+      assert {:ok, collections} = HTTPClient.collections(@config, "1")
+
+      assert collections == [
+               %{rating_key: "91", title: "Dune Collection"},
+               %{rating_key: "92", title: "Saturday Night"}
+             ]
+    end
+
+    test "a library with no collections is an empty list, not a crash" do
+      stub(fn conn -> json(conn, ~S|{"MediaContainer":{"size":0}}|) end)
+
+      assert {:ok, []} = HTTPClient.collections(@config, "1")
+    end
+
+    test "a collection's members come back as rating keys" do
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":300,"title":"Dune","type":"movie"},
+        {"ratingKey":301,"title":"Dune: Part Two","type":"movie"}
+      ]}}
+      """
+
+      stub(fn conn ->
+        assert conn.request_path == "/library/metadata/91/children"
+        json(conn, body)
+      end)
+
+      assert {:ok, ["300", "301"]} = HTTPClient.collection_items(@config, "91")
+    end
+
+    test "a collection with an untitled entry drops it rather than naming it nil" do
+      # An unnamed collection would otherwise reach the filter dropdown as a
+      # blank option that selects nothing.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":"91","title":"Real"},
+        {"ratingKey":"92","title":"  "},
+        {"ratingKey":"93"}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, [%{title: "Real"}]} = HTTPClient.collections(@config, "1")
+    end
+  end
+
   describe "item_path/3" do
     test "reads a show's Location from its own metadata" do
       body = ~S"""

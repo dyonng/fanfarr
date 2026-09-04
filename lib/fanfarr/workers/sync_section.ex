@@ -43,6 +43,7 @@ defmodule Fanfarr.Workers.SyncSection do
          {:ok, items} <- Fanfarr.Plex.Client.impl().items(config, section.plex_key) do
       origins = origins(config, items)
       paths = paths(config, items, section)
+      collections = collections(config, section, items)
 
       # Before the upsert, or the renamed item is already in as a second row
       # and there is nothing left to re-key.
@@ -71,7 +72,7 @@ defmodule Fanfarr.Workers.SyncSection do
             audience_score: item.audience_score,
             audience_score_source: item.audience_score_source,
             studio: item.studio,
-            collections: item.collections,
+            collections: Map.get(collections, item.rating_key, item.collections),
             plex_theme_url: item.theme,
             plex_theme_origin: origin,
             plex_theme_agent: agent,
@@ -88,6 +89,73 @@ defmodule Fanfarr.Workers.SyncSection do
       {:error, :plex_not_configured} -> {:cancel, :plex_not_configured}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # Collection membership, from the library's own collections rather than from
+  # the per-item Collection tags.
+  #
+  # The tags are not the whole truth. A library shows both the collections the
+  # operator built by hand and the ones its agent assembled from TMDB -- the
+  # "Star Wars Collection", "Dune Collection" sort -- and only the hand-made
+  # ones reliably come back as tags on the item. Asking the library what
+  # collections it has, and what is in each, gets both.
+  #
+  # One request per collection, and collections number in the tens where items
+  # number in the thousands. A library with none costs exactly one request.
+  # Every failure degrades to the listing's tags rather than failing the sync:
+  # a missing collection is a filter with fewer options, not a broken mirror.
+  defp collections(config, section, items) do
+    case Fanfarr.Plex.Client.impl().collections(config, section.plex_key) do
+      {:ok, []} ->
+        %{}
+
+      {:ok, collections} ->
+        merge_tags(memberships(config, collections), items)
+
+      {:error, reason} ->
+        Logger.warning(
+          "[fanfarr] could not read collections for section #{section.title} " <>
+            "(#{inspect(reason)}); falling back to the tags on the listing"
+        )
+
+        %{}
+    end
+  end
+
+  defp memberships(config, collections) do
+    collections
+    |> Task.async_stream(
+      fn collection ->
+        case Fanfarr.Plex.Client.impl().collection_items(config, collection.rating_key) do
+          {:ok, rating_keys} -> {collection.title, rating_keys}
+          {:error, _reason} -> {collection.title, []}
+        end
+      end,
+      max_concurrency: @origin_concurrency,
+      timeout: @origin_timeout,
+      on_timeout: :kill_task,
+      ordered: false
+    )
+    |> Enum.flat_map(fn
+      {:ok, {title, rating_keys}} -> Enum.map(rating_keys, &{&1, title})
+      {:exit, _reason} -> []
+    end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+  end
+
+  # The listing's own tags still count. They should be a subset of what the
+  # collections endpoint reports, but a tag we can see and a membership we
+  # cannot is a collection the operator would notice missing.
+  defp merge_tags(memberships, items) do
+    Enum.reduce(items, memberships, fn item, acc ->
+      case item.collections do
+        [] ->
+          acc
+
+        tags ->
+          Map.update(acc, item.rating_key, tags, &Enum.uniq(&1 ++ tags))
+      end
+    end)
   end
 
   # --- renames and removals ---------------------------------------------------

@@ -68,6 +68,21 @@ defmodule Fanfarr.Plex.Client do
   @callback themes(config, rating_key :: String.t()) :: {:ok, [theme()]} | {:error, term()}
 
   @doc """
+  Every collection in a section, and the items in one.
+
+  Separate from `items/2` because the section listing's own Collection tags
+  are not the whole truth: a library's agent-built collections -- the "Star
+  Wars Collection" sort that Plex assembles from TMDB rather than the operator
+  assembling by hand -- can be absent from the per-item tags while plainly
+  existing in the library. This endpoint is what the library itself shows.
+  """
+  @callback collections(config, section_key :: String.t()) ::
+              {:ok, [%{rating_key: String.t(), title: String.t()}]} | {:error, term()}
+
+  @callback collection_items(config, collection_rating_key :: String.t()) ::
+              {:ok, [String.t()]} | {:error, term()}
+
+  @doc """
   Uploads a theme. IRREVERSIBLE: Plex has no API to delete a theme, so callers
   go through the application log's intent/outcome pair, never call this
   directly from UI code, and honour dry-run before reaching this point.

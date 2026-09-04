@@ -12,6 +12,13 @@ defmodule Fanfarr.Workers.SyncTest do
     # Config.plex_config reads settings/env; give it something via settings.
     Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
     Fanfarr.Settings.put_setting!("plex_token", "test-token")
+
+    # A library with no collections, which is the uninteresting case for every
+    # test that is about something else. `stub` rather than `expect`: a sync
+    # may ask once per section or not at all, and neither is under test here.
+    # The tests that care set their own expectation, which takes precedence.
+    stub(Fanfarr.PlexClientMock, :collections, fn _config, _key -> {:ok, []} end)
+
     :ok
   end
 
@@ -432,6 +439,122 @@ defmodule Fanfarr.Workers.SyncTest do
 
       assert Fanfarr.Library.list_media_items!() |> Enum.map(& &1.title) |> Enum.sort() ==
                ["Heat", "One Piece"]
+    end
+  end
+
+  describe "collections" do
+    setup do
+      expect(Fanfarr.PlexClientMock, :sections, fn _ -> {:ok, [section()]} end)
+      assert :ok = perform_job(Fanfarr.Workers.SyncLibrary, %{})
+      [s] = Fanfarr.Library.list_sections!()
+      %{section: s}
+    end
+
+    test "an agent-built collection is picked up though the item has no tag", %{section: s} do
+      # The case that sent us here. Plex assembles franchise collections from
+      # TMDB, and the operator sees them in the library, but the item listing
+      # carries no Collection tag for them -- only for the ones built by hand.
+      # Reading the library's collections is what closes that gap.
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{rating_key: "300", title: "Dune", collections: []})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :collections, fn _config, "1" ->
+        {:ok, [%{rating_key: "c1", title: "Dune Collection"}]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :collection_items, fn _config, "c1" -> {:ok, ["300"]} end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      assert [%{collections: ["Dune Collection"]}] = Fanfarr.Library.list_media_items!()
+    end
+
+    test "a hand-made tag the endpoint does not report is still kept", %{section: s} do
+      # Belt and braces in the other direction: a collection we can see on the
+      # item but not in the listing of collections is one the operator would
+      # notice going missing.
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{rating_key: "300", collections: ["Saturday Night"]})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :collections, fn _config, "1" ->
+        {:ok, [%{rating_key: "c1", title: "Dune Collection"}]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :collection_items, fn _config, "c1" -> {:ok, ["300"]} end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      assert [%{collections: collections}] = Fanfarr.Library.list_media_items!()
+      assert Enum.sort(collections) == ["Dune Collection", "Saturday Night"]
+    end
+
+    test "an item in several collections gets all of them", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{rating_key: "300", collections: []})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :collections, fn _config, "1" ->
+        {:ok,
+         [
+           %{rating_key: "c1", title: "Batman Collection"},
+           %{rating_key: "c2", title: "DC Universe"}
+         ]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :collection_items, 2, fn _config, key ->
+        {:ok, if(key in ["c1", "c2"], do: ["300"], else: [])}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      assert [%{collections: collections}] = Fanfarr.Library.list_media_items!()
+      assert Enum.sort(collections) == ["Batman Collection", "DC Universe"]
+    end
+
+    test "a library with no collections costs one request and no more", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, [plex_item()]} end)
+      expect(Fanfarr.PlexClientMock, :collections, fn _config, "1" -> {:ok, []} end)
+
+      # No collection_items expectation: asking for the children of nothing
+      # would be a request per sync for every library that has none.
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      assert [%{collections: []}] = Fanfarr.Library.list_media_items!()
+    end
+
+    test "a server that will not answer falls back to the tags", %{section: s} do
+      # An older Plex, a permissions problem, a timeout. Fewer filter options
+      # is the right degradation; a failed sync is not.
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{collections: ["Hand Made"]})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :collections, fn _config, "1" -> {:error, :not_found} end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      assert [%{collections: ["Hand Made"]}] = Fanfarr.Library.list_media_items!()
+    end
+
+    test "one unreadable collection does not lose the others", %{section: s} do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+        {:ok, [plex_item(%{rating_key: "300", collections: []})]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :collections, fn _config, "1" ->
+        {:ok, [%{rating_key: "c1", title: "Readable"}, %{rating_key: "c2", title: "Unreadable"}]}
+      end)
+
+      expect(Fanfarr.PlexClientMock, :collection_items, 2, fn
+        _config, "c1" -> {:ok, ["300"]}
+        _config, "c2" -> {:error, :timeout}
+      end)
+
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+      assert [%{collections: ["Readable"]}] = Fanfarr.Library.list_media_items!()
     end
   end
 

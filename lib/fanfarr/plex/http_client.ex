@@ -64,6 +64,32 @@ defmodule Fanfarr.Plex.HTTPClient do
   end
 
   @impl true
+  def collections(config, section_key) do
+    with {:ok, body} <- get(config, "/library/sections/#{section_key}/collections") do
+      collections =
+        body
+        |> containers(["Directory", "Metadata"])
+        |> Enum.map(&%{rating_key: to_string(&1["ratingKey"]), title: presence(&1["title"])})
+        |> Enum.reject(&(is_nil(&1.title) or &1.rating_key == ""))
+
+      {:ok, collections}
+    end
+  end
+
+  @impl true
+  def collection_items(config, collection_rating_key) do
+    with {:ok, body} <- get(config, "/library/metadata/#{collection_rating_key}/children") do
+      keys =
+        body
+        |> containers(["Directory", "Video", "Metadata"])
+        |> Enum.map(&to_string(&1["ratingKey"]))
+        |> Enum.reject(&(&1 == "" or &1 == "nil"))
+
+      {:ok, keys}
+    end
+  end
+
+  @impl true
   def themes(config, rating_key) do
     with {:ok, body} <- get(config, "/library/metadata/#{rating_key}/themes") do
       themes =
