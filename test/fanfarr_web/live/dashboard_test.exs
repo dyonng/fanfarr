@@ -241,6 +241,79 @@ defmodule FanfarrWeb.DashboardTest do
       assert html =~ "One Piece"
     end
 
+    test "opening an item carries the view it was opened from", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/?status=missing&sort=-year&q=one&page=1")
+
+      # The link out has to carry the filters, or the item page has nothing to
+      # send the reader back to.
+      assert view
+             |> element("a", "One Piece")
+             |> render() =~ "status=missing"
+    end
+
+    test "an item's Library link returns to the filtered view", %{conn: conn} do
+      [item | _] = Fanfarr.Library.list_media_items!()
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}?status=missing&q=one&sort=-year")
+
+      assert view |> element("a", "← Library") |> render() =~ "status=missing"
+
+      # And following it actually lands on that view rather than page one of
+      # everything.
+      {:ok, _library, html} =
+        view |> element("a", "← Library") |> render_click() |> follow_redirect(conn)
+
+      assert html =~ "One Piece"
+      refute html =~ "Fleabag"
+    end
+
+    test "page one is left off the link rather than spelled out", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/?status=missing")
+
+      link = view |> element("a", "One Piece") |> render()
+
+      assert link =~ "status=missing"
+      refute link =~ "page="
+    end
+
+    test "returning lands on the page the item was opened from", %{conn: conn, item: item} do
+      # A page past the first, which is exactly where losing your place hurts.
+      for n <- 1..60, do: item.(%{title: "Filler #{String.pad_leading("#{n}", 3, "0")}"})
+
+      {:ok, view, _html} = live(conn, "/?page=2")
+      link = view |> element("a", "One Piece") |> render()
+      assert link =~ "page=2"
+
+      {:ok, item_view, _html} = live(conn, "/library/#{first_item_id()}?page=2")
+      assert item_view |> element("a", "← Library") |> render() =~ "page=2"
+    end
+
+    defp first_item_id do
+      Fanfarr.Library.list_media_items!() |> List.first() |> Map.fetch!(:id)
+    end
+
+    test "an item reached without that context just goes to the library", %{conn: conn} do
+      # From Activity, a bookmark, or a shared link.
+      [item | _] = Fanfarr.Library.list_media_items!()
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+
+      assert view |> element("a", "← Library") |> render() =~ ~s(href="/")
+    end
+
+    test "the return link cannot be pointed somewhere else", %{conn: conn} do
+      [item | _] = Fanfarr.Library.list_media_items!()
+
+      {:ok, view, _html} =
+        live(conn, "/library/#{item.id}?status=missing&next=https://evil.example")
+
+      link = view |> element("a", "← Library") |> render()
+
+      # Only the known filter keys are reassembled, and only onto "/".
+      assert link =~ "status=missing"
+      refute link =~ "evil.example"
+    end
+
     test "an item page shows its history section", %{conn: conn} do
       [item | _] = Fanfarr.Library.list_media_items!()
       {:ok, _view, html} = live(conn, "/library/#{item.id}")

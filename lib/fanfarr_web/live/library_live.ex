@@ -446,7 +446,10 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   />
                 </td>
                 <td class="px-3 py-2">
-                  <.link navigate={~p"/library/#{item.id}"} class="font-medium hover:underline">
+                  <.link
+                    navigate={~p"/library/#{item.id}?#{item_params(@filters)}"}
+                    class="font-medium hover:underline"
+                  >
                     {item.title}
                   </.link>
                   <span
@@ -660,6 +663,23 @@ defmodule FanfarrWeb.LibraryLive.Index do
       "sort" => sort
     }
     |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
+    |> Map.new()
+  end
+
+  # Opening an item carries the view it was opened from, so the item page's
+  # own "Library" link can put the reader back where they were rather than at
+  # an unfiltered first page. Narrowing a two-thousand-item library to the
+  # eleven that failed, opening one, and losing the eleven is the whole
+  # problem this solves.
+  #
+  # The page is included here where the sort links deliberately drop it: a
+  # re-sorted list has different things on page 7, but the *same* list does
+  # not, so returning to it should land where it was left.
+  defp item_params(filters) do
+    filters
+    |> header_params(filters.sort)
+    |> Map.put("page", filters.page)
+    |> Enum.reject(fn {_k, v} -> v in [nil, "", "all", 1] end)
     |> Map.new()
   end
 

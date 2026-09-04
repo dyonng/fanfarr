@@ -32,12 +32,13 @@ defmodule FanfarrWeb.ItemLive.Show do
   @applying_poll 2_000
 
   @impl true
-  def mount(%{"id" => id}, _session, socket) do
+  def mount(%{"id" => id} = params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Fanfarr.PubSub, "item:#{id}")
 
     socket =
       socket
       |> assign(:id, id)
+      |> assign(:back_path, back_path(params))
       |> assign(:search_results, nil)
       |> assign(:search_error, nil)
       |> assign(:searching, false)
@@ -55,6 +56,28 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> maybe_lookup()
 
     {:ok, assign(socket, :search_query, default_query(socket.assigns.item))}
+  end
+
+  # Where "← Library" goes. The library puts its filters, sort and page on
+  # the links it makes, so returning lands on the view the item was opened
+  # from rather than an unfiltered first page -- narrowing thousands of items
+  # to the eleven that failed and losing them by opening one is the whole
+  # point.
+  #
+  # Only these keys are read, and they are only ever reassembled into a query
+  # string on "/", so a hand-edited URL cannot turn this into a link to
+  # somewhere else. Arriving from anywhere without them -- Activity, a
+  # bookmark, a shared link -- simply goes to the library.
+  @carried ~w(status kind q sort page)
+
+  defp back_path(params) do
+    query =
+      params
+      |> Map.take(@carried)
+      |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
+      |> Map.new()
+
+    if query == %{}, do: ~p"/", else: ~p"/?#{query}"
   end
 
   # Opening an item is a request to know what ThemerrDB has for it, so the
@@ -608,7 +631,10 @@ defmodule FanfarrWeb.ItemLive.Show do
             style="aspect-ratio: 2 / 3"
           />
           <div class="min-w-0 flex-1">
-            <.link navigate={~p"/"} class="text-sm text-muted-foreground hover:text-foreground">
+            <.link
+              navigate={@back_path}
+              class="text-sm text-muted-foreground hover:text-foreground"
+            >
               ← Library
             </.link>
             <div class="mt-1 flex flex-wrap items-start justify-between gap-3">
