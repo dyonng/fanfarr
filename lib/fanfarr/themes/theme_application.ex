@@ -104,8 +104,15 @@ defmodule Fanfarr.Themes.ThemeApplication do
       allow_nil? false
       default :pending
       public? true
-      constraints one_of: [:pending, :succeeded, :failed, :skipped]
-      description ":skipped means the intended theme was already applied -- the idempotency path."
+      constraints one_of: [:pending, :succeeded, :failed, :skipped, :removed]
+
+      description """
+      :skipped means the intended theme was already applied -- the idempotency
+      path. :removed is the theme.mp3 being deleted again, recorded as its own
+      row rather than by editing the apply's: the log is append-only, and
+      `ThemeStatus` reads the latest row, so an item whose file has just been
+      deleted would otherwise go on reporting :fanfarr_applied.
+      """
     end
 
     attribute :theme_url, :string, public?: true

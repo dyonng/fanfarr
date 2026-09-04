@@ -31,6 +31,41 @@ defmodule FanfarrWeb.ActivityLiveTest do
     job
   end
 
+  test "an estimate appears once there is history to base one on", %{conn: conn, item: item} do
+    done =
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, "completed")
+
+    Fanfarr.Repo.update_all(
+      from(j in Oban.Job, where: j.id == ^done.id),
+      set: [
+        attempted_at: NaiveDateTime.add(NaiveDateTime.utc_now(), -60, :second),
+        completed_at: NaiveDateTime.utc_now()
+      ]
+    )
+
+    for n <- 1..4 do
+      enqueue(
+        Fanfarr.Workers.ApplyTheme,
+        %{media_item_id: item.id, dry_run: false, theme_url: "https://example.com/#{n}"},
+        "available"
+      )
+    end
+
+    {:ok, _view, html} = live(conn, "/activity")
+
+    assert html =~ "4 waiting"
+    assert html =~ "about 2 minutes left"
+  end
+
+  test "no estimate is shown before there is anything to measure", %{conn: conn, item: item} do
+    enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, "available")
+
+    {:ok, _view, html} = live(conn, "/activity")
+
+    assert html =~ "1 waiting"
+    refute html =~ "left."
+  end
+
   test "the Stop button is hidden with nothing queued", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/activity")
     refute html =~ "Stop bulk theme work"

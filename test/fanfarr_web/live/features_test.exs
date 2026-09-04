@@ -411,6 +411,20 @@ defmodule FanfarrWeb.FeaturesTest do
       assert html =~ "Listen before trusting it"
     end
 
+    test "removing the theme deletes the file and takes the card with it",
+         %{conn: conn, item: item, path: path} do
+      # The undo the local-file route exists to make possible. Before this,
+      # reversing an apply meant a shell on the box.
+      {:ok, view, html} = live(conn, "/library/#{item.id}")
+      assert html =~ "Remove theme"
+
+      html = view |> element("button", "Remove theme") |> render_click()
+
+      refute File.exists?(path)
+      refute html =~ "The file Fanfarr wrote"
+      refute Fanfarr.Library.get_media_item!(item.id).local_theme_present
+    end
+
     test "a refresh that Plex ignores says so instead of implying success",
          %{conn: conn, item: item} do
       # The failure the operator actually hits: the file is on disk, Plex is

@@ -299,6 +299,24 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  # No confirmation: one file, and re-applying is one click because the manual
+  # pick and the ThemerrDB entry both survive the removal.
+  def handle_event("remove_theme", _params, socket) do
+    case Fanfarr.Themes.Remover.remove(socket.assigns.item) do
+      {:ok, _item} ->
+        {:noreply,
+         socket
+         |> load()
+         |> put_flash(
+           :info,
+           "Theme file deleted. Plex may go on serving it until it re-reads the folder."
+         )}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Could not delete the file: #{inspect(reason)}")}
+    end
+  end
+
   def handle_event("clear_manual", _params, socket) do
     Library.set_manual_theme!(socket.assigns.item, %{
       manual_theme_url: nil,
@@ -687,17 +705,26 @@ defmodule FanfarrWeb.ItemLive.Show do
                 <span :if={@written.codec}> · {@written.codec}</span>
               </p>
             </div>
-            <button
-              phx-click="refresh_plex"
-              disabled={@refreshing}
-              class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-              title="Plex does not watch for new local theme files; it has to be told to look again"
-            >
-              <.icon
-                name="lucide-refresh-cw"
-                class={["size-3.5", @refreshing && "animate-spin"]}
-              /> {if @refreshing, do: "Asking Plex…", else: "Refresh in Plex"}
-            </button>
+            <div class="flex shrink-0 items-center gap-2">
+              <button
+                phx-click="refresh_plex"
+                disabled={@refreshing}
+                class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+                title="Plex does not watch for new local theme files; it has to be told to look again"
+              >
+                <.icon
+                  name="lucide-refresh-cw"
+                  class={["size-3.5", @refreshing && "animate-spin"]}
+                /> {if @refreshing, do: "Asking Plex…", else: "Refresh in Plex"}
+              </button>
+              <button
+                phx-click="remove_theme"
+                class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                title="Delete the theme.mp3 Fanfarr wrote. Anything already uploaded into Plex itself stays -- Plex has no API to remove that."
+              >
+                <.icon name="lucide-trash-2" class="size-3.5" /> Remove theme
+              </button>
+            </div>
           </div>
 
           <%!-- The browser's own audio controls render in its default chrome,

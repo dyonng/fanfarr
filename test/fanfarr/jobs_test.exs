@@ -112,6 +112,79 @@ defmodule Fanfarr.JobsTest do
     end
   end
 
+  describe "eta_seconds/0" do
+    # A completed job with a known runtime, so the estimate has something real
+    # to measure rather than a constant baked into the test.
+    defp completed(worker, args, seconds) do
+      job = enqueue(worker, args, "completed")
+      started = NaiveDateTime.utc_now() |> NaiveDateTime.add(-seconds, :second)
+
+      Fanfarr.Repo.update_all(
+        from(j in Oban.Job, where: j.id == ^job.id),
+        set: [attempted_at: started, completed_at: NaiveDateTime.utc_now()]
+      )
+
+      job
+    end
+
+    test "nothing outstanding, nothing to estimate" do
+      assert Jobs.eta_seconds() == nil
+    end
+
+    test "no history to measure against says so rather than guessing", %{item: item} do
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false})
+
+      assert Jobs.eta_seconds() == nil
+    end
+
+    test "divides the remaining work by the queue's concurrency", %{item: item} do
+      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, 30)
+
+      for n <- 1..4 do
+        enqueue(Fanfarr.Workers.ApplyTheme, %{
+          media_item_id: item.id,
+          dry_run: false,
+          theme_url: "https://example.com/#{n}"
+        })
+      end
+
+      # Four jobs of ~30s across a queue that runs two at a time.
+      assert_in_delta Jobs.eta_seconds(), 60, 2
+    end
+
+    test "a dry run is not costed as if it were a download", %{item: item} do
+      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, 60)
+      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: true}, 2)
+
+      for n <- 1..4 do
+        enqueue(Fanfarr.Workers.ApplyTheme, %{
+          media_item_id: item.id,
+          dry_run: true,
+          theme_url: "https://example.com/#{n}"
+        })
+      end
+
+      # Four dry runs at ~2s over two slots is seconds, not minutes. Averaging
+      # the real apply in would have said 62.
+      assert_in_delta Jobs.eta_seconds(), 4, 2
+    end
+
+    test "queues run alongside each other, so the slowest one decides", %{item: item} do
+      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, 60)
+      completed(Fanfarr.Workers.LookupTheme, %{media_item_id: item.id}, 1)
+
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false})
+
+      for n <- 1..10 do
+        enqueue(Fanfarr.Workers.LookupTheme, %{media_item_id: item.id, nonce: n})
+      end
+
+      # The applies take ~30s; ten lookups over two slots take ~5s. Adding
+      # them would claim 35.
+      assert_in_delta Jobs.eta_seconds(), 30, 2
+    end
+  end
+
   describe "bulk_theme_work_pending?/0 and cancel_bulk_theme_work!/0" do
     test "nothing pending when the queue is empty" do
       refute Jobs.bulk_theme_work_pending?()

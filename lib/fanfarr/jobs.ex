@@ -24,6 +24,11 @@ defmodule Fanfarr.Jobs do
   # ThemerrDB refresh is never swept up by accident.
   @bulk_theme_workers ~w(Fanfarr.Workers.ApplyTheme Fanfarr.Workers.LookupTheme)
 
+  # Enough completions to average out one slow download without reaching so far
+  # back that a since-changed setting (a proxy, a loudness target) is still
+  # weighing on the estimate.
+  @duration_sample 50
+
   @type summary :: %{running: non_neg_integer(), queued: non_neg_integer()}
 
   @doc """
@@ -65,6 +70,114 @@ defmodule Fanfarr.Jobs do
         where: j.state in ^@active
     )
   end
+
+  @doc """
+  Roughly how much longer the outstanding work will take, in seconds.
+
+  `nil` when there is nothing outstanding, or when this install has not
+  finished enough comparable jobs to say anything honest. A guess dressed up
+  as a countdown is worse than no countdown: the first bulk run on a new
+  install is exactly when there is no history to measure, and exactly when a
+  made-up number would be believed.
+
+  ## How it is arrived at
+
+  Jobs are bucketed by worker *and* by dry-run flag, because those differ by
+  orders of magnitude -- a dry run resolves a URL and a path and stops, while
+  a real apply downloads audio, re-encodes it for loudness, and then waits on
+  Plex. Averaging the two together produced an estimate that was wrong for
+  both. Each bucket contributes `pending x its own mean duration`; the
+  queue's concurrency divides its total, and the queues run alongside each
+  other, so the answer is the slowest queue rather than the sum.
+
+  Durations come from `attempted_at` to `completed_at` on recent completions,
+  which is the time the job actually spent running rather than the time it
+  spent waiting behind other jobs -- the queue depth accounts for the waiting
+  already.
+  """
+  @spec eta_seconds() :: non_neg_integer() | nil
+  def eta_seconds do
+    pending = pending_by_bucket()
+
+    if pending == %{} do
+      nil
+    else
+      means = mean_durations()
+
+      pending
+      |> Enum.group_by(fn {{_worker, _dry_run, queue}, _count} -> queue end)
+      |> Enum.map(fn {queue, buckets} -> queue_seconds(queue, buckets, means) end)
+      |> then(fn per_queue ->
+        # Any bucket without a measurement makes the whole answer a guess.
+        if Enum.any?(per_queue, &is_nil/1), do: nil, else: Enum.max(per_queue, fn -> nil end)
+      end)
+    end
+  end
+
+  defp queue_seconds(queue, buckets, means) do
+    work =
+      Enum.reduce_while(buckets, 0, fn {{worker, dry_run, _q}, count}, acc ->
+        case Map.get(means, {worker, dry_run}) do
+          nil -> {:halt, nil}
+          mean -> {:cont, acc + count * mean}
+        end
+      end)
+
+    if work, do: ceil(work / concurrency(queue)), else: nil
+  end
+
+  # From the same config the supervisor hands Oban, rather than Oban.config/0:
+  # the test environment runs `testing: :manual`, where the running instance
+  # reports no queues at all and every estimate would divide by one.
+  defp concurrency(queue) do
+    :fanfarr
+    |> Application.fetch_env!(Oban)
+    |> Keyword.get(:queues, [])
+    |> Keyword.get(queue, 1)
+    |> max(1)
+  end
+
+  defp pending_by_bucket do
+    Fanfarr.Repo.all(
+      from j in Oban.Job,
+        where: j.worker in ^@bulk_theme_workers,
+        where: j.state in ^@active,
+        select: {j.worker, fragment("json_extract(?, ?)", j.args, "$.dry_run"), j.queue}
+    )
+    |> Enum.frequencies_by(fn {worker, dry_run, queue} ->
+      {worker, truthy(dry_run), String.to_existing_atom(queue)}
+    end)
+  end
+
+  # Only completions count. A cancelled or discarded job says nothing about
+  # how long the work takes, and a retried one has already been counted.
+  defp mean_durations do
+    Fanfarr.Repo.all(
+      from j in Oban.Job,
+        where: j.worker in ^@bulk_theme_workers,
+        where: j.state == "completed",
+        where: not is_nil(j.attempted_at) and not is_nil(j.completed_at),
+        order_by: [desc: j.id],
+        limit: @duration_sample,
+        select:
+          {j.worker, fragment("json_extract(?, ?)", j.args, "$.dry_run"), j.attempted_at,
+           j.completed_at}
+    )
+    |> Enum.group_by(
+      fn {worker, dry_run, _, _} -> {worker, truthy(dry_run)} end,
+      fn {_, _, started, finished} ->
+        max(NaiveDateTime.diff(finished, started, :millisecond), 0) / 1000
+      end
+    )
+    |> Map.new(fn {bucket, durations} -> {bucket, Enum.sum(durations) / length(durations)} end)
+  end
+
+  # SQLite hands back 1/0 for a JSON boolean, and nil where the key is absent
+  # -- ApplyTheme defaults dry_run to true when it is missing, so nil is true.
+  defp truthy(nil), do: true
+  defp truthy(0), do: false
+  defp truthy(false), do: false
+  defp truthy(_), do: true
 
   @doc """
   Cancels every apply and ThemerrDB-lookup job that has not finished --

@@ -48,7 +48,34 @@ defmodule FanfarrWeb.ActivityLive.Index do
     |> assign(:jobs, Fanfarr.Jobs.recent())
     |> assign(:summary, Fanfarr.Jobs.summary())
     |> assign(:bulk_theme_work_pending, Fanfarr.Jobs.bulk_theme_work_pending?())
+    |> assign(:eta, Fanfarr.Jobs.eta_seconds())
     |> assign(:failures, Fanfarr.Themes.list_theme_failures!() |> Enum.take(20))
+  end
+
+  # Nothing at all when there is no estimate, rather than a placeholder: the
+  # sentence has to read correctly with this part missing, which is the
+  # ordinary case on a fresh install.
+  defp remaining(nil), do: ""
+  defp remaining(seconds), do: " · #{humanise(seconds)} left"
+
+  # Deliberately coarse. The estimate is an average over recent jobs and the
+  # next download can be twice the last one, so "about 40 minutes" is as
+  # precise as the underlying number can honestly be written.
+  defp humanise(seconds) when seconds < 60, do: "under a minute"
+
+  defp humanise(seconds) when seconds < 5400 do
+    case round(seconds / 60) do
+      1 -> "about a minute"
+      minutes -> "about #{minutes} minutes"
+    end
+  end
+
+  defp humanise(seconds) do
+    hours = seconds / 3600
+
+    if hours < 1.5,
+      do: "about an hour",
+      else: "about #{round(hours)} hours"
   end
 
   @impl true
@@ -66,8 +93,8 @@ defmodule FanfarrWeb.ActivityLive.Index do
             <h1 class="text-2xl font-semibold tracking-tight">Activity</h1>
             <p class="text-sm text-muted-foreground">
               <span :if={Fanfarr.Jobs.busy?(@summary)}>
-                {@summary.running} running · {@summary.queued} waiting. Everything here runs in the
-                background, so you can leave this page.
+                {@summary.running} running · {@summary.queued} waiting{remaining(@eta)}. Everything
+                here runs in the background, so you can leave this page.
               </span>
               <span :if={not Fanfarr.Jobs.busy?(@summary)}>
                 Nothing running. Jobs refresh every few seconds.
