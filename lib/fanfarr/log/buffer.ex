@@ -87,12 +87,24 @@ defmodule Fanfarr.Log.Buffer do
   # redactor's regexes. The symptom is a console showing a 500 with no error
   # beside it, which is precisely what it must not do.
   defp text(msg) do
-    msg |> message() |> printable() |> Fanfarr.Diagnostics.Redactor.redact()
+    msg
+    |> message()
+    |> printable()
+    |> strip_ansi()
+    |> Fanfarr.Diagnostics.Redactor.redact()
   rescue
     error -> "[entry could not be formatted: #{inspect(error.__struct__)}]"
   catch
     kind, reason -> "[entry could not be formatted: #{inspect({kind, reason})}]"
   end
+
+  # Ecto colours its query logging for a terminal, and those escape sequences
+  # survive into anywhere this text ends up -- the log console rendered them
+  # as mojibake, and the bug-report bundle carried them into whatever the
+  # operator pasted it into. Nothing downstream of here is a terminal, so they
+  # are only ever noise.
+  @ansi ~r/\e\[[0-9;]*[a-zA-Z]/
+  defp strip_ansi(string), do: String.replace(string, @ansi, "")
 
   # The redactor runs regexes, which raise on a binary that is not valid UTF-8.
   # Log messages carrying raw bytes are not rare enough to lose.

@@ -14,33 +14,85 @@ defmodule FanfarrWeb.LogsLiveTest do
   end
 
   describe "the log console's shape" do
-    test "an entry renders as one line, with nothing padding it", %{conn: conn} do
-      Logger.error("something went wrong")
-      Fanfarr.Log.Buffer.entries(limit: 1)
-
-      {:ok, _view, html} = live(conn, "/logs")
-
-      # The element preserves whitespace so a stack trace keeps its shape, which
-      # means the template's own newlines and indentation would show up as blank
-      # lines between every entry -- which is exactly what happened.
-      assert [row] =
-               Regex.run(~r{<pre[^>]*>([^<]*something went wrong[^<]*)</pre>}, html,
-                 capture: :all_but_first
-               )
-
-      refute row =~ "\n"
-      assert row =~ ~r/^\d\d:\d\d:\d\d  error  something went wrong$/
+    # Straight at the function rather than through the page: LiveViewTest
+    # returns HTML that has been through Floki, which drops the
+    # whitespace-only nodes between the column spans -- so the alignment this
+    # is about is invisible from there even when it is correct in a browser.
+    defp line(message, opts \\ []) do
+      %{
+        at: ~U[2026-09-04 02:14:07Z],
+        level: Keyword.get(opts, :level, :error),
+        message: message,
+        where: Keyword.get(opts, :where, "Fanfarr.Thing.do_it/1")
+      }
+      |> FanfarrWeb.LogsLive.Index.log_line(Keyword.get(opts, :source, false))
+      |> Phoenix.HTML.safe_to_string()
     end
 
-    test "the level is padded so messages line up", %{conn: conn} do
-      Logger.error("short level")
-      Logger.warning("long level")
+    defp text(html), do: String.replace(html, ~r{<[^>]*>}, "")
+
+    test "an entry renders as one line, with nothing padding it" do
+      # The element preserves whitespace so a stack trace keeps its shape,
+      # which means any newline or indentation the markup introduces shows up
+      # as blank lines between every entry -- which is exactly what happened
+      # once, and what the hand-built iodata exists to prevent.
+      row = text(line("something went wrong"))
+
+      refute row =~ "\n"
+      assert row == "02:14:07  error  something went wrong"
+    end
+
+    test "the level is padded so messages line up" do
+      assert text(line("short level", level: :error)) =~ "  error  short level"
+      assert text(line("long level", level: :warning)) =~ "  warni  long level"
+    end
+
+    test "the source column keeps its own width when shown" do
+      short = text(line("a message", source: true, where: "Foo.bar/1"))
+      long = text(line("a message", source: true, where: "Fanfarr.Some.Long.Module.call/3"))
+
+      # Whatever the module is called, the message starts in the same place.
+      assert :binary.match(short, "a message") == :binary.match(long, "a message")
+      assert short =~ "  error  Foo.bar/1  "
+    end
+
+    test "each kind of thing in a message gets its own colour" do
+      html = line("wrote /tv1/Show/theme.mp3 in 12ms: :ok")
+
+      assert html =~ ~s(<span class="text-sky-600 dark:text-sky-400">/tv1/Show/theme.mp3</span>)
+      assert html =~ ~s(<span class="text-cyan-600 dark:text-cyan-400">12ms</span>)
+      assert html =~ ~s(<span class="text-violet-600 dark:text-violet-400">:ok</span>)
+
+      # And the line still reads exactly as it was logged.
+      assert text(html) == "02:14:07  error  wrote /tv1/Show/theme.mp3 in 12ms: :ok"
+    end
+
+    test "ordinary words are left alone whatever they start with" do
+      # Regex.split hands back the text between matches indistinguishably from
+      # the matches, so a classifier that only looked at the first character
+      # painted "GET /logs" as a module and ": " as an atom.
+      html = line("GET /logs", level: :info)
+
+      refute html =~ "text-blue-600"
+      assert text(html) == "02:14:07  info   GET /logs"
+    end
+
+    test "markup in a log line is escaped rather than rendered" do
+      # Log lines carry whatever a third party said, and this module builds
+      # its markup by hand, which is what makes it worth asserting.
+      html = line("a <script>alert('x')</script> line")
+
+      refute html =~ "<script>alert"
+      assert html =~ "&lt;script&gt;"
+    end
+
+    test "the whole line still reaches the page", %{conn: conn} do
+      Logger.error("a distinctive line to find")
       Fanfarr.Log.Buffer.entries(limit: 1)
 
       {:ok, _view, html} = live(conn, "/logs")
 
-      assert html =~ ~r/\d\d:\d\d:\d\d  error  short level/
-      assert html =~ ~r/\d\d:\d\d:\d\d  warni  long level/
+      assert html =~ "a distinctive line to find"
     end
   end
 

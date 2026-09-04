@@ -63,6 +63,19 @@ defmodule Fanfarr.Log.BufferTest do
     assert ["second thing", "first thing" | _] = messages
   end
 
+  test "terminal colour codes are stripped on the way in" do
+    # Ecto colours its query logging for a terminal. Nothing downstream of
+    # here is one: the console rendered these as mojibake, and the bug-report
+    # bundle carried them into wherever it was pasted.
+    Logger.error("\e[90mQUERY OK\e[0m source=\"settings\" \e[36mdb=0.2ms\e[0m")
+    settle()
+
+    [entry | _] = Buffer.entries(level: :error)
+
+    refute entry.message =~ "\e["
+    assert entry.message == "QUERY OK source=\"settings\" db=0.2ms"
+  end
+
   test "a secret in a log line never reaches the buffer" do
     Fanfarr.Settings.put_setting!("plex_token", "SECRET-TOKEN-abc123")
     Redactor.prime()

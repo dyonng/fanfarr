@@ -153,22 +153,141 @@ defmodule FanfarrWeb.LogsLive.Index do
     Enum.find_index(@order, &(&1 == level)) >= Enum.find_index(@order, &(&1 == minimum))
   end
 
+  # --- rendering a line -------------------------------------------------------
+  #
   # Fixed-width columns so timestamps and levels line up down the page and the
-  # eye can skip to the message. Built as one string rather than as separate
-  # spans: the element preserves whitespace so a stack trace keeps its shape,
-  # which means a span per column would put the template's own newlines and
-  # indentation between them and turn every entry into four lines. It is also
-  # what keeps innerText copying as clean lines.
-  defp log_line(entry, show_source?) do
+  # eye can skip to the message.
+  #
+  # The markup is built here rather than in the template, and this is the one
+  # thing about this file not to undo. The element preserves whitespace so a
+  # stack trace keeps its shape, which means a `<span>` per piece written in
+  # HEEx puts the template's own newlines and indentation *inside* the line --
+  # that turned every entry into four lines with blanks between, once. Emitting
+  # exact iodata from one interpolation is what avoids it, and it is also what
+  # keeps innerText copying as clean lines for the Copy button.
+  #
+  # Everything interpolated is escaped here; only the tags and class names are
+  # raw, and those are literals in this module.
+
+  @colours %{
+    time: "text-muted-foreground/50",
+    source: "text-muted-foreground/60",
+    # Where something is: a path written, a URL fetched. One colour, because
+    # the question they answer is the same one.
+    location: "text-sky-600 dark:text-sky-400",
+    # Error reasons arrive as atoms -- :econnrefused, :timeout, :enoent -- so
+    # this is the colour that most often carries the answer.
+    atom: "text-violet-600 dark:text-violet-400",
+    string: "text-emerald-600 dark:text-emerald-400",
+    number: "text-cyan-600 dark:text-cyan-400",
+    module: "text-blue-600 dark:text-blue-400",
+    # Our own lines against the framework's.
+    tag: "text-primary"
+  }
+
+  @level_colours %{
+    error: "text-destructive font-semibold",
+    warning: "text-amber-600 dark:text-amber-400 font-semibold",
+    info: "text-foreground/70",
+    debug: "text-muted-foreground/50"
+  }
+
+  @doc false
+  # Public only so the suite can pin the exact spacing. It cannot be checked
+  # through the rendered page: LiveViewTest returns HTML that has been through
+  # Floki, which drops the whitespace-only nodes between the column spans, so
+  # a page-level test would show columns running together that are correctly
+  # separated in a browser.
+  def log_line(entry, show_source?) do
     level = entry.level |> to_string() |> String.slice(0, 5) |> String.pad_trailing(5)
-    time = Calendar.strftime(entry.at, "%H:%M:%S")
 
-    source =
-      if show_source?,
-        do: "  " <> String.pad_trailing(entry.where || "-", 34),
-        else: ""
+    prefix =
+      [
+        {:time, Calendar.strftime(entry.at, "%H:%M:%S")},
+        {nil, "  "},
+        {{:level, bucket(entry.level)}, level}
+      ] ++
+        if show_source? do
+          [{nil, "  "}, {:source, String.pad_trailing(entry.where || "-", 34)}]
+        else
+          []
+        end
 
-    "#{time}  #{level}#{source}  #{entry.message}"
+    (prefix ++ [{nil, "  "}] ++ segments(entry.message))
+    |> Enum.map(&span/1)
+    |> Phoenix.HTML.raw()
+  end
+
+  defp span({nil, text}), do: escape(text)
+
+  defp span({{:level, level}, text}) do
+    ["<span class=\"", Map.fetch!(@level_colours, level), "\">", escape(text), "</span>"]
+  end
+
+  defp span({kind, text}) do
+    ["<span class=\"", Map.fetch!(@colours, kind), "\">", escape(text), "</span>"]
+  end
+
+  defp escape(text), do: text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+
+  # One pass to find the interesting runs, then each run is identified by
+  # re-testing it.
+  #
+  # `Regex.split/3` with `include_captures` hands back the matches *and* the
+  # plain text between them, indistinguishably, so every classifier below is
+  # anchored with \A..\z and has to match a piece whole. Testing only the
+  # first character instead coloured "GET /logs" as a module because it
+  # happened to start with a capital, and ": " as an atom because it started
+  # with a colon.
+  #
+  # Paths deliberately do not admit spaces. Media directories are full of
+  # them, so `/tv/One Piece (1999)/theme.mp3` only highlights as far as the
+  # space -- but allowing them made the run swallow the rest of the sentence,
+  # and half a path in the right colour beats a paragraph in it.
+  @path_body "/[\\w.+\\-]+(?:/[\\w.+\\-]+)+"
+  @number_body "\\d+(?:\\.\\d+)?(?:ms|s|µs|%|B|KB|MB)?"
+  @module_body "[A-Z][A-Za-z0-9_]*(?:\\.[A-Z][A-Za-z0-9_]*)+"
+
+  @token Regex.compile!(
+           Enum.join(
+             [
+               "https?://[^\\s\"'<>\\]]+",
+               "(?<![\\w/])" <> @path_body,
+               "\"(?:[^\"\\\\]|\\\\.)*\"",
+               "(?<![\\w:]):[a-z_][a-zA-Z0-9_?!]*",
+               "\\[[a-z_][a-z_0-9]*\\]",
+               "\\b" <> @module_body <> "\\b",
+               "\\b" <> @number_body <> "\\b"
+             ],
+             "|"
+           )
+         )
+
+  @url ~r{\Ahttps?://\S+\z}
+  @path Regex.compile!("\\A" <> @path_body <> "\\z")
+  @string ~r/\A"(?:[^"\\]|\\.)*"\z/
+  @atom ~r/\A:[a-z_][a-zA-Z0-9_?!]*\z/
+  @tag ~r/\A\[[a-z_][a-z_0-9]*\]\z/
+  @module Regex.compile!("\\A" <> @module_body <> "\\z")
+  @number Regex.compile!("\\A" <> @number_body <> "\\z")
+
+  defp segments(message) do
+    @token
+    |> Regex.split(message, include_captures: true, trim: true)
+    |> Enum.map(&{kind(&1), &1})
+  end
+
+  defp kind(piece) do
+    cond do
+      Regex.match?(@url, piece) -> :location
+      Regex.match?(@path, piece) -> :location
+      Regex.match?(@string, piece) -> :string
+      Regex.match?(@atom, piece) -> :atom
+      Regex.match?(@tag, piece) -> :tag
+      Regex.match?(@module, piece) -> :module
+      Regex.match?(@number, piece) -> :number
+      true -> nil
+    end
   end
 
   @impl true
@@ -301,16 +420,19 @@ defmodule FanfarrWeb.LogsLive.Index do
                 do: "(nothing captured yet)",
                 else: "Nothing matches. #{@total} lines are hidden by the filters."}
             </p>
+            <%!-- The level's colour now sits on the level column rather than
+            on the whole line, so the message can be highlighted without the
+            red draining out of it. Errors and warnings keep a tint of it
+            across the row, which is what makes them findable while scrolling
+            rather than something you have to read to notice. --%>
             <pre
               :for={entry <- Enum.reverse(@logs)}
               class={[
                 "m-0 font-mono",
                 @wrap && "whitespace-pre-wrap break-all",
                 !@wrap && "whitespace-pre",
-                entry.level in [:error, :critical, :alert, :emergency] && "text-destructive",
-                entry.level == :warning && "text-amber-600 dark:text-amber-400",
-                entry.level == :info && "text-foreground/80",
-                entry.level in [:debug, :notice] && "text-muted-foreground/70"
+                entry.level in [:error, :critical, :alert, :emergency] && "bg-destructive/10",
+                entry.level == :warning && "bg-amber-500/10"
               ]}
             >{log_line(entry, @show_source)}</pre>
           </div>
