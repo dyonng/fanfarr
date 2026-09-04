@@ -1,12 +1,20 @@
 defmodule FanfarrWeb.LogsLive.Index do
   @moduledoc """
-  The in-memory application log, filterable and safe to paste into a bug
-  report.
+  The in-memory application log, as a console rather than a card.
 
-  Split out from the System page: health checks and diagnostics are answers
-  to specific questions, but the log is something people leave open and
-  watch while they try a thing, and it does not belong buried under a
-  section that also runs slow probes on demand.
+  Split out of the System page because it is the one thing there people leave
+  open and watch while they try something, rather than a question they ask
+  once. That framing decides the layout: it fills the window and the log fills
+  what is left after the controls, so the amount you can see is however big
+  you made the browser, not a fixed height a card grew past.
+
+  ## Filtering happens here, not in the buffer
+
+  `Fanfarr.Log.Buffer` is asked for everything it holds and the level, noise
+  and text filters are applied in this process. Four hundred entries is
+  nothing to filter, and it means the level counts in the status bar describe
+  the whole buffer rather than only the slice that survived the current
+  filter -- which is what makes them useful for deciding what to filter *to*.
   """
   use FanfarrWeb, :live_view
 
@@ -14,14 +22,42 @@ defmodule FanfarrWeb.LogsLive.Index do
 
   @log_levels ~w(debug info warning error)
 
+  # Frequent enough to read as live while watching a job run, and cheap: a
+  # GenServer call for a few hundred entries already in memory.
+  @tail_ms 1_000
+
+  # The buffer holds 400; rendering all of them is fine and means a search
+  # reaches everything captured rather than a window over it.
+  @buffer_limit 400
+
   @impl true
   def mount(_params, _session, socket) do
-    {:ok,
-     socket
-     |> assign(:page_title, "Logs")
-     |> assign(:log_level, "info")
-     |> assign(:hide_noise, true)
-     |> load_logs()}
+    socket =
+      socket
+      |> assign(:page_title, "Logs")
+      |> assign(:log_levels, @log_levels)
+      |> assign(:buffer_limit, @buffer_limit)
+      |> assign(:log_level, "info")
+      |> assign(:hide_noise, true)
+      |> assign(:query, "")
+      |> assign(:show_source, false)
+      |> assign(:wrap, true)
+      |> assign(:live, true)
+      |> load_logs()
+
+    if connected?(socket) and socket.assigns.live, do: schedule_tail()
+
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_info(:tail, socket) do
+    if socket.assigns.live do
+      schedule_tail()
+      {:noreply, load_logs(socket)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -31,8 +67,29 @@ defmodule FanfarrWeb.LogsLive.Index do
     {:noreply, socket |> assign(:log_level, level) |> load_logs()}
   end
 
+  def handle_event("search", %{"query" => query}, socket) do
+    {:noreply, socket |> assign(:query, query) |> load_logs()}
+  end
+
   def handle_event("toggle_noise", _params, socket) do
     {:noreply, socket |> assign(:hide_noise, not socket.assigns.hide_noise) |> load_logs()}
+  end
+
+  def handle_event("toggle_source", _params, socket) do
+    {:noreply, assign(socket, :show_source, not socket.assigns.show_source)}
+  end
+
+  def handle_event("toggle_wrap", _params, socket) do
+    {:noreply, assign(socket, :wrap, not socket.assigns.wrap)}
+  end
+
+  # Re-arming has to happen here as well as on mount: the timer stops when
+  # live goes off, and nothing else would start it again.
+  def handle_event("toggle_live", _params, socket) do
+    live? = not socket.assigns.live
+    if live?, do: schedule_tail()
+
+    {:noreply, socket |> assign(:live, live?) |> load_logs()}
   end
 
   def handle_event("clear_logs", _params, socket) do
@@ -40,27 +97,78 @@ defmodule FanfarrWeb.LogsLive.Index do
     {:noreply, socket |> load_logs() |> put_flash(:info, "Log buffer cleared")}
   end
 
-  # Fixed-width columns so timestamps and levels line up down the page and the
-  # eye can skip to the message. Padded here rather than with CSS because the
-  # whole entry has to be one string.
-  defp log_line(entry) do
-    level = entry.level |> to_string() |> String.slice(0, 5) |> String.pad_trailing(5)
-
-    "#{Calendar.strftime(entry.at, "%H:%M:%S")}  #{level}  #{entry.message}"
-  end
+  defp schedule_tail, do: Process.send_after(self(), :tail, @tail_ms)
 
   defp load_logs(socket) do
-    level = String.to_existing_atom(socket.assigns.log_level)
-    entries = Fanfarr.Log.Buffer.entries(level: level, limit: 400)
+    %{log_level: level, hide_noise: hide_noise, query: query} = socket.assigns
+
+    all = Fanfarr.Log.Buffer.entries(limit: @buffer_limit)
 
     kept =
-      if socket.assigns.hide_noise,
-        do: Enum.reject(entries, &Fanfarr.Diagnostics.routine_web?(&1.message)),
-        else: entries
+      all
+      |> Enum.filter(&at_least?(&1.level, String.to_existing_atom(level)))
+      |> then(fn entries ->
+        if hide_noise,
+          do: Enum.reject(entries, &Fanfarr.Diagnostics.routine_web?(&1.message)),
+          else: entries
+      end)
+      |> then(fn entries ->
+        case String.trim(query) do
+          "" -> entries
+          needle -> Enum.filter(entries, &matches?(&1, needle))
+        end
+      end)
 
     socket
-    |> assign(:logs, Enum.take(kept, 200))
-    |> assign(:hidden_count, length(entries) - length(kept))
+    |> assign(:logs, kept)
+    |> assign(:total, length(all))
+    |> assign(:counts, counts(all))
+  end
+
+  # Message and source both, so searching for a module name finds what it
+  # logged even when the module is not named in the line itself.
+  defp matches?(entry, needle) do
+    needle = String.downcase(needle)
+
+    String.contains?(String.downcase(entry.message), needle) or
+      (entry.where && String.contains?(String.downcase(entry.where), needle))
+  end
+
+  defp counts(entries) do
+    Enum.reduce(entries, %{}, fn entry, acc ->
+      Map.update(acc, bucket(entry.level), 1, &(&1 + 1))
+    end)
+  end
+
+  # The severities above :error are rare and mean the same thing to someone
+  # reading a console, so they count as errors rather than as their own
+  # columns nobody would recognise.
+  defp bucket(level) when level in [:error, :critical, :alert, :emergency], do: :error
+  defp bucket(:warning), do: :warning
+  defp bucket(:info), do: :info
+  defp bucket(_), do: :debug
+
+  @order ~w(debug info notice warning error critical alert emergency)a
+  defp at_least?(level, minimum) do
+    Enum.find_index(@order, &(&1 == level)) >= Enum.find_index(@order, &(&1 == minimum))
+  end
+
+  # Fixed-width columns so timestamps and levels line up down the page and the
+  # eye can skip to the message. Built as one string rather than as separate
+  # spans: the element preserves whitespace so a stack trace keeps its shape,
+  # which means a span per column would put the template's own newlines and
+  # indentation between them and turn every entry into four lines. It is also
+  # what keeps innerText copying as clean lines.
+  defp log_line(entry, show_source?) do
+    level = entry.level |> to_string() |> String.slice(0, 5) |> String.pad_trailing(5)
+    time = Calendar.strftime(entry.at, "%H:%M:%S")
+
+    source =
+      if show_source?,
+        do: "  " <> String.pad_trailing(entry.where || "-", 34),
+        else: ""
+
+    "#{time}  #{level}#{source}  #{entry.message}"
   end
 
   @impl true
@@ -72,90 +180,154 @@ defmodule FanfarrWeb.LogsLive.Index do
       current_user={@current_user}
       queue_summary={@queue_summary}
     >
-      <div class="max-w-3xl space-y-6">
-        <h1 class="text-2xl font-semibold tracking-tight">Logs</h1>
-
-        <section class="rounded-lg border border-border bg-card">
-          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-            <div>
-              <h2 class="text-sm font-semibold text-card-foreground">Log</h2>
-              <p class="text-xs text-muted-foreground">
-                The last 400 lines, held in memory. Secrets are removed as they are captured, so
-                this is safe to paste into a bug report.
-                <span :if={@hide_noise and @hidden_count > 0}>
-                  {@hidden_count} routine web requests hidden.
-                </span>
-              </p>
-            </div>
-            <div class="flex items-center gap-2">
-              <form id="log-level-form" phx-change="set_log_level">
-                <select
-                  name="level"
-                  class="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                >
-                  <option
-                    :for={level <- ~w(debug info warning error)}
-                    value={level}
-                    selected={@log_level == level}
-                  >
-                    {level} and above
-                  </option>
-                </select>
-              </form>
-              <button
-                phx-click="toggle_noise"
-                class={[
-                  "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs",
-                  @hide_noise && "border-primary bg-primary/10 text-primary",
-                  !@hide_noise && "border-border hover:bg-accent hover:text-accent-foreground"
-                ]}
-                title="Hide poster and asset requests, and successful responses"
-              >
-                <.icon name="lucide-funnel" class="size-3.5" />
-                {if @hide_noise, do: "Noise hidden", else: "Showing everything"}
-              </button>
-              <button
-                phx-click="refresh_logs"
-                class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
-              >
-                <.icon name="lucide-refresh-cw" class="size-3.5" /> Refresh
-              </button>
-              <.copy_button target="log-output" />
-              <button
-                phx-click="clear_logs"
-                class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
-              >
-                <.icon name="lucide-trash-2" class="size-3.5" /> Clear
-              </button>
-            </div>
+      <%!-- The window's height minus the main element's own padding. A console
+      is one of the few things that should take the whole screen: the useful
+      amount of scrollback is however much the reader made room for. --%>
+      <div class="flex h-[calc(100vh-3rem)] flex-col gap-3">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-tight">Logs</h1>
+            <p class="text-xs text-muted-foreground">
+              The last {@buffer_limit} lines, held in memory. Secrets are removed as they are
+              captured, so this is safe to paste into a bug report.
+            </p>
           </div>
-          <%!-- Rows rather than one block of text: a level cannot be coloured
-          inside a <pre>, and innerText still copies as lines, so the copy
-          button keeps working. Newest last, so it reads downwards like a log
-          and tailing means the bottom. --%>
+          <div class="flex items-center gap-2">
+            <button
+              phx-click="toggle_live"
+              class={[
+                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs",
+                @live && "border-emerald-500/40 bg-emerald-500/10 text-emerald-600",
+                @live && "dark:text-emerald-400",
+                !@live && "border-border hover:bg-accent hover:text-accent-foreground"
+              ]}
+              title="Follow the log as it is written"
+            >
+              <span class={[
+                "size-1.5 rounded-full",
+                @live && "animate-pulse bg-emerald-500",
+                !@live && "bg-muted-foreground"
+              ]} />
+              {if @live, do: "Live", else: "Paused"}
+            </button>
+            <button
+              :if={not @live}
+              phx-click="refresh_logs"
+              class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
+            >
+              <.icon name="lucide-refresh-cw" class="size-3.5" /> Refresh
+            </button>
+            <.copy_button target="log-output" />
+            <button
+              phx-click="clear_logs"
+              class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
+            >
+              <.icon name="lucide-trash-2" class="size-3.5" /> Clear
+            </button>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+          <form id="log-search-form" phx-change="search" class="relative min-w-56 flex-1">
+            <.icon
+              name="lucide-search"
+              class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              type="text"
+              name="query"
+              value={@query}
+              placeholder="Filter by text, or by the module that logged it"
+              phx-debounce="200"
+              autocomplete="off"
+              class="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2 text-xs"
+            />
+          </form>
+
+          <form id="log-level-form" phx-change="set_log_level">
+            <select
+              name="level"
+              class="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            >
+              <option :for={level <- @log_levels} value={level} selected={@log_level == level}>
+                {level} and above
+              </option>
+            </select>
+          </form>
+
+          <.toggle
+            click="toggle_noise"
+            on={@hide_noise}
+            icon="lucide-funnel"
+            title="Hide poster and asset requests, and successful responses"
+          >
+            {if @hide_noise, do: "Noise hidden", else: "All requests"}
+          </.toggle>
+
+          <.toggle
+            click="toggle_source"
+            on={@show_source}
+            icon="lucide-file-code"
+            title="Show the module and function that logged each line"
+          >
+            Source
+          </.toggle>
+
+          <.toggle
+            click="toggle_wrap"
+            on={@wrap}
+            icon="lucide-wrap-text"
+            title="Wrap long lines instead of scrolling sideways"
+          >
+            Wrap
+          </.toggle>
+        </div>
+
+        <%!-- min-h-0 is what lets this shrink inside the flex column and
+        scroll; without it a long log pushes the container past the viewport
+        and the whole page scrolls instead of the console. --%>
+        <div class="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-card">
           <div
             id="log-output"
             phx-hook=".TailLog"
-            class="max-h-[32rem] overflow-auto px-4 py-3 font-mono text-[11px] leading-relaxed"
+            data-follow={to_string(@live)}
+            class={[
+              "flex-1 overflow-auto px-4 py-3 font-mono text-[11px] leading-relaxed",
+              !@wrap && "whitespace-nowrap"
+            ]}
           >
-            <p :if={@logs == []} class="text-muted-foreground">(nothing captured yet)</p>
-            <%!-- One <pre> per entry, holding a single interpolation.
-            whitespace-pre-wrap is needed so a stack trace keeps its shape, but
-            it preserves the template's own newlines and indentation just as
-            faithfully: spans on separate lines turned every entry into four
-            lines with blank ones between. Building the whole line in Elixir
-            removes that, and <pre> is what stops the formatter putting the
-            interpolation back on its own line. --%>
+            <p :if={@logs == []} class="text-muted-foreground">
+              {if @total == 0,
+                do: "(nothing captured yet)",
+                else: "Nothing matches. #{@total} lines are hidden by the filters."}
+            </p>
             <pre
               :for={entry <- Enum.reverse(@logs)}
               class={[
-                "m-0 whitespace-pre-wrap break-all font-mono",
+                "m-0 font-mono",
+                @wrap && "whitespace-pre-wrap break-all",
+                !@wrap && "whitespace-pre",
                 entry.level in [:error, :critical, :alert, :emergency] && "text-destructive",
                 entry.level == :warning && "text-amber-600 dark:text-amber-400",
                 entry.level == :info && "text-foreground/80",
                 entry.level in [:debug, :notice] && "text-muted-foreground/70"
               ]}
-            >{log_line(entry)}</pre>
+            >{log_line(entry, @show_source)}</pre>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border px-4 py-1.5 text-[11px] text-muted-foreground">
+            <span>{length(@logs)} of {@total} shown</span>
+            <span class="flex items-center gap-3">
+              <span :if={@counts[:error]} class="text-destructive">
+                {@counts[:error]} error{if @counts[:error] > 1, do: "s"}
+              </span>
+              <span :if={@counts[:warning]} class="text-amber-600 dark:text-amber-400">
+                {@counts[:warning]} warning{if @counts[:warning] > 1, do: "s"}
+              </span>
+              <span :if={@counts[:info]}>{@counts[:info]} info</span>
+              <span :if={@counts[:debug]}>{@counts[:debug]} debug</span>
+            </span>
+            <span :if={@live} class="ml-auto">Following</span>
           </div>
 
           <script :type={Phoenix.LiveView.ColocatedHook} name=".TailLog">
@@ -165,16 +337,19 @@ defmodule FanfarrWeb.LogsLive.Index do
                 // yanking someone back to the bottom while they are reading an
                 // error is worse than not following at all. Coming back to the
                 // bottom re-arms it.
-                this.follow = true
+                this.atBottom = true
 
                 this.el.addEventListener("scroll", () => {
                   const distance =
                     this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight
-                  this.follow = distance < 24
+                  this.atBottom = distance < 24
                 })
 
                 this.toBottom = () => {
-                  if (this.follow) { this.el.scrollTop = this.el.scrollHeight }
+                  // Paused means paused: a line arriving while the reader has
+                  // stopped the stream must not move the viewport either.
+                  const following = this.el.dataset.follow === "true"
+                  if (following && this.atBottom) { this.el.scrollTop = this.el.scrollHeight }
                 }
 
                 this.toBottom()
@@ -183,9 +358,32 @@ defmodule FanfarrWeb.LogsLive.Index do
               updated() { this.toBottom() }
             }
           </script>
-        </section>
+        </div>
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :click, :string, required: true
+  attr :on, :boolean, required: true
+  attr :icon, :string, required: true
+  attr :title, :string, default: nil
+  slot :inner_block, required: true
+
+  defp toggle(assigns) do
+    ~H"""
+    <button
+      phx-click={@click}
+      title={@title}
+      class={[
+        "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs",
+        @on && "border-primary bg-primary/10 text-primary",
+        !@on && "border-border hover:bg-accent hover:text-accent-foreground"
+      ]}
+    >
+      <.icon name={@icon} class="size-3.5" />
+      {render_slot(@inner_block)}
+    </button>
     """
   end
 end
