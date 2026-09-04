@@ -17,9 +17,11 @@ defmodule Fanfarr.Application do
       # Holds recent log lines for the System page. Started before the things
       # that log so their output is captured from the first line.
       Fanfarr.Log.Buffer,
-      Fanfarr.Repo,
-      {Ecto.Migrator,
+      # Before the repo, deliberately: it migrates on a single connection of
+      # its own. See the module for what a pooled migration does to SQLite.
+      {Fanfarr.Repo.Migrator,
        repos: Application.fetch_env!(:fanfarr, :ecto_repos), skip: skip_migrations?()},
+      Fanfarr.Repo,
       {Oban,
        AshOban.config(
          Application.fetch_env!(:fanfarr, :ash_domains),
