@@ -256,9 +256,30 @@ defmodule Fanfarr.Plex.HTTPClient do
       path: item_path(m),
       thumb: m["thumb"],
       theme: m["theme"],
+      # Absent for plenty of items -- an agent with no opinion, a library Plex
+      # has not enriched -- so these are read if they are there and left nil if
+      # they are not. Nothing downstream treats nil as an error; the library
+      # table shows an empty cell.
+      critic_score: number(m["rating"]),
+      critic_score_source: Fanfarr.Library.Score.provider(m["ratingImage"]),
+      audience_score: number(m["audienceRating"]),
+      audience_score_source: Fanfarr.Library.Score.provider(m["audienceRatingImage"]),
       added_at: unix(m["addedAt"])
     }
   end
+
+  # Sent as JSON numbers, but a string costs nothing to accept and a malformed
+  # rating is not worth failing a whole library sync over.
+  defp number(value) when is_number(value), do: value / 1
+
+  defp number(value) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, _rest} -> parsed
+      :error -> nil
+    end
+  end
+
+  defp number(_), do: nil
 
   # Shows carry Location; movies carry a file inside Media/Part, whose
   # directory is what a theme.mp3 sits beside.

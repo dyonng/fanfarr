@@ -206,6 +206,66 @@ defmodule Fanfarr.Plex.HTTPClientTest do
       assert item.path == "/media/merged-storage/TV/Oshi no Ko (2023)"
     end
 
+    test "ratings and the service behind each are read from the listing" do
+      # The field names are Plex's: `rating` and `audienceRating`, on a 0-10
+      # scale whoever supplied them, with the service named only in the image
+      # URL beside each. Unlike the captured responses above, this shape is
+      # not taken off a live server -- so every one of these is treated as
+      # optional, which the next two tests are about.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":1,"title":"Heat","year":1995,"type":"movie","theme":null,
+         "rating":8.7,"ratingImage":"rottentomatoes://image.rating.ripe",
+         "audienceRating":9.4,"audienceRatingImage":"rottentomatoes://image.rating.upright"}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, [item]} = HTTPClient.items(@config, "1")
+
+      assert item.critic_score == 8.7
+      assert item.critic_score_source == "rottentomatoes"
+      assert item.audience_score == 9.4
+      assert item.audience_score_source == "rottentomatoes"
+    end
+
+    test "an item its agent has no opinion about syncs with no scores" do
+      # The common case for anything obscure, and for whole libraries whose
+      # agent supplies no ratings at all. It must not fail the sync.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":1,"title":"Some Home Video","type":"movie","theme":null}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, [item]} = HTTPClient.items(@config, "1")
+
+      assert item.critic_score == nil
+      assert item.critic_score_source == nil
+      assert item.audience_score == nil
+      assert item.audience_score_source == nil
+    end
+
+    test "a rating with no image is kept, just with no name to put to it" do
+      # The number is still worth having and still sorts; only the tooltip
+      # loses anything.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":1,"title":"Unbranded","type":"show","theme":null,"rating":7}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, [item]} = HTTPClient.items(@config, "1")
+
+      assert item.critic_score == 7.0
+      assert item.critic_score_source == nil
+    end
+
     test "a movie's path comes from its file, since that is where theme.mp3 sits" do
       body = ~S"""
       {"MediaContainer":{"Metadata":[

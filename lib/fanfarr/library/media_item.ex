@@ -56,6 +56,10 @@ defmodule Fanfarr.Library.MediaItem do
         :tmdb_id,
         :tvdb_id,
         :plex_thumb_key,
+        :critic_score,
+        :critic_score_source,
+        :audience_score,
+        :audience_score_source,
         :plex_theme_url,
         :plex_theme_origin,
         :plex_theme_agent,
@@ -131,6 +135,36 @@ defmodule Fanfarr.Library.MediaItem do
     attribute :plex_thumb_key, :string do
       public? true
       description "Poster path within Plex. Cached to disk rather than fetched per render."
+    end
+
+    # Ratings come from Plex rather than from Rotten Tomatoes, TMDB or TVDB
+    # directly, because Plex has already been to those and is already being
+    # asked for this item on every sync. Going to them ourselves would mean an
+    # API key to configure, a rate limit to respect and a second opinion that
+    # could disagree with what the operator sees in Plex -- for a number that
+    # arrives free in a response we are already reading.
+    #
+    # Both are stored on Plex's own 0-10 scale whatever the provider, which is
+    # what makes them sortable against each other. Rotten Tomatoes' native form
+    # is a percentage and is rendered that way; see `Fanfarr.Library.Score`.
+    attribute :critic_score, :float do
+      public? true
+      description "Plex's `rating`: the critic score, 0-10, whoever supplied it."
+    end
+
+    attribute :critic_score_source, :string do
+      public? true
+      description "Which service the critic score came from -- rottentomatoes, imdb, themoviedb."
+    end
+
+    attribute :audience_score, :float do
+      public? true
+      description "Plex's `audienceRating`, 0-10."
+    end
+
+    attribute :audience_score_source, :string do
+      public? true
+      description "Which service the audience score came from."
     end
 
     attribute :plex_theme_url, :string do

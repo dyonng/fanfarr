@@ -158,6 +158,83 @@ defmodule FanfarrWeb.DashboardTest do
       refute html =~ "One Piece"
     end
 
+    # The order titles appear in the rendered table.
+    defp order(html) do
+      Regex.scan(~r/(One Piece|Fleabag|Unrated Thing)/, html)
+      |> Enum.map(&List.last/1)
+      |> Enum.uniq()
+    end
+
+    test "a score is shown the way the service that gave it writes it", %{
+      conn: conn,
+      item: item
+    } do
+      item.(%{
+        title: "Rated Show",
+        critic_score: 8.7,
+        critic_score_source: "rottentomatoes",
+        audience_score: 7.2,
+        audience_score_source: "imdb"
+      })
+
+      {:ok, _view, html} = live(conn, "/")
+
+      # Rotten Tomatoes as a percentage, IMDb out of ten.
+      assert html =~ "87%"
+      assert html =~ "7.2"
+    end
+
+    test "an item with no rating shows nothing rather than a nought", %{conn: conn} do
+      {:ok, _view, html} = live(conn, "/")
+
+      assert html =~ "—"
+      refute html =~ ">0%<"
+    end
+
+    test "clicking a column header sorts by it, and again reverses it", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/?sort=year")
+      assert order(render(view)) == ["One Piece", "Fleabag"]
+
+      {:ok, view, _html} = live(conn, "/?sort=-year")
+      assert order(render(view)) == ["Fleabag", "One Piece"]
+    end
+
+    test "sorting by score puts the unrated last, not first", %{conn: conn, item: item} do
+      # Two rated items around one unrated, so "last" means something.
+      item.(%{title: "Unrated Thing", critic_score: nil})
+      set_score("One Piece", 9.0)
+      set_score("Fleabag", 6.0)
+
+      # Ascending would otherwise lead with every item that has no score,
+      # burying the low ones actually being looked for.
+      {:ok, view, _html} = live(conn, "/?sort=critic")
+      assert order(render(view)) == ["Fleabag", "One Piece", "Unrated Thing"]
+
+      {:ok, view, _html} = live(conn, "/?sort=-critic")
+      assert order(render(view)) == ["One Piece", "Fleabag", "Unrated Thing"]
+    end
+
+    defp set_score(title, score) do
+      Fanfarr.Library.list_media_items!()
+      |> Enum.find(&(&1.title == title))
+      |> Ash.Changeset.for_update(:update, %{critic_score: score})
+      |> Ash.update!()
+    end
+
+    test "sorting keeps the filters, and filtering keeps the sort", %{conn: conn} do
+      {:ok, view, html} = live(conn, "/?q=one&sort=-year")
+
+      # The header links carry the search along rather than dropping it.
+      assert html =~ "q=one"
+      assert order(render(view)) == ["One Piece"]
+    end
+
+    test "an unknown sort is ignored rather than crashing the page", %{conn: conn} do
+      {:ok, _view, html} = live(conn, "/?sort=havoc")
+
+      assert html =~ "One Piece"
+    end
+
     test "an item page shows its history section", %{conn: conn} do
       [item | _] = Fanfarr.Library.list_media_items!()
       {:ok, _view, html} = live(conn, "/library/#{item.id}")

@@ -35,6 +35,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
       status: params["status"],
       kind: params["kind"],
       q: params["q"],
+      sort: params["sort"],
       page: max(String.to_integer(params["page"] || "1"), 1)
     }
 
@@ -43,16 +44,11 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
   @impl true
   def handle_event("filter", params, socket) do
-    query =
-      %{
-        "status" => params["status"],
-        "kind" => params["kind"],
-        "q" => params["q"]
-      }
-      |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
-      |> Map.new()
+    # Only the form's own fields: a phx-change payload also carries _target,
+    # which would end up in the URL.
+    overrides = Map.take(params, ["status", "kind", "q"])
 
-    {:noreply, push_patch(socket, to: ~p"/?#{query}")}
+    {:noreply, push_patch(socket, to: ~p"/?#{query_params(socket, overrides)}")}
   end
 
   def handle_event("sync", _params, socket) do
@@ -159,6 +155,8 @@ defmodule FanfarrWeb.LibraryLive.Index do
         status -> Enum.filter(items, &(to_string(&1.theme_status) == status))
       end
 
+    items = sort(items, filters.sort)
+
     total = length(items)
     pages = max(ceil(total / @page_size), 1)
     page = min(filters.page, pages)
@@ -176,6 +174,105 @@ defmodule FanfarrWeb.LibraryLive.Index do
     |> assign(:pages, pages)
     |> assign(:counts, Enum.frequencies_by(items, & &1.theme_status))
   end
+
+  # Sorting is a link rather than an event, so it survives a reload and can be
+  # shared; this only works out which link the next click should point at.
+  # Clicking the column already sorted turns it round, and any other column
+  # starts ascending -- descending first would be right for a score and wrong
+  # for a title, and one rule that is sometimes wrong beats two to remember.
+  defp sort_link(current, column) do
+    case current do
+      ^column -> "-" <> column
+      _ -> column
+    end
+  end
+
+  defp sort_indicator(current, column) do
+    case current do
+      ^column -> "lucide-arrow-up"
+      "-" <> ^column -> "lucide-arrow-down"
+      _ -> nil
+    end
+  end
+
+  # Whatever is in the URL now, with the given overrides applied and the
+  # empties dropped. Sorting must not clear the filters, and filtering must
+  # not silently reset the sort.
+  defp query_params(socket, overrides) do
+    filters = socket.assigns.filters
+
+    %{
+      "status" => filters.status,
+      "kind" => filters.kind,
+      "q" => filters.q,
+      "sort" => filters.sort
+    }
+    |> Map.merge(overrides)
+    |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
+    |> Map.new()
+  end
+
+  # --- sorting ----------------------------------------------------------------
+  #
+  # In Elixir rather than in the query, because the set is already fully
+  # materialised here: the status filter is a calculation the data layer
+  # cannot express, so paging happens after the fact regardless. Sorting the
+  # same list keeps every column working the same way, including the two the
+  # database could not sort at all.
+  #
+  # Enum.sort_by/3 is stable and the query arrives ordered by title, so equal
+  # keys stay alphabetical instead of shuffling between renders.
+
+  @sortable ~w(title year kind critic audience status)
+
+  defp sort(items, nil), do: items
+
+  defp sort(items, sort) do
+    {column, direction} = parse_sort(sort)
+
+    if column in @sortable do
+      Enum.sort_by(items, &key(&1, column), comparator(column, direction))
+    else
+      items
+    end
+  end
+
+  defp parse_sort("-" <> column), do: {column, :desc}
+  defp parse_sort(column), do: {column, :asc}
+
+  defp key(item, "title"), do: String.downcase(item.title || "")
+  defp key(item, "year"), do: item.year
+  defp key(item, "kind"), do: to_string(item.kind)
+  defp key(item, "critic"), do: item.critic_score
+  defp key(item, "audience"), do: item.audience_score
+  defp key(item, "status"), do: status_rank(item.theme_status)
+
+  # The order the operator works down: what needs attention first, what is
+  # finished last. Alphabetical would put :failed between :fanfarr_applied and
+  # :local_file, which is no order at all.
+  @status_order [:failed, :missing, :plex_supplied, :local_file, :fanfarr_applied]
+  defp status_rank(status), do: Enum.find_index(@status_order, &(&1 == status)) || 99
+
+  # A missing score is not a low score. Sorting nils as if they were zero puts
+  # every unrated item at the top of an ascending sort, which buries the thing
+  # being looked for; they sort last in both directions instead.
+  defp comparator(column, direction) when column in ~w(critic audience year) do
+    fn a, b ->
+      cond do
+        # Two unrated items are equal, and a stable sort keeps equal elements
+        # in the order they arrived only if the comparator says so. Returning
+        # false here instead reversed every run of unrated items.
+        is_nil(a) and is_nil(b) -> true
+        is_nil(a) -> false
+        is_nil(b) -> true
+        direction == :asc -> a <= b
+        true -> a >= b
+      end
+    end
+  end
+
+  defp comparator(_column, :asc), do: &<=/2
+  defp comparator(_column, :desc), do: &>=/2
 
   @impl true
   def render(assigns) do
@@ -291,11 +388,35 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   />
                 </th>
                 <th class="w-10 px-1 py-2"></th>
-                <th class="px-3 py-2 font-medium">Title</th>
-                <th class="px-3 py-2 font-medium">Year</th>
-                <th class="px-3 py-2 font-medium">Type</th>
+                <.column_header sort={@filters.sort} column="title" params={@filters}>
+                  Title
+                </.column_header>
+                <.column_header sort={@filters.sort} column="year" params={@filters}>
+                  Year
+                </.column_header>
+                <.column_header sort={@filters.sort} column="kind" params={@filters}>
+                  Type
+                </.column_header>
+                <.column_header
+                  sort={@filters.sort}
+                  column="critic"
+                  params={@filters}
+                  title="What critics gave it, as Plex has it"
+                >
+                  Critics
+                </.column_header>
+                <.column_header
+                  sort={@filters.sort}
+                  column="audience"
+                  params={@filters}
+                  title="What audiences gave it, as Plex has it"
+                >
+                  Audience
+                </.column_header>
                 <th class="px-3 py-2 font-medium">Source</th>
-                <th class="px-3 py-2 font-medium">Theme</th>
+                <.column_header sort={@filters.sort} column="status" params={@filters}>
+                  Theme
+                </.column_header>
               </tr>
             </thead>
             <tbody>
@@ -340,6 +461,8 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 <td class="px-3 py-2 text-muted-foreground">
                   {if item.kind == :show, do: "Series", else: "Movie"}
                 </td>
+                <.score_cell score={item.critic_score} source={item.critic_score_source} />
+                <.score_cell score={item.audience_score} source={item.audience_score_source} />
                 <%!-- What Apply would actually use. Without it, a bulk apply
                 over a cold cache skips most of the selection for a reason
                 nothing on this page mentioned. --%>
@@ -497,6 +620,66 @@ defmodule FanfarrWeb.LibraryLive.Index do
     <span class={["inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", @classes]}>
       {@label}
     </span>
+    """
+  end
+
+  attr :sort, :string, default: nil
+  attr :column, :string, required: true
+  attr :params, :map, required: true
+  attr :title, :string, default: nil
+  slot :inner_block, required: true
+
+  defp column_header(assigns) do
+    assigns =
+      assigns
+      |> assign(:next, sort_link(assigns.sort, assigns.column))
+      |> assign(:indicator, sort_indicator(assigns.sort, assigns.column))
+
+    ~H"""
+    <th class="px-3 py-2 font-medium">
+      <.link
+        patch={~p"/?#{header_params(@params, @next)}"}
+        title={@title}
+        class="inline-flex items-center gap-1 hover:text-foreground"
+      >
+        {render_slot(@inner_block)}
+        <.icon :if={@indicator} name={@indicator} class="size-3" />
+      </.link>
+    </th>
+    """
+  end
+
+  # Paging is deliberately dropped: a re-sorted list has different things on
+  # page 7, so staying there lands somewhere arbitrary rather than where the
+  # reader was.
+  defp header_params(filters, sort) do
+    %{
+      "status" => filters.status,
+      "kind" => filters.kind,
+      "q" => filters.q,
+      "sort" => sort
+    }
+    |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
+    |> Map.new()
+  end
+
+  attr :score, :float, default: nil
+  attr :source, :string, default: nil
+
+  defp score_cell(assigns) do
+    ~H"""
+    <td class="px-3 py-2 text-muted-foreground">
+      <span
+        :if={@score}
+        title={"#{Fanfarr.Library.Score.label(@source)} · #{@score}/10 as Plex has it"}
+        class="tabular-nums"
+      >
+        {Fanfarr.Library.Score.format(@score, @source)}
+      </span>
+      <%!-- An em dash rather than a zero: no rating is not a bad rating, and
+      a column of noughts would read as one. --%>
+      <span :if={is_nil(@score)} class="opacity-40">—</span>
+    </td>
     """
   end
 end

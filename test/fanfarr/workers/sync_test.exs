@@ -36,6 +36,10 @@ defmodule Fanfarr.Workers.SyncTest do
         path: "/media/merged-storage/TV/One Piece (1999)",
         thumb: "/library/metadata/101/thumb/1",
         theme: nil,
+        critic_score: 8.6,
+        critic_score_source: "rottentomatoes",
+        audience_score: 9.1,
+        audience_score_source: "rottentomatoes",
         added_at: ~U[2024-01-01 00:00:00Z]
       },
       over

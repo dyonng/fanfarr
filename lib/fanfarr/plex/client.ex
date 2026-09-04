@@ -32,6 +32,15 @@ defmodule Fanfarr.Plex.Client do
           path: String.t() | nil,
           thumb: String.t() | nil,
           theme: String.t() | nil,
+          # Plex's own 0-10 ratings, and the service each came from. Supplied
+          # only where the section's agent has them, which varies per item: a
+          # movie agent commonly carries Rotten Tomatoes where a TV one
+          # carries TMDB, and neither has anything for a title it does not
+          # recognise.
+          critic_score: float() | nil,
+          critic_score_source: String.t() | nil,
+          audience_score: float() | nil,
+          audience_score_source: String.t() | nil,
           added_at: DateTime.t() | nil
         }
 
