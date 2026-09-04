@@ -623,22 +623,6 @@ defmodule FanfarrWeb.ItemLive.Show do
       queue_summary={@queue_summary}
     >
       <div class="space-y-6">
-        <div
-          :if={@item.missing_from_plex_at}
-          class="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm"
-        >
-          <.icon name="lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-amber-500" />
-          <div>
-            <p class="font-medium">Plex no longer lists this item</p>
-            <p class="text-xs text-muted-foreground">
-              Last seen {Calendar.strftime(@item.missing_from_plex_at, "%d %b %Y at %H:%M")}. It is
-              hidden from the library but kept here, along with what Fanfarr did to it. Usually this
-              means the folder was renamed and Plex issued a new entry for it; if the item comes
-              back, the next sync will unhide this one.
-            </p>
-          </div>
-        </div>
-
         <div class="flex items-start gap-5">
           <img
             src={~p"/posters/#{@item.id}"}

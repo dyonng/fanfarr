@@ -38,11 +38,24 @@ defmodule Fanfarr.Themes.ThemeApplicationTest do
     |> Ash.create!()
   end
 
-  test "the log is append-only: no update or destroy action exists" do
-    actions = ThemeApplication |> Ash.Resource.Info.actions() |> Enum.map(& &1.type)
+  test "the log is append-only: nothing can rewrite a row" do
+    actions = ThemeApplication |> Ash.Resource.Info.actions()
 
-    refute :update in actions
-    refute :destroy in actions
+    refute :update in Enum.map(actions, & &1.type)
+  end
+
+  test "the one delete it has exists only to follow an item being deleted" do
+    # A row is meaningless without the item it describes, and the foreign key
+    # refuses to delete an item while its rows exist, so this action has to be
+    # here. Pinned by name: an unqualified :destroy would invite calling it
+    # from anywhere, and this must stay reachable from one place only.
+    destroys =
+      ThemeApplication
+      |> Ash.Resource.Info.actions()
+      |> Enum.filter(&(&1.type == :destroy))
+      |> Enum.map(& &1.name)
+
+    assert destroys == [:destroy_with_item]
   end
 
   test "intent is recorded before the attempt, so a crash leaves evidence", %{item: item} do

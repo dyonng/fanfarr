@@ -24,10 +24,7 @@ defmodule Fanfarr.Workers.RefreshThemerr do
       Fanfarr.Themes.list_themerr_entries!()
       |> MapSet.new(&{&1.item_type, &1.database, &1.external_id})
 
-    # Present items only: an item Plex has stopped listing is one ThemerrDB
-    # request that can never be worth making, and on a renamed library that is
-    # every one of the old rows.
-    Fanfarr.Library.list_present_media_items!()
+    Fanfarr.Library.list_media_items!()
     |> Enum.filter(&needs_lookup?(&1, known))
     |> Enum.each(fn item ->
       %{media_item_id: item.id}

@@ -31,6 +31,9 @@ defmodule Fanfarr.Themes do
       define :theme_history_for_item, action: :for_item, args: [:media_item_id]
       define :list_theme_failures, action: :failures
       define :list_theme_applications, action: :read
+      # Called only from MediaItem's destroy. See that action, and this
+      # resource's moduledoc, for why the log has a delete at all.
+      define :delete_theme_application, action: :destroy_with_item
     end
   end
 end

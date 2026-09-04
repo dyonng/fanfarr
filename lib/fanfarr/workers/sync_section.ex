@@ -44,6 +44,10 @@ defmodule Fanfarr.Workers.SyncSection do
       origins = origins(config, items)
       paths = paths(config, items, section)
 
+      # Before the upsert, or the renamed item is already in as a second row
+      # and there is nothing left to re-key.
+      adopt_renames(section, items)
+
       items
       |> Enum.chunk_every(100)
       |> Enum.each(fn chunk ->
@@ -84,41 +88,113 @@ defmodule Fanfarr.Workers.SyncSection do
     end
   end
 
-  # Items we hold that Plex has stopped listing.
+  # --- renames and removals ---------------------------------------------------
   #
-  # Rename a folder and Plex does not update the item -- it drops the old one
-  # and adds a new one under a fresh ratingKey. An additive sync therefore
-  # leaves the library showing both, which is what "The Dark Knight" appearing
-  # twice was: one row for the folder as it used to be named, one for its
-  # replacement.
+  # Rename a folder and Plex does not update the item: it drops the old
+  # ratingKey and issues a new one for the new name. A purely additive sync
+  # therefore left the library showing both, which is what "The Dark Knight"
+  # appearing twice was -- one row per name the folder has ever had.
   #
-  # Marked, not deleted, because the theme application log points at these rows
-  # with no cascade, so SQLite *refuses* the delete for precisely the items
-  # worth keeping -- anything Fanfarr has ever applied a theme to. See
-  # MediaItem's :mark_missing_from_plex.
+  # The obvious fix, deleting what the listing no longer contains, is right for
+  # a removal and wrong for a rename: the row Plex "dropped" is the one holding
+  # everything Plex does not know about, the operator's chosen theme and the
+  # whole application log. Deleting it and creating its replacement fresh throws
+  # that away and quietly re-does work someone already did by hand.
+  #
+  # So a departure and an arrival that are the same title get paired first, and
+  # the surviving row is re-keyed rather than replaced. Only what is left after
+  # that -- an item genuinely gone from Plex -- is deleted.
+
+  # Pair each departing item with the arriving one carrying the same external
+  # id, and move the existing row onto the new ratingKey.
+  #
+  # Matching is on imdb/tmdb/tvdb rather than on title, because a title is not
+  # an identity: a library can hold two cuts of one film, and "The Dark Knight"
+  # matching "The Dark Knight" would be right for a rename and wrong for those.
+  # An id is what Radarr and Plex themselves key on.
+  defp adopt_renames(section, items) do
+    stored = Library.media_items_in_section!(section.id)
+
+    listed_keys = MapSet.new(items, & &1.rating_key)
+    stored_keys = MapSet.new(stored, & &1.plex_rating_key)
+
+    departing = Enum.reject(stored, &MapSet.member?(listed_keys, &1.plex_rating_key))
+    arriving = Enum.reject(items, &MapSet.member?(stored_keys, &1.rating_key))
+
+    departing
+    |> Enum.map(&{&1, sole_match(&1, arriving)})
+    |> Enum.reject(fn {_item, match} -> is_nil(match) end)
+    |> unambiguous()
+    |> Enum.each(fn {item, match} ->
+      Logger.info(
+        "[fanfarr] #{item.title} came back under a new ratingKey " <>
+          "(#{item.plex_rating_key} -> #{match.rating_key}), most likely a rename; " <>
+          "keeping its theme and history"
+      )
+
+      Library.adopt_plex_rating_key!(item, %{plex_rating_key: match.rating_key})
+    end)
+  end
+
+  # An arriving item sharing an id with this one, and only if there is exactly
+  # one. Two candidates mean the guess is not safe to make, and guessing wrong
+  # would attach one item's theme to another.
+  defp sole_match(item, arriving) do
+    ids = external_ids(item)
+
+    case Enum.filter(arriving, &(&1.kind == item.kind and shares_id?(external_ids(&1), ids))) do
+      [match] -> match
+      _ -> nil
+    end
+  end
+
+  # ...and the pairing has to be one-to-one in the other direction too. Two
+  # departing items both pointing at one arrival is the same unsafe guess seen
+  # from the other side.
+  defp unambiguous(pairs) do
+    counts = Enum.frequencies_by(pairs, fn {_item, match} -> match.rating_key end)
+
+    Enum.filter(pairs, fn {_item, match} -> counts[match.rating_key] == 1 end)
+  end
+
+  defp external_ids(item) do
+    for db <- [:imdb_id, :tmdb_id, :tvdb_id],
+        id = presence(Map.get(item, db)),
+        into: %{},
+        do: {db, id}
+  end
+
+  defp shares_id?(left, right) do
+    Enum.any?(right, fn {db, id} -> Map.get(left, db) == id end)
+  end
+
+  # Whatever is still unaccounted for once renames are paired off: items Plex
+  # genuinely no longer has. Deleting takes the application log rows with them
+  # by cascade, so this is the one path that loses history -- which is why the
+  # rename case is handled first and why an empty listing is not believed.
   defp prune(section, items) do
     listed = MapSet.new(items, & &1.rating_key)
 
     # An empty listing is not evidence that a library is empty. Plex returns
     # one while a scan is in progress, and a section whose storage is offline
-    # reports no items rather than an error. Believing it would blank the
-    # mirror -- and hide every item until the next successful sync.
+    # reports no items rather than an error. Believing it would delete the
+    # entire mirror, and with it every theme Fanfarr has recorded applying.
     if MapSet.size(listed) == 0 do
       Logger.warning(
         "[fanfarr] Plex listed no items in section #{section.title}; " <>
-          "nothing pruned, since an empty listing is more likely a scan in progress"
+          "nothing removed, since an empty listing is more likely a scan in progress"
       )
     else
       section.id
-      |> Library.present_media_items_in_section!()
+      |> Library.media_items_in_section!()
       |> Enum.reject(&MapSet.member?(listed, &1.plex_rating_key))
       |> Enum.each(fn item ->
         Logger.info(
           "[fanfarr] Plex no longer lists #{item.title} (ratingKey #{item.plex_rating_key}); " <>
-            "hiding it from the library"
+            "removing it and its theme history"
         )
 
-        Library.mark_media_item_missing!(item)
+        Library.delete_media_item!(item)
       end)
     end
   end

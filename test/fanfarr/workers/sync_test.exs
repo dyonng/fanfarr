@@ -296,79 +296,128 @@ defmodule Fanfarr.Workers.SyncTest do
       %{section: s}
     end
 
-    test "a renamed folder leaves one visible row, not two", %{section: s} do
-      # What a rename actually looks like from here: Plex does not update the
-      # item, it drops the old ratingKey and adds a new one for the new folder
-      # name. Both rows are the same film.
-      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
-        {:ok,
-         [
-           plex_item(%{
-             rating_key: "500",
-             title: "The Dark Knight",
-             path: "/media/merged-storage/Movies/Batman The Dark Knight (2008)"
-           })
-         ]}
-      end)
-
-      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
-
-      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
-        {:ok,
-         [
-           plex_item(%{
-             rating_key: "501",
-             title: "The Dark Knight",
-             path: "/media/merged-storage/Movies/The Dark Knight (2008)"
-           })
-         ]}
-      end)
-
-      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
-
-      # Both rows survive -- the application log may point at the old one --
-      # but only the one Plex still lists is present.
-      assert length(Fanfarr.Library.list_media_items!()) == 2
-
-      assert [%{plex_rating_key: "501"}] = Fanfarr.Library.list_present_media_items!()
+    # Plex does not update an item when its folder is renamed: it drops the old
+    # ratingKey and issues a new one. Both syncs below are "the same film".
+    defp dark_knight(rating_key, folder) do
+      plex_item(%{
+        rating_key: rating_key,
+        title: "The Dark Knight",
+        kind: :movie,
+        imdb_id: "tt0468569",
+        tmdb_id: "155",
+        path: "/media/merged-storage/Movies/#{folder}"
+      })
     end
 
-    test "an empty listing prunes nothing", %{section: s} do
+    defp sync_listing(section, items) do
+      expect(Fanfarr.PlexClientMock, :items, fn _config, _key -> {:ok, items} end)
+      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: section.id})
+    end
+
+    test "a rename keeps the same row, not one plus a replacement", %{section: s} do
+      sync_listing(s, [dark_knight("500", "Batman The Dark Knight (2008)")])
+      [before] = Fanfarr.Library.list_media_items!()
+
+      sync_listing(s, [dark_knight("501", "The Dark Knight (2008)")])
+
+      # One row, and crucially the row it always was -- same primary key, now
+      # pointing at the ratingKey and path Plex uses for it.
+      assert [item] = Fanfarr.Library.list_media_items!()
+      assert item.id == before.id
+      assert item.plex_rating_key == "501"
+      assert item.plex_path == "/media/merged-storage/Movies/The Dark Knight (2008)"
+    end
+
+    test "a rename carries the chosen theme and the history with it", %{section: s} do
+      # The whole reason not to delete-and-recreate: this is work someone did
+      # by hand, and a folder rename is no reason to make them do it again.
+      sync_listing(s, [dark_knight("500", "Batman The Dark Knight (2008)")])
+      [item] = Fanfarr.Library.list_media_items!()
+
+      Fanfarr.Library.set_manual_theme!(item, %{
+        manual_theme_url: "https://youtube.com/watch?v=chosen",
+        manual_theme_title: "The Dark Knight - Main Theme"
+      })
+
+      Fanfarr.Themes.record_theme_outcome!(%{
+        media_item_id: item.id,
+        source: :youtube,
+        method: :local_file,
+        theme_url: "https://youtube.com/watch?v=chosen",
+        status: :succeeded
+      })
+
+      sync_listing(s, [dark_knight("501", "The Dark Knight (2008)")])
+
+      assert [kept] = Fanfarr.Library.list_media_items!()
+      assert kept.manual_theme_url == "https://youtube.com/watch?v=chosen"
+      assert kept.manual_theme_title == "The Dark Knight - Main Theme"
+      assert [%{status: :succeeded}] = Fanfarr.Themes.theme_history_for_item!(kept.id)
+    end
+
+    test "an item genuinely gone is deleted, history and all", %{section: s} do
+      sync_listing(s, [plex_item(), plex_item(%{rating_key: "102", title: "Fleabag"})])
+
+      fleabag = Enum.find(Fanfarr.Library.list_media_items!(), &(&1.title == "Fleabag"))
+
+      # An item with history is exactly the case the foreign key refuses to
+      # delete on its own, so the cascade is what is under test here.
+      Fanfarr.Themes.record_theme_outcome!(%{
+        media_item_id: fleabag.id,
+        source: :themerrdb,
+        method: :local_file,
+        status: :succeeded
+      })
+
+      sync_listing(s, [plex_item()])
+
+      assert [%{title: "One Piece"}] = Fanfarr.Library.list_media_items!()
+      assert Fanfarr.Themes.list_theme_applications!() == []
+    end
+
+    test "an empty listing deletes nothing", %{section: s} do
       # Plex returns an empty listing mid-scan, and for a section whose storage
-      # is offline. Believing it would hide the entire library.
-      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, [plex_item()]} end)
-      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+      # is offline. Believing it would delete the entire library.
+      sync_listing(s, [plex_item()])
+      sync_listing(s, [])
 
-      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, []} end)
-      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
-
-      assert [%{title: "One Piece"}] = Fanfarr.Library.list_present_media_items!()
+      assert [%{title: "One Piece"}] = Fanfarr.Library.list_media_items!()
     end
 
-    test "an item that comes back is un-hidden", %{section: s} do
-      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
-        {:ok, [plex_item(), plex_item(%{rating_key: "102", title: "Fleabag"})]}
-      end)
+    test "two candidates for one departure are not guessed between", %{section: s} do
+      # Both arrivals share the departing item's ids, so which one inherits its
+      # theme is a coin toss. Getting it wrong attaches one film's theme to
+      # another, which is worse than making the operator pick again.
+      sync_listing(s, [dark_knight("500", "Batman The Dark Knight (2008)")])
+      [before] = Fanfarr.Library.list_media_items!()
 
-      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+      sync_listing(s, [
+        dark_knight("501", "The Dark Knight (2008)"),
+        dark_knight("502", "The Dark Knight (2008) [IMAX]")
+      ])
 
-      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, [plex_item()]} end)
-      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
-      refute Enum.any?(Fanfarr.Library.list_present_media_items!(), &(&1.title == "Fleabag"))
-
-      # Rename it back, remount the drive, finish the scan -- whatever it was,
-      # the row that was hidden is the row that returns.
-      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
-        {:ok, [plex_item(), plex_item(%{rating_key: "102", title: "Fleabag"})]}
-      end)
-
-      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
-
-      assert length(Fanfarr.Library.list_present_media_items!()) == 2
-      assert length(Fanfarr.Library.list_media_items!()) == 2
+      # The old row is deleted rather than adopted by either.
+      keys = Fanfarr.Library.list_media_items!() |> Enum.map(& &1.plex_rating_key)
+      assert Enum.sort(keys) == ["501", "502"]
+      refute before.id in Enum.map(Fanfarr.Library.list_media_items!(), & &1.id)
     end
 
-    test "pruning does not touch another section", %{section: s} do
+    test "an item with no external ids at all is not matched on title", %{section: s} do
+      # A title is not an identity. With nothing to key on, this is a removal
+      # and an addition, and pretending otherwise would pair up unrelated rows
+      # in any library of home video or untagged rips.
+      blank = %{imdb_id: nil, tmdb_id: nil, tvdb_id: nil}
+
+      sync_listing(s, [plex_item(Map.merge(blank, %{rating_key: "700", title: "Home Video"}))])
+      [before] = Fanfarr.Library.list_media_items!()
+
+      sync_listing(s, [plex_item(Map.merge(blank, %{rating_key: "701", title: "Home Video"}))])
+
+      assert [item] = Fanfarr.Library.list_media_items!()
+      assert item.id != before.id
+    end
+
+    test "another section's items are left alone", %{section: s} do
       expect(Fanfarr.PlexClientMock, :sections, fn _ ->
         {:ok, [section(), section(%{key: "2", title: "Movies", kind: :movie})]}
       end)
@@ -376,16 +425,10 @@ defmodule Fanfarr.Workers.SyncTest do
       assert :ok = perform_job(Fanfarr.Workers.SyncLibrary, %{})
       movies = Enum.find(Fanfarr.Library.list_sections!(), &(&1.plex_key == "2"))
 
-      expect(Fanfarr.PlexClientMock, :items, fn _config, "2" ->
-        {:ok, [plex_item(%{rating_key: "900", title: "Heat", kind: :movie})]}
-      end)
+      sync_listing(movies, [plex_item(%{rating_key: "900", title: "Heat", kind: :movie})])
+      sync_listing(s, [plex_item()])
 
-      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: movies.id})
-
-      expect(Fanfarr.PlexClientMock, :items, fn _config, "1" -> {:ok, [plex_item()]} end)
-      assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
-
-      assert Enum.map(Fanfarr.Library.list_present_media_items!(), & &1.title) |> Enum.sort() ==
+      assert Fanfarr.Library.list_media_items!() |> Enum.map(& &1.title) |> Enum.sort() ==
                ["Heat", "One Piece"]
     end
   end

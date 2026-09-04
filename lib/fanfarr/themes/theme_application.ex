@@ -7,9 +7,19 @@ defmodule Fanfarr.Themes.ThemeApplication do
   directory with no supported way to remove them. Anything we upload is
   permanent, so there has to be a durable record of what we did and why.
 
-  Rows are never updated to reflect a later outcome and never deleted. A retry
-  is a new row. That is what makes the log answer "what has this server been
-  sent, and when", which a mutable status column could not.
+  Rows are never updated to reflect a later outcome, and nothing here deletes
+  one. A retry is a new row. That is what makes the log answer "what has this
+  server been sent, and when", which a mutable status column could not.
+
+  Rows go only when the item itself does. A rename does not count: sync
+  recognises the renamed item as the same one and keeps the row it always had
+  (see `Fanfarr.Workers.SyncSection`), so the history follows the title rather
+  than being stranded. An item genuinely removed from Plex is deleted, and the
+  database takes its rows with it -- the log records what was done *to an
+  item*, and the Activity page renders each row by its item's title, so rows
+  pointing at nothing would be unreadable. That does mean a theme uploaded to
+  Plex for an item later removed is still permanent on the Plex server with no
+  record of it here.
 
   It also carries the idempotency check: before applying anything, look here.
   If the intended theme is already recorded as succeeded for this item, there
@@ -31,9 +41,18 @@ defmodule Fanfarr.Themes.ThemeApplication do
   end
 
   actions do
-    # No update, and destroy is absent by design: the log is append-only.
+    # No update: nothing rewrites a row once written.
     defaults [:read]
     default_accept :*
+
+    # The only way a row goes, and it is not reachable from anywhere except a
+    # media item being deleted -- MediaItem's destroy cascades through it. The
+    # foreign key would otherwise refuse that delete outright, and SQLite
+    # cannot be given an ON DELETE CASCADE after the fact without rebuilding
+    # the table, which is not worth doing to someone's live database.
+    destroy :destroy_with_item do
+      primary? true
+    end
 
     create :create do
       primary? true
