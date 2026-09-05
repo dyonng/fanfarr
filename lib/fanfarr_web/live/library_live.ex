@@ -641,16 +641,20 @@ defmodule FanfarrWeb.LibraryLive.Index do
     |> Enum.join(" -- ")
   end
 
+  # The page links carry the whole view, sort included. A sorted list is a
+  # different list: paging without the sort hands back page 2 of the default
+  # title order, which is not the second page of anything the reader was
+  # looking at. Same for studio and collection -- page 2 of a filter that has
+  # been dropped is a page of items the filter excluded.
   defp filter_params(filters, page) do
-    %{
-      "status" => filters.status,
-      "kind" => filters.kind,
-      "q" => filters.q,
-      "page" => page
-    }
-    |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
-    |> Map.new()
+    filters
+    |> header_params(filters.sort)
+    |> put_page(page)
   end
+
+  # Page 1 is the absence of a page, so it stays out of the URL.
+  defp put_page(params, 1), do: params
+  defp put_page(params, page), do: Map.put(params, "page", page)
 
   attr :status, :atom, required: true
 
@@ -739,13 +743,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # The page is included here where the sort links deliberately drop it: a
   # re-sorted list has different things on page 7, but the *same* list does
   # not, so returning to it should land where it was left.
-  defp item_params(filters) do
-    filters
-    |> header_params(filters.sort)
-    |> Map.put("page", filters.page)
-    |> Enum.reject(fn {_k, v} -> v in [nil, "", "all", 1] end)
-    |> Map.new()
-  end
+  defp item_params(filters), do: filter_params(filters, filters.page)
 
   attr :score, :float, default: nil
   attr :source, :string, default: nil

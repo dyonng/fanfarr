@@ -343,6 +343,25 @@ defmodule FanfarrWeb.DashboardTest do
       assert item_view |> element("a", "← Library") |> render() =~ "page=2"
     end
 
+    test "the page links carry the sort, so page two continues the sorted list",
+         %{conn: conn, item: item} do
+      # Two pages' worth, or there are no page links to inspect.
+      for n <- 1..60 do
+        item.(%{title: "Filler #{String.pad_leading("#{n}", 3, "0")}", studio: "Aardman"})
+      end
+
+      {:ok, view, _html} = live(conn, "/?sort=-year&studio=Aardman&status=missing")
+
+      link = view |> element("a", "Next") |> render()
+
+      # Page 2 of a differently sorted or differently filtered list is page 2
+      # of something the reader was never looking at.
+      assert link =~ "sort=-year"
+      assert link =~ "studio=Aardman"
+      assert link =~ "status=missing"
+      assert link =~ "page=2"
+    end
+
     defp first_item_id do
       Fanfarr.Library.list_media_items!() |> List.first() |> Map.fetch!(:id)
     end
