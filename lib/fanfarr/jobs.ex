@@ -320,6 +320,42 @@ defmodule Fanfarr.Jobs do
   end
 
   @doc """
+  What the queue is working on and what it will pick up next, in that order.
+
+  For the layout's queue widget rather than the Activity page: only work that
+  is still outstanding, oldest first within each state, because a queue is
+  read in the order it will be worked rather than newest-first. Running jobs
+  lead regardless of age.
+
+  `limit` caps the rows; `total_active/0` says how many there really are, so
+  the widget can say "and 40 more" rather than implying the list is all of it.
+  """
+  @spec active(non_neg_integer()) :: [map()]
+  def active(limit \\ 8) do
+    Fanfarr.Repo.all(
+      from j in Oban.Job,
+        where: j.state in ^@active,
+        where: j.worker not in ^@internal_workers,
+        order_by: [asc: fragment("? != 'executing'", j.state), asc: j.id],
+        limit: ^limit,
+        select: [:id, :worker, :state, :queue, :args, :attempt, :max_attempts, :inserted_at]
+    )
+    |> decorate()
+  end
+
+  @doc "How much outstanding work there is, counting what `active/1` cropped."
+  @spec total_active() :: non_neg_integer()
+  def total_active do
+    Fanfarr.Repo.aggregate(
+      from(j in Oban.Job,
+        where: j.state in ^@active,
+        where: j.worker not in ^@internal_workers
+      ),
+      :count
+    )
+  end
+
+  @doc """
   Jobs worth showing, newest first, with a human line for each.
 
   Running and waiting work comes first however old it is: a job still going is
@@ -347,17 +383,8 @@ defmodule Fanfarr.Jobs do
           ]
       )
 
-    titles = titles_for(jobs)
-
     jobs
-    |> Enum.map(fn job ->
-      id = subject_id(job)
-
-      job
-      |> Map.put(:label, describe(job))
-      |> Map.put(:item_id, id)
-      |> Map.put(:item_title, id && Map.get(titles, id))
-    end)
+    |> decorate()
     |> Enum.sort_by(&{&1.state not in @active, -&1.id})
   end
 
@@ -399,6 +426,21 @@ defmodule Fanfarr.Jobs do
   def short_worker(_), do: "job"
 
   # One query for every item mentioned by the batch, rather than one per job.
+  # A job row is a worker module and an args map, neither of which reads as
+  # anything. This is what turns both into a line about a title.
+  defp decorate(jobs) do
+    titles = titles_for(jobs)
+
+    Enum.map(jobs, fn job ->
+      id = subject_id(job)
+
+      job
+      |> Map.put(:label, describe(job))
+      |> Map.put(:item_id, id)
+      |> Map.put(:item_title, id && Map.get(titles, id))
+    end)
+  end
+
   defp titles_for(jobs) do
     ids =
       jobs

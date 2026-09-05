@@ -85,7 +85,7 @@ defmodule FanfarrWeb.ActivityLive.Index do
       flash={@flash}
       current_path={:activity}
       current_user={@current_user}
-      queue_summary={@queue_summary}
+      queue={@queue}
     >
       <div class="space-y-6">
         <div class="flex items-start justify-between gap-4">

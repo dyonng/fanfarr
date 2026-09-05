@@ -332,7 +332,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
       flash={@flash}
       current_path={:library}
       current_user={@current_user}
-      queue_summary={@queue_summary}
+      queue={@queue}
     >
       <div class="space-y-4">
         <div class="flex items-center justify-between">

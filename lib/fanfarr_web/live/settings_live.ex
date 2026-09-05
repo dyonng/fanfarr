@@ -340,7 +340,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
       flash={@flash}
       current_path={:settings}
       current_user={@current_user}
-      queue_summary={@queue_summary}
+      queue={@queue}
     >
       <div class="max-w-3xl space-y-6">
         <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>

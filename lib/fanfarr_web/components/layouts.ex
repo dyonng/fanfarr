@@ -33,9 +33,9 @@ defmodule FanfarrWeb.Layouts do
 
   attr :current_user, :map, default: nil, doc: "the signed-in user, when there is one"
 
-  attr :queue_summary, :map,
+  attr :queue, :map,
     default: nil,
-    doc: "counts from Fanfarr.Jobs.summary/0, kept current by FanfarrWeb.QueueStatus"
+    doc: "the queue widget's state, kept current by FanfarrWeb.QueueStatus"
 
   slot :inner_block, required: true
 
@@ -147,25 +147,93 @@ defmodule FanfarrWeb.Layouts do
     <%!-- Bottom right, and only when there is something to say. Clicking a
     button queues an Oban job and the page is then free to be navigated away
     from -- but nothing said so, and a spinner on the page you started from is
-    not a queue. Hidden on Activity, which is the queue in full. --%>
-    <.link
-      :if={@queue_summary && @current_path != :activity && Fanfarr.Jobs.busy?(@queue_summary)}
-      navigate={~p"/activity"}
-      class="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs shadow-lg hover:bg-accent hover:text-accent-foreground"
-      title="What the background queue is doing"
+    not a queue. Hidden on Activity, which is the queue in full.
+
+    It stays up while it is open even once the work drains, rather than
+    vanishing from under the cursor of the person reading it; closing it is
+    what puts it away. --%>
+    <div
+      :if={
+        @queue && @current_path != :activity && (@queue.open or Fanfarr.Jobs.busy?(@queue.summary))
+      }
+      class={
+        [
+          "fixed bottom-4 right-4 z-50 overflow-hidden border border-border bg-card text-xs shadow-lg",
+          # A pill until it is opened: collapsed, it is still just two integers,
+          # and a 320px bar parked over the corner of every page is not.
+          @queue.open && "w-80 rounded-lg",
+          !@queue.open && "rounded-full"
+        ]
+      }
     >
-      <.icon
-        :if={@queue_summary.running > 0}
-        name="lucide-loader-circle"
-        class="size-3.5 animate-spin text-primary"
-      />
-      <.icon :if={@queue_summary.running == 0} name="lucide-clock" class="size-3.5" />
-      <span>
-        <span :if={@queue_summary.running > 0}>{@queue_summary.running} running</span>
-        <span :if={@queue_summary.running > 0 and @queue_summary.queued > 0}> · </span>
-        <span :if={@queue_summary.queued > 0}>{@queue_summary.queued} queued</span>
-      </span>
-    </.link>
+      <button
+        phx-click="toggle_queue_widget"
+        class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground"
+        title={if @queue.open, do: "Collapse", else: "What the background queue is doing"}
+      >
+        <.icon
+          :if={@queue.summary.running > 0}
+          name="lucide-loader-circle"
+          class="size-3.5 shrink-0 animate-spin text-primary"
+        />
+        <.icon
+          :if={@queue.summary.running == 0}
+          name="lucide-clock"
+          class="size-3.5 shrink-0"
+        />
+        <span class="flex-1">
+          <span :if={@queue.summary.running > 0}>{@queue.summary.running} running</span>
+          <span :if={@queue.summary.running > 0 and @queue.summary.queued > 0}> · </span>
+          <span :if={@queue.summary.queued > 0}>{@queue.summary.queued} queued</span>
+          <span :if={!Fanfarr.Jobs.busy?(@queue.summary)} class="text-muted-foreground">
+            Queue is idle
+          </span>
+        </span>
+        <.icon
+          name={if @queue.open, do: "lucide-chevron-down", else: "lucide-chevron-up"}
+          class="size-3.5 shrink-0 text-muted-foreground"
+        />
+      </button>
+
+      <div :if={@queue.open} class="border-t border-border">
+        <p :if={@queue.jobs == []} class="px-3 py-4 text-center text-muted-foreground">
+          Nothing queued.
+        </p>
+
+        <ul :if={@queue.jobs != []} class="max-h-72 divide-y divide-border/60 overflow-y-auto">
+          <li :for={job <- @queue.jobs} class="flex items-start gap-2 px-3 py-2">
+            <.icon
+              :if={job.state == "executing"}
+              name="lucide-loader-circle"
+              class="mt-0.5 size-3 shrink-0 animate-spin text-primary"
+            />
+            <.icon
+              :if={job.state != "executing"}
+              name="lucide-clock"
+              class="mt-0.5 size-3 shrink-0 text-muted-foreground"
+            />
+            <div class="min-w-0 flex-1">
+              <p class="truncate" title={job.label}>{job.label}</p>
+              <p :if={job.item_title} class="truncate text-muted-foreground" title={job.item_title}>
+                {job.item_title}
+              </p>
+            </div>
+          </li>
+        </ul>
+
+        <div class="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-muted-foreground">
+          <span>
+            <span :if={@queue.total > length(@queue.jobs)}>
+              and {@queue.total - length(@queue.jobs)} more
+            </span>
+            <span :if={@queue.eta}>{humanise_eta(@queue.eta)} left</span>
+          </span>
+          <.link navigate={~p"/activity"} class="shrink-0 text-primary hover:underline">
+            Activity
+          </.link>
+        </div>
+      </div>
+    </div>
 
     <.flash_group flash={@flash} />
     """
@@ -203,6 +271,18 @@ defmodule FanfarrWeb.Layouts do
       />
     </.link>
     """
+  end
+
+  # Coarse on purpose. A queue estimate that says "4m 37s" invites being
+  # believed to the second, and it is derived from a rolling mean of past
+  # durations.
+  defp humanise_eta(seconds) when seconds < 60, do: "under a minute"
+  defp humanise_eta(seconds) when seconds < 3600, do: "~#{div(seconds, 60)}m"
+
+  defp humanise_eta(seconds) do
+    hours = div(seconds, 3600)
+    minutes = div(rem(seconds, 3600), 60)
+    "~#{hours}h #{minutes}m"
   end
 
   # The sidebar badge reads the monitor's last snapshot: nil before the first

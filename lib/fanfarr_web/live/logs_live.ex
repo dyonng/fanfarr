@@ -297,7 +297,7 @@ defmodule FanfarrWeb.LogsLive.Index do
       flash={@flash}
       current_path={:logs}
       current_user={@current_user}
-      queue_summary={@queue_summary}
+      queue={@queue}
     >
       <%!-- The window's height minus the main element's own padding. A console
       is one of the few things that should take the whole screen: the useful

@@ -146,7 +146,7 @@ defmodule FanfarrWeb.SystemLive.Index do
       flash={@flash}
       current_path={:system}
       current_user={@current_user}
-      queue_summary={@queue_summary}
+      queue={@queue}
     >
       <div class="max-w-3xl space-y-6">
         <div class="flex items-center justify-between">
