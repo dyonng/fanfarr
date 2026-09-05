@@ -42,21 +42,46 @@ defmodule FanfarrWeb.Layouts do
   def app(assigns) do
     ~H"""
     <div class="flex min-h-screen bg-background text-foreground">
-      <%!-- Sidebar: the *arr convention -- persistent, dark, icon + label. --%>
-      <aside class="fixed inset-y-0 left-0 z-40 flex w-52 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
-        <a href={~p"/"} class="flex h-14 items-center gap-2 border-b border-border px-4">
-          <%!-- The drawn mark rather than the emoji it replaced: an emoji renders
-          in whatever the viewer's system font decides, so the brand changed
-          shape between platforms and vanished where the glyph was missing.
-          Same file as the favicon, so tab and sidebar cannot drift apart. --%>
-          <img
-            src={"/favicon.svg?v=#{Fanfarr.Version.asset_version()}"}
-            alt=""
-            aria-hidden="true"
-            class="size-5"
-          />
-          <span class="text-base font-semibold tracking-tight">Fanfarr</span>
-        </a>
+      <%!-- Sidebar: the *arr convention -- persistent, dark, icon + label.
+      Width and every label in it answer to [data-sidebar] on <html>, set
+      before first paint by the script in root.html.heex -- the same
+      mechanism the theme toggle uses, so there is no flash of the wrong
+      width and no LiveView round trip to collapse it. --%>
+      <aside class="fixed inset-y-0 left-0 z-40 flex w-52 flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-[width] [[data-sidebar=collapsed]_&]:w-14">
+        <div class="flex h-14 items-center justify-between gap-2 border-b border-border px-4 [[data-sidebar=collapsed]_&]:justify-center [[data-sidebar=collapsed]_&]:px-0">
+          <a
+            href={~p"/"}
+            class="flex items-center gap-2 [[data-sidebar=collapsed]_&]:gap-0"
+          >
+            <%!-- The drawn mark rather than the emoji it replaced: an emoji renders
+            in whatever the viewer's system font decides, so the brand changed
+            shape between platforms and vanished where the glyph was missing.
+            Same file as the favicon, so tab and sidebar cannot drift apart. --%>
+            <img
+              src={"/favicon.svg?v=#{Fanfarr.Version.asset_version()}"}
+              alt=""
+              aria-hidden="true"
+              class="size-5"
+            />
+            <span class="text-base font-semibold tracking-tight [[data-sidebar=collapsed]_&]:hidden">
+              Fanfarr
+            </span>
+          </a>
+          <button
+            phx-click={JS.dispatch("phx:toggle-sidebar")}
+            class="rounded-md p-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [[data-sidebar=collapsed]_&]:hidden"
+            title="Collapse sidebar"
+          >
+            <.icon name="lucide-panel-left-close" class="size-4" />
+          </button>
+          <button
+            phx-click={JS.dispatch("phx:toggle-sidebar")}
+            class="hidden rounded-md p-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [[data-sidebar=collapsed]_&]:block"
+            title="Expand sidebar"
+          >
+            <.icon name="lucide-panel-left-open" class="size-4" />
+          </button>
+        </div>
 
         <nav class="flex-1 space-y-1 px-2 py-3">
           <.nav_link
@@ -72,12 +97,6 @@ defmodule FanfarrWeb.Layouts do
             current={@current_path == :activity}
           />
           <.nav_link
-            navigate={~p"/settings"}
-            icon="lucide-settings"
-            label="Settings"
-            current={@current_path == :settings}
-          />
-          <.nav_link
             navigate={~p"/system"}
             icon="lucide-activity"
             label="System"
@@ -90,16 +109,22 @@ defmodule FanfarrWeb.Layouts do
             label="Logs"
             current={@current_path == :logs}
           />
+          <.nav_link
+            navigate={~p"/settings"}
+            icon="lucide-settings"
+            label="Settings"
+            current={@current_path == :settings}
+          />
         </nav>
 
         <div class="border-t border-border p-2">
           <div
-            class="px-2 pb-1 pt-0.5 font-mono text-[11px] leading-none text-muted-foreground"
+            class="px-2 pb-1 pt-0.5 font-mono text-[11px] leading-none text-muted-foreground [[data-sidebar=collapsed]_&]:hidden"
             title={"Fanfarr #{Fanfarr.Version.display()}"}
           >
             {Fanfarr.Version.display()}
           </div>
-          <div class="flex items-center justify-end px-2 py-1">
+          <div class="flex items-center justify-end px-2 py-1 [[data-sidebar=collapsed]_&]:justify-center">
             <a
               :if={assigns[:current_user]}
               href={~p"/sign-out"}
@@ -112,7 +137,7 @@ defmodule FanfarrWeb.Layouts do
         </div>
       </aside>
 
-      <div class="flex flex-1 flex-col pl-52">
+      <div class="flex flex-1 flex-col pl-52 transition-[padding] [[data-sidebar=collapsed]_&]:pl-14">
         <main class="flex-1 px-6 py-6">
           {render_slot(@inner_block)}
         </main>
@@ -156,19 +181,21 @@ defmodule FanfarrWeb.Layouts do
     ~H"""
     <.link
       navigate={@navigate}
+      title={@label}
       class={[
         "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+        "[[data-sidebar=collapsed]_&]:justify-center [[data-sidebar=collapsed]_&]:gap-0 [[data-sidebar=collapsed]_&]:px-0",
         @current && "bg-sidebar-accent text-sidebar-accent-foreground",
         !@current &&
           "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
       ]}
     >
-      <.icon name={@icon} class="size-4" />
-      <span class="flex-1">{@label}</span>
+      <.icon name={@icon} class="size-4 shrink-0" />
+      <span class="flex-1 [[data-sidebar=collapsed]_&]:hidden">{@label}</span>
       <span
         :if={@badge in [:warning, :error]}
         class={[
-          "size-2 rounded-full",
+          "size-2 shrink-0 rounded-full",
           @badge == :error && "bg-destructive",
           @badge == :warning && "bg-amber-500"
         ]}

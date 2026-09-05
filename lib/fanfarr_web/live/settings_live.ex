@@ -282,6 +282,29 @@ defmodule FanfarrWeb.SettingsLive.Index do
         </section>
 
         <section class="rounded-lg border border-border bg-card p-4">
+          <h2 class="text-sm font-semibold text-card-foreground">Authentication</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            Skip sign-in for requests from a local address (loopback, 10/8, 172.16/12,
+            192.168/16, link-local) — the same convenience Sonarr and Radarr offer. Checked
+            against the actual connection, not a header, so it cannot be spoofed from outside.
+            If Fanfarr sits behind a reverse proxy, this is the proxy's own address.
+          </p>
+          <div class="mt-3 flex items-center justify-between">
+            <p class="text-sm font-medium">Disable authentication for local addresses</p>
+            <button
+              phx-click="toggle_local_auth_bypass"
+              class={[
+                "rounded-full px-3 py-1 text-xs font-medium",
+                @local_auth_bypass && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                !@local_auth_bypass && "bg-muted text-muted-foreground"
+              ]}
+            >
+              {if @local_auth_bypass, do: "Enabled", else: "Disabled"}
+            </button>
+          </div>
+        </section>
+
+        <section class="rounded-lg border border-border bg-card p-4">
           <h2 class="text-sm font-semibold text-card-foreground">Plex</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Values here override PLEX_URL / PLEX_TOKEN from the environment.
@@ -524,29 +547,6 @@ defmodule FanfarrWeb.SettingsLive.Index do
               Save
             </button>
           </form>
-        </section>
-
-        <section class="rounded-lg border border-border bg-card p-4">
-          <h2 class="text-sm font-semibold text-card-foreground">Authentication</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Skip sign-in for requests from a local address (loopback, 10/8, 172.16/12,
-            192.168/16, link-local) — the same convenience Sonarr and Radarr offer. Checked
-            against the actual connection, not a header, so it cannot be spoofed from outside.
-            If Fanfarr sits behind a reverse proxy, this is the proxy's own address.
-          </p>
-          <div class="mt-3 flex items-center justify-between">
-            <p class="text-sm font-medium">Disable authentication for local addresses</p>
-            <button
-              phx-click="toggle_local_auth_bypass"
-              class={[
-                "rounded-full px-3 py-1 text-xs font-medium",
-                @local_auth_bypass && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-                !@local_auth_bypass && "bg-muted text-muted-foreground"
-              ]}
-            >
-              {if @local_auth_bypass, do: "Enabled", else: "Disabled"}
-            </button>
-          </div>
         </section>
       </div>
 

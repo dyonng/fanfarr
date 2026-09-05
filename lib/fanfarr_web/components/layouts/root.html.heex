@@ -58,6 +58,44 @@
           }
         });
       })();
+
+      (() => {
+        // Same shape as the theme script above: an explicit choice persists
+        // and wins; absent one, this follows the viewport the way "system"
+        // follows the OS. 767px is where a 208px sidebar starts competing
+        // with the page for room -- a resized desktop window crosses it the
+        // same as a phone does.
+        const narrow = () => matchMedia("(max-width: 767px)").matches;
+
+        const setSidebar = (state, source) => {
+          if (source === "user") {
+            localStorage.setItem("phx:sidebar", state);
+          } else {
+            localStorage.removeItem("phx:sidebar");
+          }
+          document.documentElement.setAttribute("data-sidebar", state);
+          document.documentElement.setAttribute("data-sidebar-source", source);
+        };
+
+        const stored = localStorage.getItem("phx:sidebar");
+        setSidebar(stored || (narrow() ? "collapsed" : "expanded"), stored ? "user" : "system");
+
+        window.addEventListener("storage", (e) => {
+          if (e.key !== "phx:sidebar") return;
+          setSidebar(e.newValue || (narrow() ? "collapsed" : "expanded"), e.newValue ? "user" : "system");
+        });
+
+        window.addEventListener("phx:toggle-sidebar", () => {
+          const next = document.documentElement.getAttribute("data-sidebar") === "collapsed" ? "expanded" : "collapsed";
+          setSidebar(next, "user");
+        });
+
+        matchMedia("(max-width: 767px)").addEventListener("change", (e) => {
+          if (document.documentElement.getAttribute("data-sidebar-source") === "system") {
+            setSidebar(e.matches ? "collapsed" : "expanded", "system");
+          }
+        });
+      })();
     </script>
   </head>
   <body class="bg-background text-foreground">
