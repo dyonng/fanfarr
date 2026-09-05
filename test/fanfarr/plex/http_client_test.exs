@@ -102,6 +102,47 @@ defmodule Fanfarr.Plex.HTTPClientTest do
     end
   end
 
+  describe "item/2" do
+    test "one item comes back parsed exactly as a listing entry would be" do
+      # Same parser as items/2 on purpose: the Refresh button on an item page
+      # writes through the same action the section sync does, so the two must
+      # not be able to disagree about what a field means.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":500,"title":"The Dark Knight","year":2008,"type":"movie","theme":null,
+         "studio":"Warner Bros. Pictures","rating":9.4,
+         "ratingImage":"rottentomatoes://image.rating.ripe",
+         "Collection":[{"tag":"Batman Collection"}],
+         "Guid":[{"id":"imdb://tt0468569"},{"id":"tmdb://155"}],
+         "Media":[{"Part":[{"file":"/movies/The Dark Knight (2008)/movie.mkv"}]}]}
+      ]}}
+      """
+
+      stub(fn conn ->
+        assert conn.request_path == "/library/metadata/500"
+        assert conn.query_string =~ "includeGuids=1"
+        assert conn.query_string =~ "includeCollections=1"
+        json(conn, body)
+      end)
+
+      assert {:ok, item} = HTTPClient.item(@config, "500")
+
+      assert item.rating_key == "500"
+      assert item.title == "The Dark Knight"
+      assert item.studio == "Warner Bros. Pictures"
+      assert item.critic_score == 9.4
+      assert item.imdb_id == "tt0468569"
+      assert item.collections == ["Batman Collection"]
+      assert item.path == "/movies/The Dark Knight (2008)"
+    end
+
+    test "an item Plex has dropped is :not_found, not a crash" do
+      stub(fn conn -> json(conn, ~S|{"MediaContainer":{"size":0}}|) end)
+
+      assert {:error, :not_found} = HTTPClient.item(@config, "500")
+    end
+  end
+
   describe "collections/2 and collection_items/2" do
     test "a section's collections come back with the keys to read them by" do
       # Both kinds are here: one the operator built, one the agent assembled

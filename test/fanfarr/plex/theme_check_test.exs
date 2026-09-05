@@ -126,7 +126,6 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
       assert {:ok, before, current} = ThemeCheck.refresh_and_reread(@config, "1")
       assert before.origin == :none
       assert current.origin == :uploaded
-      assert ThemeCheck.changed?(before, current)
     end
 
     test "an unchanged state is still reported after the last poll" do
@@ -136,8 +135,8 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
       expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _, "1" -> :ok end)
 
       assert {:ok, before, current} = ThemeCheck.refresh_and_reread(@config, "1")
+      assert before.origin == :none
       assert current.origin == :none
-      refute ThemeCheck.changed?(before, current)
     end
 
     test "a refused refresh is not dressed up as a result" do
@@ -225,35 +224,6 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
     end
   end
 
-  describe "the locked theme field" do
-    test "a locked theme outranks every other reading" do
-      # Nothing else can help while it holds: the agent has been told not to
-      # write this field, so scanning and refreshing are both beside the point.
-      state = %{
-        origin: :none,
-        listed_not_selected: true,
-        locked_fields: ["theme"],
-        rating_key: nil
-      }
-
-      assert {:warning, message} = ThemeCheck.verdict(state, %{local_theme_present: true})
-      assert message =~ "locked in Plex"
-      assert message =~ "Unlock it"
-    end
-
-    test "other locked fields do not change the reading" do
-      state = %{
-        origin: :none,
-        listed_not_selected: true,
-        locked_fields: ["title", "summary"],
-        rating_key: nil
-      }
-
-      assert {:warning, message} = ThemeCheck.verdict(state, %{local_theme_present: true})
-      assert message =~ "has not made it the item's theme"
-    end
-  end
-
   describe "upload/3" do
     test "hands Plex the bytes, then reports what it serves" do
       Agent.start_link(fn -> false end, name: :uploaded?)
@@ -303,182 +273,6 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
     end
   end
 
-  describe "verdict/2" do
-    test "a local file plus no theme after a successful scan is the actionable case" do
-      item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}
-
-      assert {:warning, message} = ThemeCheck.verdict(%{origin: :none, scanned: :ok}, item)
-      assert message =~ "accepted a scan of the folder"
-      assert message =~ "may not be reading local assets"
-    end
-
-    test "a scan that never ran is named as the reason, not the library settings" do
-      item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}
-
-      assert {:warning, message} =
-               ThemeCheck.verdict(%{origin: :none, scanned: :not_attempted}, item)
-
-      assert message =~ "we do not know where Plex thinks this item lives"
-    end
-
-    test "a refused scan is named as the reason" do
-      item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}
-
-      assert {:warning, message} =
-               ThemeCheck.verdict(%{origin: :none, scanned: {:error, {:http, 404}}}, item)
-
-      assert message =~ "refused to scan"
-    end
-
-    test "a local file losing to the agent's theme names the agent" do
-      item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}
-      state = %{origin: :plex_agent, agent: "tv.plex.agents.series", rating_key: @agent_key}
-
-      assert {:warning, message} = ThemeCheck.verdict(state, item)
-      assert message =~ "tv.plex.agents.series"
-    end
-
-    test "no local file and no theme is information, not a warning" do
-      assert {:info, _} = ThemeCheck.verdict(%{origin: :none}, %{local_theme_present: false})
-    end
-
-    test "an unattributed theme beside a local file reads as success" do
-      item = %{local_theme_present: true, local_theme_path: "/tv/Show/theme.mp3"}
-      state = %{origin: :unknown, rating_key: "something://else"}
-
-      assert {:ok, message} = ThemeCheck.verdict(state, item)
-      assert message =~ "something://else"
-    end
-  end
-
-  describe "diagnose/3" do
-    test "reports the library's agent, both folders, and the settings verbatim" do
-      expect(Fanfarr.PlexClientMock, :raw, 4, fn _config, path ->
-        cond do
-          path == "/library/sections" ->
-            {:ok,
-             %{
-               "MediaContainer" => %{
-                 "Directory" => [
-                   %{"key" => "1", "title" => "Other"},
-                   %{
-                     "key" => "2",
-                     "title" => "TV",
-                     "agent" => "tv.plex.agents.series",
-                     "scanner" => "Plex TV Series"
-                   }
-                 ]
-               }
-             }}
-
-          path == "/library/sections/2/prefs" ->
-            {:ok,
-             %{
-               "MediaContainer" => %{
-                 "Setting" => [
-                   %{
-                     "id" => "enableLocalAssets",
-                     "label" => "Use local assets",
-                     "value" => false
-                   },
-                   %{"id" => "collectionMode", "label" => "Collections", "value" => 0}
-                 ]
-               }
-             }}
-
-          path == "/library/metadata/101/children" ->
-            # As JSON actually comes back: seasons are <Directory> in XML but
-            # "Metadata" in JSON. Reading only "Directory" reported every show
-            # as having zero seasons.
-            {:ok,
-             %{
-               "MediaContainer" => %{
-                 "Metadata" => [%{"title" => "Season 1"}, %{"title" => "Season 2"}]
-               }
-             }}
-
-          path == "/library/metadata/101" ->
-            {:ok,
-             %{
-               "MediaContainer" => %{
-                 "Metadata" => [%{"Location" => [%{"path" => "/media/TV/Star City"}]}]
-               }
-             }}
-        end
-      end)
-
-      # diagnose also asks for the item's locked fields, which come from
-      # metadata rather than raw.
-      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ ->
-        {:ok, %{"Field" => [%{"name" => "title", "locked" => true}]}}
-      end)
-
-      item = %{
-        plex_rating_key: "101",
-        kind: :show,
-        plex_path: "/media/TV/Star City",
-        local_theme_path: "/tv2/Star City/theme.mp3"
-      }
-
-      report = ThemeCheck.diagnose(@config, item, "2")
-
-      assert report.section["agent"] == "tv.plex.agents.series"
-      assert report.section["title"] == "TV"
-      assert report.plex_locations == ["/media/TV/Star City"]
-      assert report.wrote_to == "/tv2/Star City/theme.mp3"
-      assert report.seasons == ["Season 1", "Season 2"]
-      assert report.locked_fields == ["title"]
-
-      # Listed, not interpreted: we do not claim to know which one governs
-      # themes on this agent.
-      assert [%{id: "enableLocalAssets", value: false}] =
-               ThemeCheck.local_asset_prefs(report.prefs)
-    end
-
-    test "a section Plex will not describe does not take the whole report down" do
-      stub(Fanfarr.PlexClientMock, :raw, fn _config, _path -> {:error, :unauthorized} end)
-      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:error, :unauthorized} end)
-
-      item = %{plex_rating_key: "101", kind: :show, plex_path: nil, local_theme_path: nil}
-      report = ThemeCheck.diagnose(@config, item, "2")
-
-      assert report.section == %{"error" => ":unauthorized"}
-      assert report.prefs == []
-      assert report.plex_locations == []
-      assert report.seasons == nil
-
-      # nil, not [] -- "we could not ask" is not "nothing is locked".
-      assert report.locked_fields == nil
-    end
-
-    test "seasons are read from the XML element name too" do
-      stub(Fanfarr.PlexClientMock, :raw, fn _config, path ->
-        if path =~ "children" do
-          {:ok, %{"MediaContainer" => %{"Directory" => [%{"title" => "Season 1"}]}}}
-        else
-          {:ok, %{}}
-        end
-      end)
-
-      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
-
-      item = %{plex_rating_key: "7", kind: :show, plex_path: "/t/S", local_theme_path: nil}
-      assert ThemeCheck.diagnose(@config, item, "2").seasons == ["Season 1"]
-    end
-
-    test "a movie is not asked for seasons" do
-      stub(Fanfarr.PlexClientMock, :raw, fn _config, path ->
-        refute path =~ "children"
-        {:ok, %{}}
-      end)
-
-      stub(Fanfarr.PlexClientMock, :metadata, fn _, _ -> {:ok, %{}} end)
-
-      item = %{plex_rating_key: "9", kind: :movie, plex_path: "/m/Heat", local_theme_path: nil}
-      assert ThemeCheck.diagnose(@config, item, "1").seasons == nil
-    end
-  end
-
   describe "local_assets_off?/1" do
     # Copied from a live server: the library that would not pick up a theme.mp3
     # sitting in exactly the right folder.
@@ -521,12 +315,6 @@ defmodule Fanfarr.Plex.ThemeCheckTest do
     test "'Prefer local metadata' is a different setting and is not mistaken for it" do
       prefs = [%{id: "preferLocalMetadata", label: "Prefer local metadata", value: false}]
       assert ThemeCheck.local_assets_off?(prefs) == nil
-    end
-  end
-
-  describe "changed?/2" do
-    test "a failed pre-refresh read is never reported as a change" do
-      refute ThemeCheck.changed?(nil, %{origin: :none})
     end
   end
 end

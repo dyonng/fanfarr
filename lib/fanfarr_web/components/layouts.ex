@@ -360,31 +360,35 @@ defmodule FanfarrWeb.Layouts do
   """
   def theme_toggle(assigns) do
     ~H"""
-    <div class="card relative flex flex-row items-center border border-border bg-muted rounded-full">
+    <%!-- Each third holds its icon and its name, centred, so the three read as
+    labelled options rather than as three icons adrift at the left edge of a
+    wide bar. The sliding pill behind them is positioned by [data-theme] on
+    <html>, which is why the buttons only dispatch and never carry state. --%>
+    <div class="card relative flex w-full max-w-md flex-row items-center rounded-full border border-border bg-muted">
       <div class="absolute w-1/3 h-full rounded-full border border-border bg-background left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 [[data-theme-source=system]_&]:!left-0 transition-[left]" />
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        class="relative flex w-1/3 cursor-pointer items-center justify-center gap-2 p-2 text-xs font-medium opacity-75 hover:opacity-100"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="system"
       >
-        <.icon name="lucide-monitor" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="lucide-monitor" class="size-4" /> Automatic
       </button>
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        class="relative flex w-1/3 cursor-pointer items-center justify-center gap-2 p-2 text-xs font-medium opacity-75 hover:opacity-100"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
       >
-        <.icon name="lucide-sun" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="lucide-sun" class="size-4" /> Light
       </button>
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        class="relative flex w-1/3 cursor-pointer items-center justify-center gap-2 p-2 text-xs font-medium opacity-75 hover:opacity-100"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
       >
-        <.icon name="lucide-moon" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="lucide-moon" class="size-4" /> Dark
       </button>
     </div>
     """

@@ -64,6 +64,18 @@ defmodule Fanfarr.Plex.HTTPClient do
   end
 
   @impl true
+  def item(config, rating_key) do
+    query = "includeGuids=1&includeCollections=1"
+
+    with {:ok, body} <- get(config, "/library/metadata/#{rating_key}?#{query}") do
+      case containers(body, ["Directory", "Video", "Metadata"]) do
+        [item | _] -> {:ok, parse_item(item)}
+        [] -> {:error, :not_found}
+      end
+    end
+  end
+
+  @impl true
   def collections(config, section_key) do
     with {:ok, body} <- get(config, "/library/sections/#{section_key}/collections") do
       collections =

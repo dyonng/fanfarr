@@ -130,18 +130,77 @@ defmodule FanfarrWeb.FeaturesTest do
       assert render_async(view) =~ "yt-dlp is not installed"
     end
 
-    test "preview and apply queue the worker with the right dry-run flag", %{
-      conn: conn,
-      item: item
-    } do
+    test "apply queues the worker for real, not as a dry run", %{conn: conn, item: item} do
+      # The item page has no dry-run button any more: previewing one title was
+      # a rehearsal for a bulk run, and the bulk bar on the library still
+      # offers it where it is actually worth doing.
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
 
-      render_click(view, "preview", %{})
+      refute has_element?(view, ~s(button[phx-click="preview"]))
+
       render_click(view, "apply", %{})
 
       jobs = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
-      assert Enum.map(jobs, & &1.args["dry_run"]) |> Enum.sort() == [false, true]
-      assert Enum.all?(jobs, &(&1.args["media_item_id"] == item.id))
+      assert [job] = jobs
+      assert job.args["dry_run"] == false
+      assert job.args["media_item_id"] == item.id
+    end
+
+    test "Refresh pulls the item's metadata back from Plex and shows it",
+         %{conn: conn, item: item} do
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+
+      expect(Fanfarr.PlexClientMock, :item, fn _config, "101" ->
+        {:ok,
+         %{
+           rating_key: "101",
+           title: "One Piece",
+           year: 1999,
+           kind: :show,
+           guid: nil,
+           imdb_id: "tt0388629",
+           tmdb_id: nil,
+           tvdb_id: nil,
+           path: "/tv/One Piece (1999)",
+           thumb: nil,
+           theme: nil,
+           critic_score: 8.6,
+           critic_score_source: "rottentomatoes",
+           audience_score: 9.1,
+           audience_score_source: "rottentomatoes",
+           studio: "Toei Animation",
+           collections: ["Shonen Jump"],
+           added_at: nil
+         }}
+      end)
+
+      {:ok, view, html} = live(conn, "/library/#{item.id}")
+      refute html =~ "Toei Animation"
+
+      render_click(view, "refresh", %{})
+      html = render_async(view, 10_000)
+
+      # Written down, and on the page: a refresh that only flashed "done"
+      # would leave the operator no way to tell whether it had.
+      assert html =~ "Toei Animation"
+      assert html =~ "Shonen Jump"
+      assert html =~ "86%"
+      assert html =~ "91%"
+
+      assert Fanfarr.Library.get_media_item!(item.id).studio == "Toei Animation"
+    end
+
+    test "Refresh says so when Plex no longer has the item", %{conn: conn, item: item} do
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+
+      expect(Fanfarr.PlexClientMock, :item, fn _config, "101" -> {:error, :not_found} end)
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "refresh", %{})
+
+      assert render_async(view, 10_000) =~ "Plex no longer has this item"
     end
 
     test "a movie can be applied like anything else", %{
@@ -320,7 +379,6 @@ defmodule FanfarrWeb.FeaturesTest do
       assert html =~ "Working on this item"
       assert html =~ "Working…"
       assert has_element?(view, ~s(button[phx-click="apply"][disabled]))
-      assert has_element?(view, ~s(button[phx-click="preview"][disabled]))
     end
 
     test "a queued job is still reflected after a reload", %{conn: conn, item: item} do
@@ -460,11 +518,10 @@ defmodule FanfarrWeb.FeaturesTest do
     test "the page offers a player for the file it wrote", %{conn: conn, item: item, path: path} do
       {:ok, _view, html} = live(conn, "/library/#{item.id}")
 
-      assert html =~ "The file Fanfarr wrote"
+      assert html =~ "Current theme"
       assert html =~ path
       assert html =~ "/library/#{item.id}/theme?v="
       assert html =~ "theme-player-"
-      assert html =~ "Listen before trusting it"
     end
 
     test "removing the theme deletes the file and takes the card with it",
@@ -477,106 +534,8 @@ defmodule FanfarrWeb.FeaturesTest do
       html = view |> element("button", "Remove theme") |> render_click()
 
       refute File.exists?(path)
-      refute html =~ "The file Fanfarr wrote"
+      refute html =~ "Current theme"
       refute Fanfarr.Library.get_media_item!(item.id).local_theme_present
-    end
-
-    test "a refresh that Plex ignores says so instead of implying success",
-         %{conn: conn, item: item} do
-      # The failure the operator actually hits: the file is on disk, Plex is
-      # told to look again, and Plex goes on serving its own agent's theme.
-      agent_key = "metadata://themes/tv.plex.agents.series_b008372"
-
-      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k ->
-        {:ok, %{"theme" => "/library/metadata/101/theme/17"}}
-      end)
-
-      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k ->
-        {:ok,
-         [
-           %{
-             rating_key: agent_key,
-             key: "/library/metadata/101/file",
-             selected: true,
-             origin: :plex_agent,
-             agent: "tv.plex.agents.series"
-           }
-         ]}
-      end)
-
-      # The item's folder, in Plex's own view, and the section it belongs to.
-      expect(Fanfarr.PlexClientMock, :scan_directory, fn _c, "1", "/tv/One Piece (1999)" ->
-        :ok
-      end)
-
-      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _config, rating_key ->
-        assert rating_key == item.plex_rating_key
-        :ok
-      end)
-
-      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
-      Fanfarr.Settings.put_setting!("plex_token", "t")
-
-      {:ok, view, _html} = live(conn, "/library/#{item.id}")
-      render_click(view, "refresh_plex", %{})
-
-      html = render_async(view, 10_000)
-
-      assert html =~ "What Plex serves now"
-      assert html =~ "Plex accepted the scan request"
-      assert html =~ "serving a theme from its own agent"
-      assert html =~ "tv.plex.agents.series"
-      # The ratingKey is shown verbatim: it is the evidence for the verdict.
-      assert html =~ agent_key
-
-      # And what was read is stored, so the badge stops disagreeing with it.
-      reloaded = Fanfarr.Library.get_media_item!(item.id)
-      assert reloaded.plex_theme_origin == :plex_agent
-      assert reloaded.plex_theme_agent == "tv.plex.agents.series"
-    end
-
-    test "a theme Plex does not attribute to an agent reads as the local file taking",
-         %{conn: conn, item: item} do
-      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k ->
-        {:ok, %{"theme" => "/library/metadata/101/theme/17"}}
-      end)
-
-      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k ->
-        {:ok,
-         [
-           %{
-             rating_key: "media://themes/abc",
-             key: "/library/metadata/101/file",
-             selected: true,
-             origin: :unknown,
-             agent: nil
-           }
-         ]}
-      end)
-
-      stub(Fanfarr.PlexClientMock, :scan_directory, fn _c, _s, _p -> :ok end)
-      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> :ok end)
-      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
-      Fanfarr.Settings.put_setting!("plex_token", "t")
-
-      {:ok, view, _html} = live(conn, "/library/#{item.id}")
-      render_click(view, "refresh_plex", %{})
-
-      assert render_async(view, 10_000) =~ "consistent with it having picked up the local file"
-    end
-
-    test "a refusal from Plex is reported, not swallowed", %{conn: conn, item: item} do
-      stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k -> {:ok, %{}} end)
-      stub(Fanfarr.PlexClientMock, :themes, fn _c, _k -> {:ok, []} end)
-      stub(Fanfarr.PlexClientMock, :scan_directory, fn _c, _s, _p -> :ok end)
-      expect(Fanfarr.PlexClientMock, :refresh_metadata, fn _c, _k -> {:error, {:http, 403}} end)
-      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
-      Fanfarr.Settings.put_setting!("plex_token", "t")
-
-      {:ok, view, _html} = live(conn, "/library/#{item.id}")
-      render_click(view, "refresh_plex", %{})
-
-      assert render_async(view, 10_000) =~ "Plex refused the refresh"
     end
   end
 

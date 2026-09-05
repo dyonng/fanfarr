@@ -20,7 +20,6 @@ defmodule FanfarrWeb.ItemLive.Show do
   require Logger
 
   alias Fanfarr.Library
-  alias Fanfarr.Plex.ThemeCheck
   alias Fanfarr.Themes.Downloader
   alias Fanfarr.Workers.ApplyTheme
   alias Fanfarr.Workers.LookupTheme
@@ -45,12 +44,7 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:previewing, nil)
       |> assign(:refreshing, false)
       |> assign(:looking_up, false)
-      |> assign(:plex_theme_state, nil)
-      |> assign(:plex_diagnosis, nil)
-      |> assign(:diagnosing, false)
-      |> assign(:selecting, false)
       |> assign(:poll_scheduled, false)
-      |> assign(:uploading, false)
       |> load()
       |> track_applying()
       |> maybe_lookup()
@@ -174,10 +168,6 @@ defmodule FanfarrWeb.ItemLive.Show do
   # --- events ---------------------------------------------------------------
 
   @impl true
-  def handle_event("preview", _params, socket) do
-    queue(socket, dry_run: true, flash: "Dry run queued — nothing will be written")
-  end
-
   def handle_event("apply", _params, socket) do
     queue(socket, dry_run: false, flash: "Theme queued for writing")
   end
@@ -238,90 +228,6 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
-  def handle_event("refresh_plex", _params, socket) do
-    item = socket.assigns.item
-
-    case Fanfarr.Config.plex_config() do
-      {:error, :plex_not_configured} ->
-        {:noreply, put_flash(socket, :error, "Plex is not configured")}
-
-      {:ok, config} ->
-        {:noreply,
-         socket
-         |> assign(:refreshing, true)
-         |> start_async(:refresh_plex, fn ->
-           ThemeCheck.refresh_and_reread(config, item.plex_rating_key, scan_target(item))
-         end)}
-    end
-  end
-
-  def handle_event("select_theme", %{"key" => theme_key}, socket) do
-    item = socket.assigns.item
-
-    # Logged on arrival, before anything can go wrong with it. Without this a
-    # click that never reached the server and a click that reached it and
-    # failed look identical in the console -- which is where an afternoon went.
-    Logger.info("select_theme clicked for #{item.title}: #{theme_key}")
-
-    case Fanfarr.Config.plex_config() do
-      {:error, :plex_not_configured} ->
-        {:noreply, put_flash(socket, :error, "Plex is not configured")}
-
-      {:ok, config} ->
-        {:noreply,
-         socket
-         |> assign(:selecting, true)
-         |> start_async(:select_theme, fn ->
-           ThemeCheck.select(config, item.plex_rating_key, theme_key)
-         end)}
-    end
-  end
-
-  def handle_event("upload_theme", _params, socket) do
-    item = socket.assigns.item
-
-    case {Fanfarr.Config.plex_config(), item.local_theme_path} do
-      {{:error, :plex_not_configured}, _} ->
-        {:noreply, put_flash(socket, :error, "Plex is not configured")}
-
-      {_, path} when path in [nil, ""] ->
-        {:noreply, put_flash(socket, :error, "There is no local file to upload yet")}
-
-      {{:ok, config}, path} ->
-        Logger.info("upload_theme clicked for #{item.title}: #{path}")
-
-        {:noreply,
-         socket
-         |> assign(:uploading, true)
-         |> start_async(:upload_theme, fn ->
-           ThemeCheck.upload(config, item.plex_rating_key, path)
-         end)}
-    end
-  end
-
-  def handle_event("diagnose_plex", _params, socket) do
-    item = socket.assigns.item
-
-    case {Fanfarr.Config.plex_config(), scan_target(item)} do
-      {{:error, :plex_not_configured}, _} ->
-        {:noreply, put_flash(socket, :error, "Plex is not configured")}
-
-      {_, nil} ->
-        {:noreply,
-         put_flash(socket, :error, "Fanfarr does not know this item's Plex path — sync first")}
-
-      {{:ok, config}, {section_key, _dir}} ->
-        {:noreply,
-         socket
-         |> assign(:diagnosing, true)
-         |> start_async(:diagnose, fn ->
-           config
-           |> ThemeCheck.diagnose(item, section_key)
-           |> Map.put(:file, Fanfarr.Themes.FileCheck.inspect_file(item.local_theme_path))
-         end)}
-    end
-  end
-
   # No confirmation: one file, and re-applying is one click because the manual
   # pick and the ThemerrDB entry both survive the removal.
   def handle_event("remove_theme", _params, socket) do
@@ -340,6 +246,18 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  # Everything Plex owns about this item, re-read now: a rename, a new rating,
+  # a studio or collection change, and what it is serving as a theme. Off the
+  # LiveView process because it is two HTTP calls to someone's media server.
+  def handle_event("refresh", _params, socket) do
+    item = socket.assigns.item
+
+    {:noreply,
+     socket
+     |> assign(:refreshing, true)
+     |> start_async(:refresh, fn -> Fanfarr.Library.ItemRefresh.refresh(item) end)}
+  end
+
   def handle_event("clear_manual", _params, socket) do
     Library.set_manual_theme!(socket.assigns.item, %{
       manual_theme_url: nil,
@@ -348,17 +266,6 @@ defmodule FanfarrWeb.ItemLive.Show do
 
     {:noreply,
      socket |> load() |> put_flash(:info, "Manual pick cleared; ThemerrDB is the source again")}
-  end
-
-  # Where to point Plex's scanner: its own view of the item's folder, plus the
-  # section that folder belongs to. Both have to be known, and plex_path is the
-  # one that goes missing -- a section listing does not always report it.
-  defp scan_target(item) do
-    section = Ash.load!(item, :section).section
-
-    if is_binary(item.plex_path) and item.plex_path != "" and is_binary(section.plex_key) do
-      {section.plex_key, item.plex_path}
-    end
   end
 
   defp set_manual(socket, url, title) do
@@ -391,103 +298,40 @@ defmodule FanfarrWeb.ItemLive.Show do
   end
 
   @impl true
-  def handle_async(:refresh_plex, {:ok, {:ok, before, current}}, socket) do
-    # Store it the same way a sync would, so the status badge and the Plex card
-    # agree with what we just read rather than with the last full sync.
-    item =
-      Library.record_plex_theme!(socket.assigns.item, plex_theme_attrs(current))
-
-    {level, message} = ThemeCheck.verdict(current, item)
-
-    state =
-      current
-      |> Map.put(:changed, ThemeCheck.changed?(before, current))
-      |> Map.put(:level, level)
-      |> Map.put(:message, message)
-
-    # The reading itself is a paragraph and belongs on the page, next to the
-    # evidence it is drawn from. The flash only says the round trip finished.
+  def handle_async(:refresh, {:ok, {:ok, _item}}, socket) do
     {:noreply,
      socket
      |> assign(:refreshing, false)
-     |> assign(:plex_theme_state, state)
      |> load()
-     |> put_flash(:info, "Plex refreshed — see what it serves now, below.")}
+     |> put_flash(:info, "Refreshed from Plex")}
   end
 
-  def handle_async(:refresh_plex, {:ok, {:error, reason}}, socket) do
+  def handle_async(:refresh, {:ok, {:error, :plex_not_configured}}, socket) do
+    {:noreply,
+     socket |> assign(:refreshing, false) |> put_flash(:error, "Plex is not configured")}
+  end
+
+  def handle_async(:refresh, {:ok, {:error, :not_found}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:refreshing, false)
+     |> put_flash(:error, "Plex no longer has this item. The next library sync will remove it.")}
+  end
+
+  def handle_async(:refresh, {:ok, {:error, reason}}, socket) do
     {:noreply,
      socket
      |> assign(:refreshing, false)
      |> put_flash(:error, "Plex refused the refresh: #{inspect(reason)}")}
   end
 
-  def handle_async(:refresh_plex, {:exit, reason}, socket) do
+  def handle_async(:refresh, {:exit, reason}, socket) do
     {:noreply,
      socket
      |> assign(:refreshing, false)
      |> put_flash(:error, "Refresh crashed: #{inspect(reason, limit: 5)}")}
   end
 
-  def handle_async(:select_theme, {:ok, {:ok, current}}, socket) do
-    item =
-      Library.record_plex_theme!(socket.assigns.item, plex_theme_attrs(current))
-
-    {:noreply,
-     socket
-     |> assign(:selecting, false)
-     |> assign(:item, item)
-     |> assign(:plex_theme_state, restate(socket.assigns.plex_theme_state, current, item))
-     |> load()}
-  end
-
-  def handle_async(:select_theme, {:ok, {:error, reason}}, socket) do
-    {:noreply, socket |> assign(:selecting, false) |> select_failed(reason)}
-  end
-
-  def handle_async(:upload_theme, {:ok, {:ok, current}}, socket) do
-    item =
-      Library.record_plex_theme!(socket.assigns.item, plex_theme_attrs(current))
-
-    {:noreply,
-     socket
-     |> assign(:uploading, false)
-     |> assign(:item, item)
-     |> assign(:plex_theme_state, restate(socket.assigns.plex_theme_state, current, item))
-     |> load()}
-  end
-
-  def handle_async(:upload_theme, {:ok, {:error, reason}}, socket) do
-    {:noreply,
-     socket
-     |> assign(:uploading, false)
-     |> select_failed({:upload_refused, reason})}
-  end
-
-  def handle_async(:upload_theme, {:exit, reason}, socket) do
-    {:noreply,
-     socket
-     |> assign(:uploading, false)
-     |> select_failed({:upload_crashed, inspect(reason, limit: 5)})}
-  end
-
-  def handle_async(:select_theme, {:exit, reason}, socket) do
-    {:noreply,
-     socket |> assign(:selecting, false) |> select_failed({:crashed, inspect(reason, limit: 5)})}
-  end
-
-  def handle_async(:diagnose, {:ok, report}, socket) do
-    {:noreply, socket |> assign(:diagnosing, false) |> assign(:plex_diagnosis, report)}
-  end
-
-  def handle_async(:diagnose, {:exit, reason}, socket) do
-    {:noreply,
-     socket
-     |> assign(:diagnosing, false)
-     |> put_flash(:error, "The check crashed: #{inspect(reason, limit: 5)}")}
-  end
-
-  @impl true
   def handle_async(:search, {:ok, {:ok, hits}}, socket) do
     {:noreply, socket |> assign(:searching, false) |> assign(:search_results, hits)}
   end
@@ -508,88 +352,17 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> assign(:search_error, "Search crashed: #{inspect(reason, limit: 5)}")}
   end
 
-  defp file_summary({:ok, info}) do
-    [
-      info.format || "unknown format",
-      info.codec,
-      info.duration && "#{info.duration}s",
-      info.sample_rate && "#{info.sample_rate} Hz",
-      info.channels && "#{info.channels} ch",
-      info.bit_rate && "#{div(info.bit_rate, 1000)} kbps",
-      format_bytes(info.bytes)
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
-  end
+  # Relative, because "when did Fanfarr last look" is the question the Refresh
+  # button raises and a timestamp is a worse answer to it.
+  defp last_synced(nil), do: "never"
 
-  defp file_summary({:error, {:empty, _}}), do: "the file is zero bytes"
-
-  defp file_summary({:error, {:unreadable, bytes}}),
-    do:
-      "#{format_bytes(bytes)} on disk, but ffprobe cannot decode it — this is not playable audio"
-
-  defp file_summary({:error, {:missing, reason}}), do: "cannot be read: #{inspect(reason)}"
-  defp file_summary({:error, :no_file}), do: "nothing written yet"
-  defp file_summary(_), do: "not checked"
-
-  defp scan_result(:ok), do: "Plex accepted the scan request"
-  defp scan_result(:not_attempted), do: "not attempted — Plex path unknown"
-  defp scan_result({:error, reason}), do: "refused: #{inspect(reason)}"
-  defp scan_result(_), do: "—"
-
-  # Keeps whatever the last refresh established about the steps it took, and
-  # replaces only what Plex now serves.
-  # Failures land in the panel beside the evidence, not only in a flash. A
-  # flash that has already faded is indistinguishable from a button that did
-  # nothing, which is what "nothing happened" turned out to mean.
-  defp select_failed(socket, reason) do
-    state =
-      (socket.assigns.plex_theme_state || %{})
-      |> Map.merge(%{
-        level: :warning,
-        message: "Plex refused the request to serve that theme: #{inspect(reason)}"
-      })
-
-    socket
-    |> assign(:plex_theme_state, state)
-    |> put_flash(:error, "Plex refused: #{inspect(reason)}")
-  end
-
-  # theme_locked is only known when Plex was actually asked; a read that did
-  # not report the fields must not be taken as "unlocked".
-  defp plex_theme_attrs(%{locked_fields: locked} = state) when is_list(locked) do
-    state |> plex_theme_attrs(:base) |> Map.put(:theme_locked, "theme" in locked)
-  end
-
-  defp plex_theme_attrs(state), do: plex_theme_attrs(state, :base)
-
-  defp plex_theme_attrs(state, :base) do
-    %{
-      plex_theme_url: state.url,
-      plex_theme_origin: state.origin,
-      plex_theme_agent: state.agent
-    }
-  end
-
-  defp restate(previous, current, item) do
-    {level, message} = ThemeCheck.verdict(current, item)
-
-    # A 200 from Plex is not evidence the selection took, so the verdict is
-    # drawn from the read-back and the panel says which of the two happened.
-    {level, message} =
-      if current.url do
-        {level, message}
-      else
-        {:warning,
-         "Plex accepted the request but is still serving no theme. " <>
-           "The endpoint that selects a theme is inferred from Plex's convention " <>
-           "for posters, so this may mean it is not the right call. " <> message}
-      end
-
-    previous
-    |> Kernel.||(%{})
-    |> Map.merge(current)
-    |> Map.merge(%{level: level, message: message, changed: true})
+  defp last_synced(at) do
+    case DateTime.diff(DateTime.utc_now(), at, :second) do
+      seconds when seconds < 60 -> "just now"
+      seconds when seconds < 3600 -> "#{div(seconds, 60)}m ago"
+      seconds when seconds < 86_400 -> "#{div(seconds, 3600)}h ago"
+      seconds -> "#{div(seconds, 86_400)}d ago"
+    end
   end
 
   defp search_error(:not_installed),
@@ -655,14 +428,6 @@ defmodule FanfarrWeb.ItemLive.Show do
 
             <div class="mt-4 flex flex-wrap items-center gap-2">
               <button
-                phx-click="preview"
-                disabled={@applying}
-                class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                title="Resolves the theme and the destination, checks it is writable, writes nothing"
-              >
-                <.icon name="lucide-flask-conical" class="size-4" /> Preview (dry run)
-              </button>
-              <button
                 phx-click="apply"
                 disabled={@applying or @item.theme_locked}
                 class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
@@ -681,6 +446,17 @@ defmodule FanfarrWeb.ItemLive.Show do
                 class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground"
               >
                 <.icon name="lucide-database" class="size-4" /> Look up ThemerrDB
+              </button>
+              <button
+                phx-click="refresh"
+                disabled={@refreshing}
+                class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                title="Re-read this item from Plex: title, year, studio, collections, ratings and the theme it is serving"
+              >
+                <.icon
+                  name="lucide-refresh-cw"
+                  class={["size-4", @refreshing && "animate-spin"]}
+                /> {if @refreshing, do: "Refreshing…", else: "Refresh"}
               </button>
             </div>
             <p :if={@item.kind == :movie} class="mt-2 text-xs text-muted-foreground">
@@ -712,7 +488,7 @@ defmodule FanfarrWeb.ItemLive.Show do
         >
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
-              <h2 class="text-sm font-semibold text-card-foreground">The file Fanfarr wrote</h2>
+              <h2 class="text-sm font-semibold text-card-foreground">Current theme</h2>
               <p
                 class="break-all font-mono text-xs text-muted-foreground"
                 title={@item.local_theme_path}
@@ -720,29 +496,12 @@ defmodule FanfarrWeb.ItemLive.Show do
                 {@item.local_theme_path}
               </p>
               <p :if={@written} class="mt-1 text-xs text-muted-foreground">
-                <span :if={@written.loudness_lufs}>
-                  {Float.round(@written.loudness_lufs, 1)} LUFS
-                  <span class="opacity-70">
-                    (normalised to {Fanfarr.Themes.Normalizer.target()})
-                  </span>
-                  ·
-                </span>
                 <span :if={@written.bytes}>{format_bytes(@written.bytes)}</span>
-                <span :if={@written.codec}> · {@written.codec}</span>
+                <span :if={@written.bytes && @written.codec}> · </span>
+                <span :if={@written.codec}>{@written.codec}</span>
               </p>
             </div>
             <div class="flex shrink-0 items-center gap-2">
-              <button
-                phx-click="refresh_plex"
-                disabled={@refreshing}
-                class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-                title="Plex does not watch for new local theme files; it has to be told to look again"
-              >
-                <.icon
-                  name="lucide-refresh-cw"
-                  class={["size-3.5", @refreshing && "animate-spin"]}
-                /> {if @refreshing, do: "Asking Plex…", else: "Refresh in Plex"}
-              </button>
               <button
                 phx-click="remove_theme"
                 class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
@@ -903,214 +662,6 @@ defmodule FanfarrWeb.ItemLive.Show do
               }
             }
           </script>
-
-          <p class="mt-2 text-xs text-muted-foreground">
-            Listen before trusting it: a download can succeed and still be the wrong track. If the
-            show has no theme in Plex yet, use Refresh in Plex above — Plex does not notice a new
-            local theme file on its own.
-          </p>
-
-          <%!-- The read-back from the refresh. The raw ratingKeys are shown on
-          purpose: which scheme Plex uses for a theme it picked up from a local
-          file is the one case we have not been able to verify against a live
-          server, so when it appears here it is worth being able to read it. --%>
-          <div
-            :if={@plex_theme_state}
-            class={[
-              "mt-3 rounded-md border p-3 text-sm",
-              @plex_theme_state.level == :warning &&
-                "border-destructive/40 bg-destructive/10 text-destructive-foreground",
-              @plex_theme_state.level != :warning && "border-border bg-background"
-            ]}
-          >
-            <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              What Plex serves now
-            </p>
-            <p class="mt-1">{@plex_theme_state.message}</p>
-
-            <dl class="mt-3 space-y-1 text-xs">
-              <div class="flex justify-between gap-4">
-                <dt class="text-muted-foreground">Theme</dt>
-                <dd class="break-all text-right font-mono">{@plex_theme_state.url || "none"}</dd>
-              </div>
-              <div class="flex justify-between gap-4">
-                <dt class="text-muted-foreground">Origin</dt>
-                <dd>
-                  {@plex_theme_state.origin}{if @plex_theme_state.agent,
-                    do: " · #{@plex_theme_state.agent}"}
-                </dd>
-              </div>
-              <div class="flex justify-between gap-4">
-                <dt class="text-muted-foreground">Folder scan</dt>
-                <dd>{scan_result(@plex_theme_state[:scanned])}</dd>
-              </div>
-              <div class="flex justify-between gap-4">
-                <dt class="text-muted-foreground">Changed by the refresh</dt>
-                <dd>{if @plex_theme_state.changed, do: "yes", else: "no"}</dd>
-              </div>
-            </dl>
-
-            <div class="mt-3 border-t border-border/60 pt-3">
-              <%!-- The other way round from "use this one": that asks Plex to
-              serve a theme it already lists, this hands it the bytes. They
-              fail differently, and on this server selection answers 500. --%>
-              <button
-                :if={@item.local_theme_path not in [nil, ""]}
-                phx-click="upload_theme"
-                disabled={@uploading}
-                class="mr-2 inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-                title="Send the file to Plex instead of asking it to read the one on disk"
-              >
-                <.icon
-                  :if={@uploading}
-                  name="lucide-loader-circle"
-                  class="size-3.5 animate-spin"
-                /> {if @uploading, do: "Uploading…", else: "Upload to Plex"}
-              </button>
-              <button
-                phx-click="diagnose_plex"
-                disabled={@diagnosing}
-                class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-              >
-                <.icon
-                  :if={@diagnosing}
-                  name="lucide-loader-circle"
-                  class="size-3.5 animate-spin"
-                /> Ask Plex why
-              </button>
-
-              <%!-- Reported as Plex phrased it. Which preference governs theme
-              music differs between the legacy agents and tv.plex.agents.*, and
-              inventing a mapping we have not verified is how the `provider`
-              field got made up in the first place. --%>
-              <div :if={@plex_diagnosis} class="mt-3 space-y-3 text-xs">
-                <%!-- The one setting that decides whether Plex reads sidecar
-                files at all. With it off the scanner and the agents are both
-                behaving correctly and simply not looking, so this outranks
-                everything else the check reports. --%>
-                <p
-                  :if={ThemeCheck.local_assets_off?(@plex_diagnosis.prefs) == true}
-                  class="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive-foreground"
-                >
-                  <strong>This library has "Use local assets" turned off.</strong>
-                  Plex will not read theme.mp3 beside the media while that is off, so no amount of
-                  refreshing will pick it up. In Plex: {@plex_diagnosis.section["title"]} → Edit →
-                  Advanced → Use local assets, then refresh here again.
-                </p>
-
-                <div>
-                  <p class="font-semibold text-muted-foreground">Library</p>
-                  <p class="mt-0.5 font-mono">
-                    {@plex_diagnosis.section["title"]} · agent {@plex_diagnosis.section["agent"] ||
-                      "unknown"} · scanner {@plex_diagnosis.section["scanner"] || "unknown"}
-                  </p>
-                </div>
-
-                <%!-- Plex listing a theme it will not serve, and answering 500
-                when asked to select that one, are both consistent with a file
-                it can index and not decode. ffprobe settles it. --%>
-                <div>
-                  <p class="font-semibold text-muted-foreground">The file on disk</p>
-                  <p class="mt-0.5 font-mono">{file_summary(@plex_diagnosis[:file])}</p>
-                </div>
-
-                <div :if={is_list(@plex_diagnosis[:locked_fields])}>
-                  <p class="font-semibold text-muted-foreground">Fields Plex has locked</p>
-                  <p class="mt-0.5">
-                    {if @plex_diagnosis.locked_fields == [],
-                      do: "none",
-                      else: Enum.join(@plex_diagnosis.locked_fields, ", ")}
-                  </p>
-                </div>
-
-                <div :if={is_list(@plex_diagnosis.seasons)}>
-                  <p class="font-semibold text-muted-foreground">Seasons Plex lists</p>
-                  <p class="mt-0.5">
-                    {length(@plex_diagnosis.seasons)}
-                    <span :if={@plex_diagnosis.seasons != []}>
-                      — {Enum.join(@plex_diagnosis.seasons, ", ")}
-                    </span>
-                  </p>
-                </div>
-
-                <div>
-                  <p class="font-semibold text-muted-foreground">Folders</p>
-                  <p class="mt-0.5 break-all font-mono">
-                    Plex holds: {if @plex_diagnosis.plex_locations == [],
-                      do: @plex_diagnosis.plex_path || "nothing",
-                      else: Enum.join(@plex_diagnosis.plex_locations, ", ")}
-                  </p>
-                  <p class="break-all font-mono">
-                    We wrote: {@plex_diagnosis.wrote_to || "nothing"}
-                  </p>
-                </div>
-
-                <div :if={ThemeCheck.local_asset_prefs(@plex_diagnosis.prefs) != []}>
-                  <p class="font-semibold text-muted-foreground">
-                    Settings mentioning local assets or themes
-                  </p>
-                  <dl class="mt-0.5 space-y-0.5">
-                    <div
-                      :for={pref <- ThemeCheck.local_asset_prefs(@plex_diagnosis.prefs)}
-                      class="flex justify-between gap-4"
-                    >
-                      <dt class="text-muted-foreground">{pref.label || pref.id}</dt>
-                      <dd class="font-mono">{to_string(pref.value)}</dd>
-                    </div>
-                  </dl>
-                </div>
-
-                <details :if={@plex_diagnosis.prefs != []}>
-                  <summary class="cursor-pointer text-muted-foreground hover:underline">
-                    all {length(@plex_diagnosis.prefs)} library settings
-                  </summary>
-                  <dl class="mt-1 space-y-0.5">
-                    <div :for={pref <- @plex_diagnosis.prefs} class="flex justify-between gap-4">
-                      <dt class="text-muted-foreground">{pref.label || pref.id}</dt>
-                      <dd class="font-mono">{to_string(pref.value)}</dd>
-                    </div>
-                  </dl>
-                </details>
-
-                <p :if={@plex_diagnosis.prefs == []} class="text-muted-foreground">
-                  Plex returned no settings for this library.
-                </p>
-              </div>
-            </div>
-
-            <details :if={@plex_theme_state.themes != []} class="mt-2">
-              <summary class="cursor-pointer text-xs text-muted-foreground hover:underline">
-                {length(@plex_theme_state.themes)} theme{if length(@plex_theme_state.themes) != 1,
-                  do: "s"} listed by Plex
-              </summary>
-              <ul class="mt-1 space-y-1">
-                <li :for={theme <- @plex_theme_state.themes} class="text-xs">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span class={[
-                      "font-medium",
-                      theme.selected && "text-foreground",
-                      !theme.selected && "text-muted-foreground"
-                    ]}>
-                      {if theme.selected, do: "playing", else: "listed, not selected"}
-                    </span>
-                    <button
-                      :if={!theme.selected and theme.rating_key}
-                      phx-click="select_theme"
-                      phx-value-key={theme.rating_key}
-                      disabled={@selecting}
-                      class="rounded-md border border-border px-2 py-0.5 hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-                      title="Tell Plex to serve this one"
-                    >
-                      {if @selecting, do: "asking…", else: "use this one"}
-                    </button>
-                  </div>
-                  <span class="mt-0.5 block break-all font-mono text-muted-foreground">
-                    {theme.rating_key || theme.key}
-                  </span>
-                </li>
-              </ul>
-            </details>
-          </div>
         </section>
 
         <div class="grid gap-4 lg:grid-cols-3">
@@ -1128,8 +679,37 @@ defmodule FanfarrWeb.ItemLive.Show do
                 <dd class="text-right">{theme_origin_label(@item)}</dd>
               </div>
               <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Studio</dt>
+                <dd class="text-right">{@item.studio || "—"}</dd>
+              </div>
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Collections</dt>
+                <dd class="text-right">
+                  {if @item.collections == [], do: "—", else: Enum.join(@item.collections, ", ")}
+                </dd>
+              </div>
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Critics</dt>
+                <dd class="text-right" title={Fanfarr.Library.Score.label(@item.critic_score_source)}>
+                  {Fanfarr.Library.Score.format(@item.critic_score) || "—"}
+                </dd>
+              </div>
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Audience</dt>
+                <dd
+                  class="text-right"
+                  title={Fanfarr.Library.Score.label(@item.audience_score_source)}
+                >
+                  {Fanfarr.Library.Score.format(@item.audience_score) || "—"}
+                </dd>
+              </div>
+              <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Theme locked</dt>
                 <dd>{if @item.theme_locked, do: "yes", else: "no"}</dd>
+              </div>
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Last read from Plex</dt>
+                <dd class="text-right">{last_synced(@item.last_synced_at)}</dd>
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">IDs</dt>

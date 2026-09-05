@@ -65,6 +65,15 @@ defmodule Fanfarr.Plex.Client do
 
   @callback sections(config) :: {:ok, [section()]} | {:error, term()}
   @callback items(config, section_key :: String.t()) :: {:ok, [item()]} | {:error, term()}
+
+  @doc """
+  One item, parsed the same way the section listing's entries are.
+
+  For the Refresh button on an item page: re-reading a whole section to pick
+  up one renamed title is the wrong shape, and the single-item endpoint
+  carries the same fields.
+  """
+  @callback item(config, rating_key :: String.t()) :: {:ok, item()} | {:error, term()}
   @callback themes(config, rating_key :: String.t()) :: {:ok, [theme()]} | {:error, term()}
 
   @doc """
