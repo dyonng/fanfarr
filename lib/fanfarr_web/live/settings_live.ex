@@ -374,9 +374,11 @@ defmodule FanfarrWeb.SettingsLive.Index do
           <h2 class="text-sm font-semibold text-card-foreground">Authentication</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Skip sign-in for requests from a local address (loopback, 10/8, 172.16/12,
-            192.168/16, link-local) — the same convenience Sonarr and Radarr offer. Checked
-            against the actual connection, not a header, so it cannot be spoofed from outside.
-            If Fanfarr sits behind a reverse proxy, this is the proxy's own address.
+            192.168/16, link-local), so anyone already on your network goes straight in.
+            Checked against the actual connection, not a header, so it cannot be spoofed
+            from outside. If Fanfarr sits behind a reverse proxy, this is the proxy's own
+            address — every request will look local, and the bypass will apply to all of
+            them.
           </p>
           <div class="mt-3 flex items-center justify-between">
             <p class="text-sm font-medium">Disable authentication for local addresses</p>

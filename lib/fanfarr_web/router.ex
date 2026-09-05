@@ -19,6 +19,10 @@ defmodule FanfarrWeb.Router do
     plug :load_from_session
   end
 
+  pipeline :local_bypass do
+    plug FanfarrWeb.LocalBypassPlug
+  end
+
   pipeline :api do
     plug :accepts, ["json"]
     plug :load_from_bearer
@@ -32,6 +36,19 @@ defmodule FanfarrWeb.Router do
     sign_out_route AuthController, "/sign-out",
       overrides: [FanfarrWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]
 
+    # No reset, confirmation or magic-link routes: those strategies need a
+    # mailer this appliance deliberately does not have. A lost password is
+    # recovered from the machine itself -- see "Resetting a lost password" in
+    # the README.
+  end
+
+  # The sign-in form gets one extra plug the rest of that scope must not have:
+  # a request the local-address bypass already admits is sent to the dashboard
+  # rather than shown a password box it does not need. /sign-out is left out on
+  # purpose -- see FanfarrWeb.LocalBypassPlug.
+  scope "/", FanfarrWeb do
+    pipe_through [:browser, :local_bypass]
+
     # Remove these if you'd like to use your own authentication views
     # No register_path or reset_path: there is no sign-up. The operator account
     # is declared with AUTH_USERNAME/AUTH_PASSWORD in the compose file and
@@ -42,11 +59,6 @@ defmodule FanfarrWeb.Router do
                     FanfarrWeb.AuthOverrides,
                     AshAuthentication.Phoenix.Overrides.Default
                   ]
-
-    # No reset, confirmation or magic-link routes: those strategies need a
-    # mailer this appliance deliberately does not have. A lost password is
-    # recovered from the machine itself -- see "Resetting a lost password" in
-    # the README.
   end
 
   scope "/", FanfarrWeb do

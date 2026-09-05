@@ -191,6 +191,43 @@ defmodule FanfarrWeb.FeaturesTest do
       assert Fanfarr.Library.get_media_item!(item.id).studio == "Toei Animation"
     end
 
+    test "the studio and each collection link to that slice of the library",
+         %{conn: conn, section: section} do
+      # "Who else is from this studio" is the only question these two fields
+      # raise, and the library already answers it -- so they are the link
+      # rather than a name to retype into a dropdown.
+      other =
+        Fanfarr.Library.sync_media_item_from_plex!(%{
+          plex_rating_key: "s1",
+          section_id: section.id,
+          title: "Cowboy Bebop",
+          kind: :show,
+          studio: "Sunrise",
+          collections: ["Space Westerns", "Late Nights"]
+        })
+
+      {:ok, view, _html} = live(conn, "/library/#{other.id}")
+
+      assert view |> element("a", "Sunrise") |> render() =~ "studio=Sunrise"
+
+      # Each collection is its own link, not one link over the joined string.
+      assert view |> element("a", "Space Westerns") |> render() =~
+               "collection=Space+Westerns"
+
+      assert has_element?(view, "a", "Late Nights")
+
+      # And they read as a list: the comma is glued to the link before it, or
+      # the card says "Space Westerns , Late Nights".
+      assert render(view) =~ "</a><span>,</span>"
+
+      # And following one actually lands on that filtered library.
+      {:ok, _library, html} =
+        view |> element("a", "Sunrise") |> render_click() |> follow_redirect(conn)
+
+      assert html =~ "Cowboy Bebop"
+      refute html =~ "One Piece"
+    end
+
     test "Refresh says so when Plex no longer has the item", %{conn: conn, item: item} do
       Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
       Fanfarr.Settings.put_setting!("plex_token", "t")
@@ -522,6 +559,32 @@ defmodule FanfarrWeb.FeaturesTest do
       assert html =~ path
       assert html =~ "/library/#{item.id}/theme?v="
       assert html =~ "theme-player-"
+    end
+
+    test "the player's own state is not the server's to overwrite",
+         %{conn: conn, item: item} do
+      # The player's state is the hook's and appears nowhere in this markup.
+      # LiveView restores form inputs from the server on every patch, so
+      # without the ignore the volume slider -- which has no value attribute
+      # to be restored from -- snaps to the middle of its track. The broadcast
+      # below is one everyday trigger; any patch of this page will do.
+      {:ok, view, html} = live(conn, "/library/#{item.id}")
+
+      assert html =~ ~s(phx-update="ignore")
+
+      Phoenix.PubSub.broadcast(Fanfarr.PubSub, "item:#{item.id}", {:item_updated, item.id})
+
+      assert render(view) =~ ~s(phx-update="ignore")
+    end
+
+    test "the play and pause icons are the flex items, not spans around them",
+         %{conn: conn, item: item} do
+      # A wrapper span is a flex item sized by a line box, so the glyph sits on
+      # that box's baseline rather than in the middle of the round button.
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+
+      assert html =~ ~s(class="lucide-play size-4" data-icon="play")
+      assert html =~ ~s(class="lucide-pause hidden size-4" data-icon="pause")
     end
 
     test "removing the theme deletes the file and takes the card with it",

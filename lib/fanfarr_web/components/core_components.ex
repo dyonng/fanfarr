@@ -456,10 +456,15 @@ defmodule FanfarrWeb.CoreComponents do
   """
   attr :name, :string, required: true
   attr :class, :any, default: nil
+  # So an icon can be addressed directly by JS (`data-icon`) or by a test,
+  # without a wrapper span around it. A wrapper is not free: it introduces a
+  # line box, and the icon then sits on that box's baseline rather than in the
+  # middle of whatever is centring it.
+  attr :rest, :global
 
   def icon(%{name: "lucide-" <> _} = assigns) do
     ~H"""
-    <span class={[@name, @class]} />
+    <span class={[@name, @class]} {@rest} />
     """
   end
 

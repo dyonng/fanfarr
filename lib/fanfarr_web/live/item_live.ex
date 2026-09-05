@@ -516,10 +516,22 @@ defmodule FanfarrWeb.ItemLive.Show do
           which is a white bar in a dark UI and ignores the theme entirely. This
           is the same element underneath, with the controls drawn from our own
           tokens. Keyed on the theme version so a newly written file replaces
-          the node rather than the browser continuing with the previous one. --%>
+          the node rather than the browser continuing with the previous one.
+
+          phx-update="ignore" is load-bearing, not tidiness. Everything the
+          player shows is set by the hook after render and appears nowhere in
+          this markup, and LiveView restores form inputs from the server on
+          every patch -- so the volume slider, having no value attribute to be
+          restored from, snapped back to the middle of its track. Measured, not
+          reasoned: with the volume at 0.31 and a track playing, clicking "Look
+          up ThemerrDB" put the slider at 0.5 while the audio stayed where it
+          was. Any patch to this LiveView did it, which is why it looked
+          random. The subtree is the hook's; the server only decides whether it
+          exists and which file it points at. --%>
           <div
             id={"theme-player-#{@theme_version}"}
             phx-hook=".AudioPlayer"
+            phx-update="ignore"
             data-src={~p"/library/#{@item.id}/theme?v=#{@theme_version}"}
             class="mt-3 flex items-center gap-3 rounded-md border border-border bg-background px-3 py-2"
           >
@@ -529,10 +541,13 @@ defmodule FanfarrWeb.ItemLive.Show do
               aria-label="Play"
               class="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
             >
-              <span data-icon="play"><.icon name="lucide-play" class="size-4" /></span>
-              <span data-icon="pause" class="hidden">
-                <.icon name="lucide-pause" class="size-4" />
-              </span>
+              <%!-- data-icon on the icon itself. Wrapped in a span it was a
+              flex item whose height came from a line box, so the glyph sat on
+              that box's baseline a pixel or so below the centre of the button.
+              The icon element has an explicit size, so as the flex item it
+              centres exactly. --%>
+              <.icon name="lucide-play" class="size-4" data-icon="play" />
+              <.icon name="lucide-pause" class="hidden size-4" data-icon="pause" />
             </button>
 
             <div
@@ -553,12 +568,10 @@ defmodule FanfarrWeb.ItemLive.Show do
               type="button"
               data-mute
               aria-label="Mute"
-              class="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              class="inline-flex shrink-0 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             >
-              <span data-icon="unmuted"><.icon name="lucide-volume-2" class="size-4" /></span>
-              <span data-icon="muted" class="hidden">
-                <.icon name="lucide-volume-x" class="size-4" />
-              </span>
+              <.icon name="lucide-volume-2" class="size-4" data-icon="unmuted" />
+              <.icon name="lucide-volume-x" class="hidden size-4" data-icon="muted" />
             </button>
 
             <input
@@ -605,14 +618,27 @@ defmodule FanfarrWeb.ItemLive.Show do
                   time.textContent = `${clock(audio.currentTime)} / ${clock(audio.duration)}`
                 }
 
-                const showPlaying = (playing) => {
+                // Derived from the element, never from what we think we just
+                // did to it. The button had two ways to end up lying: play()
+                // is a promise, so a rejected one (a file that will not load,
+                // a policy that blocks playback) left the icon on "pause" over
+                // an element that never started; and a second click landing
+                // before the first click's "play" event arrived processed the
+                // events out of order. Re-reading audio.paused has neither
+                // failure mode, and is cheap enough to do on every event.
+                const sync = () => {
+                  const playing = !audio.paused
                   playIcon.classList.toggle("hidden", playing)
                   pauseIcon.classList.toggle("hidden", !playing)
                   playButton.setAttribute("aria-label", playing ? "Pause" : "Play")
                 }
 
                 playButton.addEventListener("click", () => {
-                  if (audio.paused) { audio.play() } else { audio.pause() }
+                  if (audio.paused) { audio.play().catch(sync) } else { audio.pause() }
+                  // Immediately, not on the event: play() flips audio.paused
+                  // synchronously but the event arrives later, and on a cold
+                  // file that gap is long enough to look like a dead button.
+                  sync()
                 })
 
                 el.querySelector("[data-mute]").addEventListener("click", () => {
@@ -625,9 +651,10 @@ defmodule FanfarrWeb.ItemLive.Show do
                   if (isFinite(audio.duration)) { audio.currentTime = ratio * audio.duration }
                 })
 
-                audio.addEventListener("play", () => showPlaying(true))
-                audio.addEventListener("pause", () => showPlaying(false))
-                audio.addEventListener("ended", () => { showPlaying(false); paint() })
+                audio.addEventListener("play", sync)
+                audio.addEventListener("playing", sync)
+                audio.addEventListener("pause", sync)
+                audio.addEventListener("ended", () => { sync(); paint() })
                 audio.addEventListener("timeupdate", paint)
                 audio.addEventListener("loadedmetadata", paint)
                 audio.addEventListener("error", () => { time.textContent = "could not load" })
@@ -678,14 +705,40 @@ defmodule FanfarrWeb.ItemLive.Show do
                 <dt class="text-muted-foreground">Theme on server</dt>
                 <dd class="text-right">{theme_origin_label(@item)}</dd>
               </div>
+              <%!-- Studio and collection are the two fields on this card that
+              describe a *set* rather than this item, and the question they
+              raise is always "what else is in it". Both are library filters
+              already, so they link to that filtered library rather than making
+              the reader retype the name into a dropdown. --%>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Studio</dt>
-                <dd class="text-right">{@item.studio || "—"}</dd>
+                <dd class="text-right">
+                  <.link
+                    :if={@item.studio not in [nil, ""]}
+                    navigate={~p"/?#{%{"studio" => @item.studio}}"}
+                    class="underline decoration-dotted underline-offset-4 hover:text-primary"
+                    title={"Everything from #{@item.studio}"}
+                  >
+                    {@item.studio}
+                  </.link>
+                  <span :if={@item.studio in [nil, ""]}>—</span>
+                </dd>
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Collections</dt>
                 <dd class="text-right">
-                  {if @item.collections == [], do: "—", else: Enum.join(@item.collections, ", ")}
+                  <span :if={@item.collections == []}>—</span>
+                  <%!-- The comma is glued to the link it follows, with the word
+                  space between the outer spans. A separator rendered as its own
+                  sibling picks up HEEx's whitespace on both sides and reads
+                  "Batman Collection , DC Universe". --%>
+                  <span :for={{collection, index} <- Enum.with_index(@item.collections)}>
+                    <.link
+                      navigate={~p"/?#{%{"collection" => collection}}"}
+                      class="underline decoration-dotted underline-offset-4 hover:text-primary"
+                      title={"Everything in #{collection}"}
+                    >{collection}</.link><span :if={index < length(@item.collections) - 1}>,</span>
+                  </span>
                 </dd>
               </div>
               <div class="flex justify-between gap-4">

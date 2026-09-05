@@ -78,6 +78,51 @@ defmodule FanfarrWeb.DashboardTest do
       conn = %{conn | remote_ip: {8, 8, 8, 8}}
       assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/")
     end
+
+    test "a local address the bypass admits is not shown the sign-in form", %{conn: conn} do
+      # The form would ask for credentials this visitor does not need, and
+      # signing in would land them exactly where they already were.
+      operator()
+      Fanfarr.Accounts.AuthMode.set_bypass_enabled(true)
+
+      conn = get(conn, "/sign-in")
+      assert redirected_to(conn) == "/"
+    end
+
+    test "the sign-in form still stands for everyone else", %{conn: conn} do
+      operator()
+      Fanfarr.Accounts.AuthMode.set_bypass_enabled(true)
+
+      # Same setting, different address: the bypass is per-request.
+      assert %{conn | remote_ip: {8, 8, 8, 8}} |> get("/sign-in") |> html_response(200) =~
+               "Sign in"
+
+      # And with the bypass off it stands for a local address too.
+      Fanfarr.Accounts.AuthMode.set_bypass_enabled(false)
+      assert conn |> get("/sign-in") |> html_response(200) =~ "Sign in"
+    end
+
+    test "signing out is never bounced, even from an address the bypass admits", %{conn: conn} do
+      # Otherwise the session would outlive the click that was meant to end it.
+      operator()
+      Fanfarr.Accounts.AuthMode.set_bypass_enabled(true)
+
+      conn = get(conn, "/sign-out")
+
+      # Not swallowed by the bypass redirect: the route answers for itself.
+      assert conn.status == 200
+      assert get_resp_header(conn, "location") == []
+    end
+
+    defp operator do
+      Fanfarr.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_password, %{
+        username: "operator",
+        password: "a-long-password",
+        password_confirmation: "a-long-password"
+      })
+      |> Ash.create!(authorize?: false)
+    end
   end
 
   describe "page titles" do

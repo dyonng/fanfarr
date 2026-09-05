@@ -48,10 +48,18 @@ defmodule FanfarrWeb.Layouts do
       mechanism the theme toggle uses, so there is no flash of the wrong
       width and no LiveView round trip to collapse it. --%>
       <aside class="fixed inset-y-0 left-0 z-40 flex w-52 flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-[width] [[data-sidebar=collapsed]_&]:w-14">
-        <div class="flex h-14 items-center justify-between gap-2 border-b border-border px-4 [[data-sidebar=collapsed]_&]:justify-center [[data-sidebar=collapsed]_&]:px-0">
+        <%!-- Collapsed, this holds the expand button and nothing else. The rail
+        is 56px; the mark and the button together measured 56px of content, so
+        both were flush against an edge -- the logo literally touching the side
+        of the window -- while every nav icon below sat neatly centred. Two
+        controls do not fit here with room to breathe, and of the two it is the
+        button that has to stay: the mark is unreadable at this width, its link
+        goes to "/" which is the first nav item anyway, and the way back to a
+        usable sidebar is the one thing a rail must not hide. --%>
+        <div class="flex h-14 items-center justify-between gap-2 border-b border-border px-4 [[data-sidebar=collapsed]_&]:justify-center [[data-sidebar=collapsed]_&]:px-2">
           <a
             href={~p"/"}
-            class="flex items-center gap-2 [[data-sidebar=collapsed]_&]:gap-0"
+            class="flex items-center gap-2 [[data-sidebar=collapsed]_&]:hidden"
           >
             <%!-- The drawn mark rather than the emoji it replaced: an emoji renders
             in whatever the viewer's system font decides, so the brand changed
