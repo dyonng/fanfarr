@@ -141,6 +141,23 @@ clamped to 1..10; `put_apply_concurrency/1` persists *and* calls
 a restart picks the saved value back up. :themerrdb stays at 2 deliberately --
 that is a community-run host, not a throughput knob.
 
+**The log is persisted, and nothing on that path may log.**
+`Fanfarr.Log.Buffer` still holds the last 400 entries in memory (the
+bug-report bundle reads that, because diagnostics for a broken database
+should not need the database), and now forwards each redacted entry to
+`Fanfarr.Log.Store`, which batches them into `log_entries` once a second and
+trims to a retention setting (default 5,000, `LOG_RETENTION_ENTRIES`; the
+Logs page has a Clear button).
+
+Every repo call in that module passes `log: false`, and the retention lives
+in process state rather than being read per flush. This is not tidiness:
+Ecto logs every query, the buffer captures that line, and the buffer feeds
+the store -- so one logged query guarantees the next flush has work, forever,
+filling the log with the log writing the log. Same rule as
+`Fanfarr.Diagnostics.Redactor`, and it has its own tests ("not feeding
+itself" in `test/fanfarr/log/store_test.exs`). SQLite's LIKE also needs
+`ESCAPE` named explicitly, or a search for "100%" matches everything.
+
 **Boot migrations run on a single connection**, not the application's normal
 pool. `Ecto.Migrator`'s own child spec migrates on the already-started pool,
 and SQLite's per-connection schema cache means two migrations touching one

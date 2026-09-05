@@ -1,6 +1,6 @@
 defmodule FanfarrWeb.LogsLive.Index do
   @moduledoc """
-  The in-memory application log, as a console rather than a card.
+  The application log, as a console rather than a card.
 
   Split out of the System page because it is the one thing there people leave
   open and watch while they try something, rather than a question they ask
@@ -8,13 +8,20 @@ defmodule FanfarrWeb.LogsLive.Index do
   what is left after the controls, so the amount you can see is however big
   you made the browser, not a fixed height a card grew past.
 
-  ## Filtering happens here, not in the buffer
+  ## Where the entries come from, and where they are filtered
 
-  `Fanfarr.Log.Buffer` is asked for everything it holds and the level, noise
-  and text filters are applied in this process. Four hundred entries is
-  nothing to filter, and it means the level counts in the status bar describe
-  the whole buffer rather than only the slice that survived the current
-  filter -- which is what makes them useful for deciding what to filter *to*.
+  `Fanfarr.Log.Store`, which is the log as persisted -- so what is on screen
+  survives a restart, which is the moment someone most wants to read it.
+
+  Level and text filters are pushed into SQL, because the store holds
+  thousands of entries and a search that only reached the rendered window
+  would be a search that quietly misses things. The noise filter stays here:
+  it is a regex over the message, and pushing that into SQLite would buy
+  nothing over filtering the page's own rows.
+
+  The level counts in the status bar are their own query over the whole
+  store rather than a count of what survived the filter -- they are what you
+  read to decide what to filter *to*.
   """
   use FanfarrWeb, :live_view
 
@@ -26,9 +33,9 @@ defmodule FanfarrWeb.LogsLive.Index do
   # GenServer call for a few hundred entries already in memory.
   @tail_ms 1_000
 
-  # The buffer holds 400; rendering all of them is fine and means a search
-  # reaches everything captured rather than a window over it.
-  @buffer_limit 400
+  # How many rows reach the DOM. The store holds thousands and the filters run
+  # in SQL, so this caps what is rendered rather than what is searched.
+  @render_limit 500
 
   @impl true
   def mount(_params, _session, socket) do
@@ -36,7 +43,7 @@ defmodule FanfarrWeb.LogsLive.Index do
       socket
       |> assign(:page_title, "Logs")
       |> assign(:log_levels, @log_levels)
-      |> assign(:buffer_limit, @buffer_limit)
+      |> assign(:render_limit, @render_limit)
       |> assign(:log_level, "info")
       |> assign(:hide_noise, true)
       |> assign(:query, "")
@@ -93,8 +100,12 @@ defmodule FanfarrWeb.LogsLive.Index do
   end
 
   def handle_event("clear_logs", _params, socket) do
+    # Both, or the next second of tailing repopulates the console from the
+    # in-memory ring and the button looks broken.
+    Fanfarr.Log.Store.clear()
     Fanfarr.Log.Buffer.clear()
-    {:noreply, socket |> load_logs() |> put_flash(:info, "Log buffer cleared")}
+
+    {:noreply, socket |> load_logs() |> put_flash(:info, "Log cleared")}
   end
 
   defp schedule_tail, do: Process.send_after(self(), :tail, @tail_ms)
@@ -102,41 +113,30 @@ defmodule FanfarrWeb.LogsLive.Index do
   defp load_logs(socket) do
     %{log_level: level, hide_noise: hide_noise, query: query} = socket.assigns
 
-    all = Fanfarr.Log.Buffer.entries(limit: @buffer_limit)
+    matching =
+      Fanfarr.Log.Store.entries(
+        level: String.to_existing_atom(level),
+        query: query,
+        limit: @render_limit
+      )
 
     kept =
-      all
-      |> Enum.filter(&at_least?(&1.level, String.to_existing_atom(level)))
-      |> then(fn entries ->
-        if hide_noise,
-          do: Enum.reject(entries, &Fanfarr.Diagnostics.routine_web?(&1.message)),
-          else: entries
-      end)
-      |> then(fn entries ->
-        case String.trim(query) do
-          "" -> entries
-          needle -> Enum.filter(entries, &matches?(&1, needle))
-        end
-      end)
+      if hide_noise,
+        do: Enum.reject(matching, &Fanfarr.Diagnostics.routine_web?(&1.message)),
+        else: matching
+
+    counts = Fanfarr.Log.Store.counts()
 
     socket
     |> assign(:logs, kept)
-    |> assign(:total, length(all))
-    |> assign(:counts, counts(all))
+    |> assign(:total, counts |> Map.values() |> Enum.sum())
+    |> assign(:counts, bucketed(counts))
+    |> assign(:retention, Fanfarr.Log.Store.retention())
   end
 
-  # Message and source both, so searching for a module name finds what it
-  # logged even when the module is not named in the line itself.
-  defp matches?(entry, needle) do
-    needle = String.downcase(needle)
-
-    String.contains?(String.downcase(entry.message), needle) or
-      (entry.where && String.contains?(String.downcase(entry.where), needle))
-  end
-
-  defp counts(entries) do
-    Enum.reduce(entries, %{}, fn entry, acc ->
-      Map.update(acc, bucket(entry.level), 1, &(&1 + 1))
+  defp bucketed(counts) do
+    Enum.reduce(counts, %{}, fn {level, count}, acc ->
+      Map.update(acc, bucket(level), count, &(&1 + count))
     end)
   end
 
@@ -147,11 +147,6 @@ defmodule FanfarrWeb.LogsLive.Index do
   defp bucket(:warning), do: :warning
   defp bucket(:info), do: :info
   defp bucket(_), do: :debug
-
-  @order ~w(debug info notice warning error critical alert emergency)a
-  defp at_least?(level, minimum) do
-    Enum.find_index(@order, &(&1 == level)) >= Enum.find_index(@order, &(&1 == minimum))
-  end
 
   # --- rendering a line -------------------------------------------------------
   #
@@ -307,7 +302,7 @@ defmodule FanfarrWeb.LogsLive.Index do
           <div>
             <h1 class="text-2xl font-semibold tracking-tight">Logs</h1>
             <p class="text-xs text-muted-foreground">
-              The last {@buffer_limit} lines, held in memory. Secrets are removed as they are
+              The last {@retention} lines, kept across restarts. Secrets are removed as they are
               captured, so this is safe to paste into a bug report.
             </p>
           </div>

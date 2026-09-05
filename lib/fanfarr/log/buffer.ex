@@ -14,6 +14,11 @@ defmodule Fanfarr.Log.Buffer do
 
   Bounded and lossy by design. This is a debugging aid, not an audit trail --
   the application log in the database is the record that must not be lost.
+
+  The same entries are forwarded to `Fanfarr.Log.Store`, which writes them to
+  the database so they survive a restart. This buffer stays because it is the
+  one the bug-report bundle reads: a diagnostics path that needs the database
+  to report on a broken database is not much of a diagnostics path.
   """
   use GenServer
 
@@ -150,6 +155,11 @@ defmodule Fanfarr.Log.Buffer do
 
   @impl true
   def handle_cast({:append, entry}, state) do
+    # Forwarded from here rather than from the logger handler so it happens
+    # once, off the caller's process, and after redaction: what is written
+    # down is exactly what the console shows. See Fanfarr.Log.Store.
+    Fanfarr.Log.Store.append(entry)
+
     {:noreply, %{state | entries: Enum.take([entry | state.entries], @max_entries)}}
   end
 

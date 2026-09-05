@@ -19,7 +19,8 @@ defmodule Fanfarr.Config do
     "theme_loudness_lufs" => "THEME_LOUDNESS_LUFS",
     "apply_concurrency" => "APPLY_CONCURRENCY",
     "sync_interval_hours" => "SYNC_INTERVAL_HOURS",
-    "themerrdb_interval_hours" => "THEMERRDB_INTERVAL_HOURS"
+    "themerrdb_interval_hours" => "THEMERRDB_INTERVAL_HOURS",
+    "log_retention_entries" => "LOG_RETENTION_ENTRIES"
   }
 
   @doc "The resolved value for a key, or nil."

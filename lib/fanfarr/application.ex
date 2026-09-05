@@ -22,6 +22,11 @@ defmodule Fanfarr.Application do
       {Fanfarr.Repo.Migrator,
        repos: Application.fetch_env!(:fanfarr, :ecto_repos), skip: skip_migrations?()},
       Fanfarr.Repo,
+      # After the repo, and after the migrator that runs before it: this one
+      # writes the captured log to a table, so both have to exist first. The
+      # buffer above starts earlier on purpose and simply does not persist the
+      # handful of lines logged before this point.
+      Fanfarr.Log.Store,
       {Oban,
        AshOban.config(
          Application.fetch_env!(:fanfarr, :ash_domains),

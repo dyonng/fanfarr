@@ -8,9 +8,18 @@ defmodule FanfarrWeb.LogsLiveTest do
 
   setup do
     Fanfarr.Log.Buffer.clear()
+    Fanfarr.Log.Store.clear()
     Fanfarr.Diagnostics.Redactor.forget_all()
     on_exit(fn -> Fanfarr.Diagnostics.Redactor.forget_all() end)
     :ok
+  end
+
+  # The page reads the persisted log, which is written on a timer. Draining
+  # the buffer forwards what was logged; flushing the store writes it down.
+  # Both are calls, so this is a settle rather than a sleep.
+  defp settle do
+    Fanfarr.Log.Buffer.entries(limit: 1)
+    Fanfarr.Log.Store.flush()
   end
 
   describe "the log console's shape" do
@@ -88,7 +97,7 @@ defmodule FanfarrWeb.LogsLiveTest do
 
     test "the whole line still reaches the page", %{conn: conn} do
       Logger.error("a distinctive line to find")
-      Fanfarr.Log.Buffer.entries(limit: 1)
+      settle()
 
       {:ok, _view, html} = live(conn, "/logs")
 
@@ -100,7 +109,7 @@ defmodule FanfarrWeb.LogsLiveTest do
     test "shows captured log lines and filters them by level", %{conn: conn} do
       Logger.error("a distinctive error line")
       Logger.warning("a distinctive warning line")
-      Fanfarr.Log.Buffer.entries(limit: 1)
+      settle()
 
       {:ok, view, _html} = live(conn, "/logs")
 
@@ -117,7 +126,7 @@ defmodule FanfarrWeb.LogsLiveTest do
       Fanfarr.Settings.put_setting!("plex_token", "TOKEN-must-not-appear")
       Fanfarr.Diagnostics.Redactor.prime()
       Logger.error("requesting with X-Plex-Token=TOKEN-must-not-appear")
-      Fanfarr.Log.Buffer.entries(limit: 1)
+      settle()
 
       {:ok, view, _html} = live(conn, "/logs")
       html = render_click(view, "refresh_logs", %{})
@@ -129,7 +138,7 @@ defmodule FanfarrWeb.LogsLiveTest do
     test "text search narrows to matching lines", %{conn: conn} do
       Logger.error("a haystack line")
       Logger.error("the needle is here")
-      Fanfarr.Log.Buffer.entries(limit: 1)
+      settle()
 
       {:ok, view, _html} = live(conn, "/logs")
 
@@ -145,7 +154,7 @@ defmodule FanfarrWeb.LogsLiveTest do
     test "search reaches the module that logged the line, not just its text", %{conn: conn} do
       # The message says nothing about where it came from; the metadata does.
       Logger.error("something happened")
-      Fanfarr.Log.Buffer.entries(limit: 1)
+      settle()
 
       {:ok, view, _html} = live(conn, "/logs")
 
@@ -154,7 +163,7 @@ defmodule FanfarrWeb.LogsLiveTest do
 
     test "no matches says how many lines the filters are hiding", %{conn: conn} do
       Logger.error("something entirely unrelated")
-      Fanfarr.Log.Buffer.entries(limit: 1)
+      settle()
 
       {:ok, view, _html} = live(conn, "/logs")
 
@@ -165,7 +174,7 @@ defmodule FanfarrWeb.LogsLiveTest do
 
     test "the source column is off until asked for", %{conn: conn} do
       Logger.error("with a source")
-      Fanfarr.Log.Buffer.entries(limit: 1)
+      settle()
 
       {:ok, view, html} = live(conn, "/logs")
       refute html =~ "FanfarrWeb.LogsLiveTest"
@@ -176,7 +185,7 @@ defmodule FanfarrWeb.LogsLiveTest do
     test "the status bar counts the whole buffer, not the filtered view", %{conn: conn} do
       Logger.error("an error line")
       Logger.warning("a warning line")
-      Fanfarr.Log.Buffer.entries(limit: 1)
+      settle()
 
       {:ok, view, _html} = live(conn, "/logs")
 
@@ -201,7 +210,7 @@ defmodule FanfarrWeb.LogsLiveTest do
 
     test "clearing empties the log", %{conn: conn} do
       Logger.error("soon to be cleared")
-      Fanfarr.Log.Buffer.entries(limit: 1)
+      settle()
 
       {:ok, view, _html} = live(conn, "/logs")
       html = render_click(view, "clear_logs", %{})

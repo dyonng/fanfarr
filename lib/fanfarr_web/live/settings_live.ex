@@ -38,6 +38,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:theme_loudness_lufs, Fanfarr.Config.get("theme_loudness_lufs") || "")
     |> assign(:apply_concurrency, Fanfarr.Jobs.apply_concurrency())
     |> assign(:apply_concurrency_range, Fanfarr.Jobs.apply_concurrency_range())
+    |> assign(:log_retention, Fanfarr.Log.Store.retention())
+    |> assign(:log_retention_range, Fanfarr.Log.Store.retention_range())
     |> assign(:schedules, schedules())
   end
 
@@ -163,6 +165,19 @@ defmodule FanfarrWeb.SettingsLive.Index do
     case Fanfarr.Jobs.put_apply_concurrency(value) do
       :ok ->
         {:noreply, socket |> load() |> put_flash(:info, "Applied to the queue immediately")}
+
+      {:error, :invalid} ->
+        {:noreply,
+         put_flash(socket, :error, "Enter a number between #{range.first} and #{range.last}")}
+    end
+  end
+
+  def handle_event("save_log_retention", %{"log_retention_entries" => value}, socket) do
+    range = Fanfarr.Log.Store.retention_range()
+
+    case Fanfarr.Log.Store.put_retention(value) do
+      :ok ->
+        {:noreply, socket |> load() |> put_flash(:info, "Log retention saved")}
 
       {:error, :invalid} ->
         {:noreply,
@@ -682,6 +697,39 @@ defmodule FanfarrWeb.SettingsLive.Index do
                 value={@theme_loudness_lufs}
                 placeholder="-14"
                 class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+              />
+            </div>
+            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              Save
+            </button>
+          </form>
+        </section>
+        <section class="rounded-lg border border-border bg-card p-4">
+          <h2 class="text-sm font-semibold text-card-foreground">Logs</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            The log is kept in the database, so it survives a restart — which is when it is
+            most worth reading. Overrides LOG_RETENTION_ENTRIES from the environment.
+          </p>
+          <form
+            id="log-retention-form"
+            phx-submit="save_log_retention"
+            class="mt-3 flex items-end gap-2"
+          >
+            <div class="flex-1">
+              <label class="text-xs font-medium text-muted-foreground" for="log-retention">
+                Lines to keep
+              </label>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                The oldest are dropped past this, {@log_retention_range.first}–{@log_retention_range.last}.
+                Clearing the log entirely is a button on the Logs page.
+              </p>
+              <input
+                type="text"
+                inputmode="numeric"
+                id="log-retention"
+                name="log_retention_entries"
+                value={@log_retention}
+                class="mt-2 h-9 w-24 rounded-md border border-input bg-background px-3 font-mono text-sm"
               />
             </div>
             <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">

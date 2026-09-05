@@ -26,7 +26,9 @@ day-to-day decision record, see `AGENTS.md`.
   manual run resets the clock. See `Fanfarr.Scheduling`.
 - System page: health checks (Plex, yt-dlp, root folders, path resolution,
   ThemerrDB, database), diagnostics tools, bug-report bundle.
-- Full-page log console: colour-coded, filterable, separate from System.
+- Full-page log console: colour-coded, filterable, separate from System, and
+  persisted -- the last 5,000 lines (configurable) survive a restart, with a
+  Clear button.
 - Auth: env-var login only, no sign-up/reset/mailer; optional and off by
   default, matching the *arr stack.
 
