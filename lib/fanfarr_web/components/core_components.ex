@@ -63,13 +63,16 @@ defmodule FanfarrWeb.CoreComponents do
       id={@id}
       phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
       role="alert"
-      class="toast toast-top toast-end z-50"
       {@rest}
     >
+      <%!-- Positioned by `flash_group`, which is the only place these are
+      rendered from. Styled with the tokens the rest of the dashboard uses --
+      the generator's `alert alert-info` are DaisyUI classes that do not
+      exist here. --%>
       <div class={[
-        "alert w-80 sm:w-96 max-w-80 sm:max-w-96 text-wrap",
-        @kind == :info && "alert-info",
-        @kind == :error && "alert-error"
+        "flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg",
+        @kind == :info && "border-border bg-card text-card-foreground",
+        @kind == :error && "border-destructive/40 bg-destructive/10 text-destructive"
       ]}>
         <.icon :if={@kind == :info} name="lucide-info" class="size-5 shrink-0" />
         <.icon :if={@kind == :error} name="lucide-circle-alert" class="size-5 shrink-0" />

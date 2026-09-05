@@ -226,7 +226,17 @@ defmodule FanfarrWeb.Layouts do
 
   def flash_group(assigns) do
     ~H"""
-    <div id={@id} aria-live="polite">
+    <%!-- The stack, and the only thing that positions it. The generator left
+    DaisyUI's `toast toast-top toast-end` on each flash and this project has
+    no DaisyUI, so those classes resolved to nothing and every flash rendered
+    inline at the end of the document -- off-screen on any page taller than
+    the viewport, which is most of them. Positioning belongs here anyway: two
+    flashes at once stack rather than landing on top of each other. --%>
+    <div
+      id={@id}
+      aria-live="polite"
+      class="fixed right-4 top-4 z-50 flex w-80 flex-col gap-2 sm:w-96"
+    >
       <.flash kind={:info} flash={@flash} />
       <.flash kind={:error} flash={@flash} />
 

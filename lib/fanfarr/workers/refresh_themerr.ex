@@ -20,6 +20,11 @@ defmodule Fanfarr.Workers.RefreshThemerr do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    # See Fanfarr.Scheduling: the next run is counted from here, so a pass
+    # triggered by a library sync pushes the interval out the same as a
+    # scheduled one.
+    Fanfarr.Scheduling.record_run(:themerrdb_refresh)
+
     known =
       Fanfarr.Themes.list_themerr_entries!()
       |> MapSet.new(&{&1.item_type, &1.database, &1.external_id})

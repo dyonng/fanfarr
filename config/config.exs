@@ -20,10 +20,15 @@ config :ash_oban, pro?: false
 config :fanfarr, Oban,
   engine: Oban.Engines.Lite,
   notifier: Oban.Notifiers.PG,
-  # :themerrdb is deliberately narrow -- ~2,550 cold-sync requests against a
-  # community-run static host deserve restraint, not throughput.
-  # `apply` is deliberately narrow: each job downloads audio and writes to
-  # someone's media drive, and there is no hurry.
+  # :themerrdb is deliberately narrow and stays that way -- ~2,550 cold-sync
+  # requests against a community-run static host deserve restraint, not
+  # throughput, and that is not the operator's call to make.
+  #
+  # `apply` is the one the operator can raise, from Settings; this is only its
+  # default and the floor a fresh install starts at. Two because each job
+  # downloads audio, re-encodes it, and writes to a media drive, and because
+  # YouTube is markedly less forgiving of many parallel requests from one
+  # address. See `Fanfarr.Jobs.concurrency/1`.
   queues: [default: 10, sync: 3, themerrdb: 2, apply: 2],
   lifeline: [rescue_after: {2, :hours}],
   pruner: [max_age: {1, :day}],
@@ -31,20 +36,17 @@ config :fanfarr, Oban,
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
-       # Nothing in this app ran on its own until these existed: every sync and
-       # every lookup happened because somebody pressed a button, which is not
-       # what an appliance that sits in a homelab is for.
+       # One entry, and it is a heartbeat rather than the schedule itself.
        #
-       # Every six hours, matching what the *arr stack does for a library
-       # refresh. Both workers are unique across available/scheduled/executing,
-       # so a scheduled run and a "Sync now" cannot stack.
-       {"0 */6 * * *", Fanfarr.Workers.SyncLibrary},
-
-       # Daily, and deliberately not more often. A cold pass is ~2,550
-       # requests against a community-run static host; the point of the nightly
-       # run is to pick up titles ThemerrDB has gained since, not to poll it.
-       # Off the hour and offset from the sync so the two do not start together.
-       {"37 4 * * *", Fanfarr.Workers.RefreshThemerr}
+       # The intervals are a setting, and Oban reads its crontab once at boot
+       # -- open-source Oban has no way to change it afterwards. So this ticks
+       # every five minutes and `Fanfarr.Scheduling` decides what is actually
+       # due, which is also what lets a manual run reset the clock. Five
+       # minutes is therefore the granularity of every interval in Settings.
+       #
+       # It is excluded from the Activity view and the queue counts unless it
+       # fails: 288 heartbeats a day would bury the work they exist to start.
+       {"*/5 * * * *", Fanfarr.Workers.Scheduler}
      ]}
   ]
 

@@ -24,6 +24,21 @@ defmodule Fanfarr.Jobs do
   # ThemerrDB refresh is never swept up by accident.
   @bulk_theme_workers ~w(Fanfarr.Workers.ApplyTheme Fanfarr.Workers.LookupTheme)
 
+  # Plumbing rather than work. The scheduler heartbeat runs every five
+  # minutes; counting it would flash "1 running" in the sidebar 288 times a
+  # day, and listing it would push the jobs it exists to start off the page.
+  # Shown only when it has something to report -- see `recent/1`.
+  @internal_workers ~w(Fanfarr.Workers.Scheduler)
+
+  @failed_states ~w(retryable discarded cancelled)
+
+  # The one queue whose width is the operator's to choose, and the bounds it
+  # is held to. One because zero would be a queue that silently never runs;
+  # ten because past that the limit is YouTube's patience and the drive's,
+  # not Fanfarr's, and a number that large is more likely a typo than a plan.
+  @apply_concurrency_setting "apply_concurrency"
+  @apply_concurrency_range 1..10
+
   # Enough completions to average out one slow download without reaching so far
   # back that a since-changed setting (a proxy, a loudness target) is still
   # weighing on the estimate.
@@ -42,6 +57,7 @@ defmodule Fanfarr.Jobs do
       Fanfarr.Repo.all(
         from j in Oban.Job,
           where: j.state in ^@active,
+          where: j.worker not in ^@internal_workers,
           group_by: j.state,
           select: {j.state, count(j.id)}
       )
@@ -126,15 +142,109 @@ defmodule Fanfarr.Jobs do
     if work, do: ceil(work / concurrency(queue)), else: nil
   end
 
-  # From the same config the supervisor hands Oban, rather than Oban.config/0:
-  # the test environment runs `testing: :manual`, where the running instance
-  # reports no queues at all and every estimate would divide by one.
-  defp concurrency(queue) do
+  @doc """
+  How many jobs of a queue run at once.
+
+  From the same config the supervisor hands Oban rather than `Oban.config/0`:
+  the test environment runs `testing: :manual`, where the running instance
+  reports no queues at all and every estimate would divide by one. The
+  :apply queue additionally honours the operator's setting, which is where
+  the running limit actually comes from once they have changed it.
+  """
+  @spec concurrency(atom()) :: pos_integer()
+  def concurrency(:apply), do: apply_concurrency()
+
+  def concurrency(queue), do: compiled_concurrency(queue)
+
+  defp compiled_concurrency(queue) do
     :fanfarr
     |> Application.fetch_env!(Oban)
     |> Keyword.get(:queues, [])
     |> Keyword.get(queue, 1)
     |> max(1)
+  end
+
+  @doc """
+  How many themes download and apply at once.
+
+  Resolved like every other setting -- dashboard override, environment
+  variable, then the compiled default -- and clamped, so a value typed into
+  the environment cannot start the appliance with a queue width of 400.
+  """
+  @spec apply_concurrency() :: pos_integer()
+  def apply_concurrency do
+    case Fanfarr.Config.get(@apply_concurrency_setting) do
+      nil -> compiled_concurrency(:apply)
+      value -> parse_concurrency(value) || compiled_concurrency(:apply)
+    end
+  end
+
+  @doc "The bounds the apply queue is held to, for the form to show and enforce."
+  @spec apply_concurrency_range() :: Range.t()
+  def apply_concurrency_range, do: @apply_concurrency_range
+
+  @doc """
+  Stores the apply queue's width and applies it to the running queue.
+
+  Oban can be re-scaled at runtime even though it cannot be re-crontabbed, so
+  this takes effect on the jobs already waiting rather than at the next
+  restart -- raising it mid-run is the whole point. It is stored as well, and
+  `Fanfarr.Jobs.oban_config/0` reads it back at boot.
+  """
+  @spec put_apply_concurrency(String.t()) :: :ok | {:error, :invalid}
+  def put_apply_concurrency(value) do
+    case parse_concurrency(to_string(value)) do
+      nil ->
+        {:error, :invalid}
+
+      limit ->
+        Fanfarr.Settings.put_setting!(@apply_concurrency_setting, Integer.to_string(limit))
+        scale_apply_queue(limit)
+        :ok
+    end
+  end
+
+  @doc """
+  The Oban config the supervisor should start, with the operator's apply width
+  applied.
+
+  Falls back to the compiled config if the setting cannot be read: an
+  unreadable preference is worth defaulting, not worth refusing to boot over.
+  """
+  @spec oban_config() :: keyword()
+  def oban_config do
+    base = Application.fetch_env!(:fanfarr, Oban)
+
+    try do
+      Keyword.update!(base, :queues, &Keyword.put(&1, :apply, apply_concurrency()))
+    rescue
+      error ->
+        require Logger
+
+        Logger.warning(
+          "[fanfarr] could not read the apply concurrency setting " <>
+            "(#{inspect(error)}); starting at the default"
+        )
+
+        base
+    end
+  end
+
+  # Queues only exist to be scaled when they are running, and under
+  # `testing: :manual` -- the whole test suite -- they are not.
+  defp scale_apply_queue(limit) do
+    if is_nil(Application.fetch_env!(:fanfarr, Oban)[:testing]) do
+      Oban.scale_queue(queue: :apply, limit: limit)
+    end
+
+    :ok
+  end
+
+  defp parse_concurrency(value) do
+    case Integer.parse(String.trim(value)) do
+      {limit, ""} -> if limit in @apply_concurrency_range, do: limit, else: nil
+      _ -> nil
+    end
   end
 
   defp pending_by_bucket do
@@ -221,6 +331,7 @@ defmodule Fanfarr.Jobs do
     jobs =
       Fanfarr.Repo.all(
         from j in Oban.Job,
+          where: j.worker not in ^@internal_workers or j.state in ^@failed_states,
           order_by: [desc: j.id],
           limit: ^limit,
           select: [

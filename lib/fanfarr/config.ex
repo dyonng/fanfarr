@@ -16,7 +16,10 @@ defmodule Fanfarr.Config do
     "plex_token" => "PLEX_TOKEN",
     "path_mappings" => "PATH_MAPPINGS",
     "ytdlp_proxy" => "YTDLP_PROXY",
-    "theme_loudness_lufs" => "THEME_LOUDNESS_LUFS"
+    "theme_loudness_lufs" => "THEME_LOUDNESS_LUFS",
+    "apply_concurrency" => "APPLY_CONCURRENCY",
+    "sync_interval_hours" => "SYNC_INTERVAL_HOURS",
+    "themerrdb_interval_hours" => "THEMERRDB_INTERVAL_HOURS"
   }
 
   @doc "The resolved value for a key, or nil."

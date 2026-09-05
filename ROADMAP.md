@@ -16,10 +16,14 @@ day-to-day decision record, see `AGENTS.md`.
 - Apply pipeline: dry run by default, local `theme.mp3` for shows **and
   movies**, loudness normalisation, mergerfs-safe writes (EXDEV fallback),
   bulk actions with a stoppable queue and an ETA.
-- Settings: Plex connection + test, per-library enable, root folders with a
-  folder browser, path mappings, theme downloads (yt-dlp proxy, loudness
-  target), appearance, authentication (env-based login, remember me, local-
-  address bypass).
+- Settings: Plex connection + test, per-library enable, scheduling (sync and
+  ThemerrDB intervals, 0 to turn either off), root folders with a folder
+  browser, path mappings, theme downloads (how many at once, yt-dlp proxy,
+  loudness target), appearance, authentication (env-based login, remember me,
+  local-address bypass).
+- Scheduling that the operator owns: one cron heartbeat every five minutes
+  decides what is due, so intervals are editable without a restart and a
+  manual run resets the clock. See `Fanfarr.Scheduling`.
 - System page: health checks (Plex, yt-dlp, root folders, path resolution,
   ThemerrDB, database), diagnostics tools, bug-report bundle.
 - Full-page log console: colour-coded, filterable, separate from System.
@@ -40,9 +44,6 @@ day-to-day decision record, see `AGENTS.md`.
   if a source ever yielded Opus, which does not play on Apple TV.
 - **No notifications.** No webhook/Discord/etc. on sync completion or apply
   failure — Activity and the sidebar badge are the only signal right now.
-- **No scheduled-sync configuration.** Library sync and the ThemerrDB refresh
-  run on a fixed cron (every 6h / nightly); there's no Settings control to
-  change the interval.
 - **No per-library or per-item exclude list.** An enabled library syncs
   everything in it; there's no way to skip a title without removing the whole
   library.

@@ -238,5 +238,75 @@ defmodule Fanfarr.JobsTest do
       assert first.state == "executing"
       assert second.state == "completed"
     end
+
+    test "the scheduler heartbeat is not listed as activity", %{item: item} do
+      # It runs 288 times a day. Listed, it would push every job it exists to
+      # start off a 40-row page.
+      enqueue(Fanfarr.Workers.Scheduler, %{}, "completed")
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
+
+      workers = Jobs.recent() |> Enum.map(& &1.worker)
+
+      assert workers == ["Fanfarr.Workers.ApplyTheme"]
+    end
+
+    test "a heartbeat that failed is listed, since that is worth knowing" do
+      enqueue(Fanfarr.Workers.Scheduler, %{}, "discarded")
+
+      assert [%{worker: "Fanfarr.Workers.Scheduler"}] = Jobs.recent()
+    end
+  end
+
+  describe "summary/0 and the heartbeat" do
+    test "a queued heartbeat is not counted as work" do
+      # Otherwise the sidebar flashes "1 queued" every five minutes forever.
+      enqueue(Fanfarr.Workers.Scheduler, %{})
+
+      assert %{running: 0, queued: 0} = Jobs.summary()
+    end
+  end
+
+  describe "apply concurrency" do
+    test "defaults to the compiled queue width" do
+      assert Jobs.apply_concurrency() == 2
+      assert Jobs.concurrency(:apply) == 2
+    end
+
+    test "a saved value wins, and is what the ETA divides by" do
+      assert :ok = Jobs.put_apply_concurrency("6")
+
+      assert Jobs.apply_concurrency() == 6
+      assert Jobs.concurrency(:apply) == 6
+    end
+
+    test "the boot config carries the saved value into the queue" do
+      assert :ok = Jobs.put_apply_concurrency("5")
+
+      assert Jobs.oban_config()[:queues][:apply] == 5
+    end
+
+    test "other queues are not the operator's to widen" do
+      # :themerrdb in particular -- a community-run static host does not get
+      # to be hammered because someone raised a number.
+      assert :ok = Jobs.put_apply_concurrency("10")
+
+      assert Jobs.concurrency(:themerrdb) == 2
+      assert Jobs.oban_config()[:queues][:themerrdb] == 2
+    end
+
+    test "a value outside the range is refused rather than clamped silently" do
+      assert {:error, :invalid} = Jobs.put_apply_concurrency("0")
+      assert {:error, :invalid} = Jobs.put_apply_concurrency("400")
+      assert {:error, :invalid} = Jobs.put_apply_concurrency("lots")
+
+      assert Jobs.apply_concurrency() == 2
+    end
+
+    test "an out-of-range environment variable degrades to the default" do
+      System.put_env("APPLY_CONCURRENCY", "400")
+      on_exit(fn -> System.delete_env("APPLY_CONCURRENCY") end)
+
+      assert Jobs.apply_concurrency() == 2
+    end
   end
 end

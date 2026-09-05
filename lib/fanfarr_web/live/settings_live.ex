@@ -36,6 +36,24 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:local_auth_bypass, Fanfarr.Accounts.AuthMode.bypass_enabled?())
     |> assign(:ytdlp_proxy, Fanfarr.Config.get("ytdlp_proxy") || "")
     |> assign(:theme_loudness_lufs, Fanfarr.Config.get("theme_loudness_lufs") || "")
+    |> assign(:apply_concurrency, Fanfarr.Jobs.apply_concurrency())
+    |> assign(:apply_concurrency_range, Fanfarr.Jobs.apply_concurrency_range())
+    |> assign(:schedules, schedules())
+  end
+
+  # Each recurring task with everything the section renders: what it is, how
+  # often it runs, and when it last did / next will.
+  defp schedules do
+    Enum.map(Fanfarr.Scheduling.tasks(), fn {key, task} ->
+      %{
+        key: key,
+        label: task.label,
+        description: task.description,
+        hours: Fanfarr.Scheduling.interval_hours(key),
+        last_run_at: Fanfarr.Scheduling.last_run_at(key),
+        next_run_at: Fanfarr.Scheduling.next_run_at(key)
+      }
+    end)
   end
 
   # Both buttons submit the same form, distinguished by the button's value, so
@@ -120,6 +138,35 @@ defmodule FanfarrWeb.SettingsLive.Index do
                "Enter a negative number of LUFS, e.g. -14 -- or leave blank"
              )}
         end
+    end
+  end
+
+  def handle_event("save_schedules", params, socket) do
+    results =
+      Enum.map(Fanfarr.Scheduling.tasks(), fn {key, _task} ->
+        Fanfarr.Scheduling.put_interval_hours(key, params["#{key}"] || "")
+      end)
+
+    socket = load(socket)
+
+    if Enum.any?(results, &(&1 == {:error, :invalid})) do
+      {:noreply,
+       put_flash(socket, :error, "Enter a whole number of hours, or 0 to turn a schedule off")}
+    else
+      {:noreply, put_flash(socket, :info, "Schedule saved")}
+    end
+  end
+
+  def handle_event("save_apply_concurrency", %{"apply_concurrency" => value}, socket) do
+    range = Fanfarr.Jobs.apply_concurrency_range()
+
+    case Fanfarr.Jobs.put_apply_concurrency(value) do
+      :ok ->
+        {:noreply, socket |> load() |> put_flash(:info, "Applied to the queue immediately")}
+
+      {:error, :invalid} ->
+        {:noreply,
+         put_flash(socket, :error, "Enter a number between #{range.first} and #{range.last}")}
     end
   end
 
@@ -258,6 +305,33 @@ defmodule FanfarrWeb.SettingsLive.Index do
       writable: writable
     })
   end
+
+  # "3h ago" / "in 20m", because an ISO timestamp answers a question nobody
+  # asked -- what matters is whether it just ran and when it goes again.
+  defp relative(nil), do: "never"
+
+  defp relative(at) do
+    seconds = DateTime.diff(DateTime.utc_now(), at, :second)
+
+    cond do
+      seconds < 60 -> "just now"
+      true -> "#{duration(seconds)} ago"
+    end
+  end
+
+  defp next_label(%{hours: 0}), do: "off"
+  defp next_label(%{next_run_at: nil}), do: "as soon as it can"
+
+  defp next_label(%{next_run_at: at}) do
+    case DateTime.diff(at, DateTime.utc_now(), :second) do
+      seconds when seconds <= 60 -> "any moment"
+      seconds -> "in #{duration(seconds)}"
+    end
+  end
+
+  defp duration(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
+  defp duration(seconds) when seconds < 86_400, do: "#{div(seconds, 3600)}h"
+  defp duration(seconds), do: "#{div(seconds, 86_400)}d"
 
   @impl true
   def render(assigns) do
@@ -398,6 +472,45 @@ defmodule FanfarrWeb.SettingsLive.Index do
         </section>
 
         <section class="rounded-lg border border-border bg-card p-4">
+          <h2 class="text-sm font-semibold text-card-foreground">Scheduling</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            How often Fanfarr starts this work on its own. 0 turns a schedule off — the
+            buttons still work, nothing else changes. Checked every five minutes, so an
+            interval is accurate to about that.
+          </p>
+          <form id="schedules-form" phx-submit="save_schedules" class="mt-4 space-y-4">
+            <div :for={schedule <- @schedules} class="flex flex-wrap items-start gap-3">
+              <div class="min-w-56 flex-1">
+                <label
+                  class="text-xs font-medium text-muted-foreground"
+                  for={"schedule-#{schedule.key}"}
+                >
+                  {schedule.label}
+                </label>
+                <p class="mt-0.5 text-xs text-muted-foreground">{schedule.description}</p>
+                <p class="mt-1 font-mono text-[11px] text-muted-foreground">
+                  last run {relative(schedule.last_run_at)} · next {next_label(schedule)}
+                </p>
+              </div>
+              <div class="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  id={"schedule-#{schedule.key}"}
+                  name={schedule.key}
+                  value={schedule.hours}
+                  class="mt-1 h-9 w-20 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+                <span class="mt-1 text-xs text-muted-foreground">hours</span>
+              </div>
+            </div>
+            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              Save
+            </button>
+          </form>
+        </section>
+
+        <section class="rounded-lg border border-border bg-card p-4">
           <div class="flex items-center justify-between">
             <h2 class="text-sm font-semibold text-card-foreground">Root folders</h2>
             <button
@@ -500,9 +613,37 @@ defmodule FanfarrWeb.SettingsLive.Index do
             Overrides YTDLP_PROXY and THEME_LOUDNESS_LUFS from the environment.
           </p>
           <form
+            id="apply-concurrency-form"
+            phx-submit="save_apply_concurrency"
+            class="mt-3 flex items-end gap-2"
+          >
+            <div class="flex-1">
+              <label class="text-xs font-medium text-muted-foreground" for="apply-concurrency">
+                Themes at once
+              </label>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                How many themes download and apply in parallel, {@apply_concurrency_range.first}–{@apply_concurrency_range.last}.
+                Raising it finishes a bulk run sooner; each job downloads audio, re-encodes it
+                and writes to your media drive, and YouTube is less forgiving of many parallel
+                requests from one address. Takes effect on work already queued.
+              </p>
+              <input
+                type="text"
+                inputmode="numeric"
+                id="apply-concurrency"
+                name="apply_concurrency"
+                value={@apply_concurrency}
+                class="mt-2 h-9 w-20 rounded-md border border-input bg-background px-3 font-mono text-sm"
+              />
+            </div>
+            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              Save
+            </button>
+          </form>
+          <form
             id="ytdlp-proxy-form"
             phx-submit="save_ytdlp_proxy"
-            class="mt-3 flex items-end gap-2"
+            class="mt-4 flex items-end gap-2"
           >
             <div class="flex-1">
               <label class="text-xs font-medium text-muted-foreground">yt-dlp proxy</label>

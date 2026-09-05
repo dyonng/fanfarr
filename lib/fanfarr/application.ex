@@ -25,7 +25,9 @@ defmodule Fanfarr.Application do
       {Oban,
        AshOban.config(
          Application.fetch_env!(:fanfarr, :ash_domains),
-         Application.fetch_env!(:fanfarr, Oban)
+         # Not the raw app env: the apply queue's width is a setting, and this
+         # is where a restart picks the operator's choice back up.
+         Fanfarr.Jobs.oban_config()
        )},
       # Start a worker by calling: Fanfarr.Worker.start_link(arg)
       # {Fanfarr.Worker, arg},

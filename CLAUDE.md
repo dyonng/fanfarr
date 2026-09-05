@@ -121,6 +121,26 @@ Collection tags alone miss agent-built collections (Star Wars, Dune, that
 sort), only reporting the operator's hand-made ones. See
 `Fanfarr.Workers.SyncSection.collections/3`.
 
+**Scheduling is not a crontab.** Oban reads its crontab once at boot and OSS
+Oban has no dynamic cron, so a schedule the operator can edit cannot be a
+crontab entry. One entry (`*/5`) runs `Fanfarr.Workers.Scheduler`, which asks
+`Fanfarr.Scheduling` what is due. Intervals live in Settings; `0` is off. The
+"last run" clock is written by the *workers* at the top of `perform/1`, not by
+the heartbeat -- that is what makes a manual sync reset the interval, and what
+stops an unconfigured install re-queueing a doomed sync every five minutes.
+The heartbeat is excluded from `Jobs.summary/0` and `Jobs.recent/1` unless it
+failed; 288 rows a day would bury the work it exists to start. Adding a second
+crontab entry is a regression -- `test/fanfarr/schedule_test.exs` fails if you
+do.
+
+**The apply queue's width is the operator's, the others are not.**
+`Fanfarr.Jobs.apply_concurrency/0` resolves setting -> env -> compiled default,
+clamped to 1..10; `put_apply_concurrency/1` persists *and* calls
+`Oban.scale_queue/2` so it takes effect on work already queued.
+`Fanfarr.Jobs.oban_config/0` is what `application.ex` hands the supervisor, so
+a restart picks the saved value back up. :themerrdb stays at 2 deliberately --
+that is a community-run host, not a throughput knob.
+
 **Boot migrations run on a single connection**, not the application's normal
 pool. `Ecto.Migrator`'s own child spec migrates on the already-started pool,
 and SQLite's per-connection schema cache means two migrations touching one

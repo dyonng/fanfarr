@@ -17,6 +17,11 @@ defmodule Fanfarr.Workers.SyncLibrary do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    # Before the work, and whatever the outcome: this is what the scheduler
+    # counts the next run from, and a sync started by hand has to reset that
+    # clock the same as a scheduled one does. See Fanfarr.Scheduling.
+    Fanfarr.Scheduling.record_run(:sync_library)
+
     with {:ok, config} <- Fanfarr.Config.plex_config(),
          {:ok, sections} <- Client.impl().sections(config) do
       Enum.each(sections, fn s ->
