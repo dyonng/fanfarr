@@ -105,8 +105,8 @@ defmodule Fanfarr.Themes.ThemeApplicationTest do
 
   test "failures can be listed for the activity view", %{item: item} do
     record_outcome(item, %{status: :succeeded})
+    record_outcome(item, %{status: :skipped})
     record_outcome(item, %{status: :failed, error: "yt-dlp exited 1"})
-    record_outcome(item, %{status: :failed, error: "should not appear", dry_run: true})
 
     failures = ThemeApplication |> Ash.Query.for_read(:failures) |> Ash.read!()
 

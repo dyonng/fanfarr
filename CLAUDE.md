@@ -88,8 +88,8 @@ ThemerrDB workers, Plex HTTP client (**read** paths verified against PMS
 1.43.4 and pinned as captured-response tests; **write** paths --
 `upload_theme`, `lock_theme` -- are unused and unverified), theme origin
 detection, yt-dlp download and search, EXDEV-safe writer, ApplyTheme worker
-(dry run default, local theme.mp3, **shows and movies both** -- verified on
-the reference server, see below), poster cache, health monitor.
+(local theme.mp3, **shows and movies both** -- verified on the reference
+server, see below), poster cache, health monitor.
 
 **Plex JSON gotcha:** `/themes` returns `<Track>` in XML but a `"Metadata"`
 array in JSON, and `selected` is a boolean there, not `"1"`. Plex does honour
@@ -171,8 +171,11 @@ handles it) -- look at the migration itself first.
 TV 396/742 themed at last survey.
 
 **Precedence when applying:** URL passed with the job > `manual_theme_url` on
-the item > ThemerrDB entry. Oban uniqueness is per item *and* dry-run flag;
-with only the item as key, a queued dry run swallowed the apply after it.
+the item > ThemerrDB entry. Oban uniqueness is per item *and* theme URL; with
+only the item as key, auditioning a second video within the five-minute window
+is silently dropped as a duplicate of the first. There is no dry run -- it was
+removed in v0.1.51 along with its column, and its rows were deleted, because
+every query over that table had to remember to exclude them.
 
 **Loudness:** downloads are normalised to -14 LUFS by default via ffmpeg
 `loudnorm` two-pass (`theme_loudness_lufs` to change it). Measure any file with

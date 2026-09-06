@@ -36,19 +36,12 @@ defmodule Fanfarr.JobsTest do
 
   describe "the action and its subject" do
     test "the title is carried separately, so the table can link it", %{item: item} do
-      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false})
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id})
 
       assert [job] = Jobs.recent()
       assert job.label == "Apply theme"
       assert job.item_title == "WITCH WATCH"
       assert job.item_id == item.id
-    end
-
-    test "a dry run says so", %{item: item} do
-      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: true})
-
-      assert [job] = Jobs.recent()
-      assert job.label == "Apply theme (dry run)"
     end
 
     test "a lookup reads as a lookup", %{item: item} do
@@ -61,8 +54,7 @@ defmodule Fanfarr.JobsTest do
 
     test "a job whose item is gone keeps the id and has no title" do
       enqueue(Fanfarr.Workers.ApplyTheme, %{
-        media_item_id: "00000000-0000-0000-0000-000000000000",
-        dry_run: false
+        media_item_id: "00000000-0000-0000-0000-000000000000"
       })
 
       assert [job] = Jobs.recent()
@@ -132,18 +124,17 @@ defmodule Fanfarr.JobsTest do
     end
 
     test "no history to measure against says so rather than guessing", %{item: item} do
-      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false})
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id})
 
       assert Jobs.eta_seconds() == nil
     end
 
     test "divides the remaining work by the queue's concurrency", %{item: item} do
-      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, 30)
+      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, 30)
 
       for n <- 1..4 do
         enqueue(Fanfarr.Workers.ApplyTheme, %{
           media_item_id: item.id,
-          dry_run: false,
           theme_url: "https://example.com/#{n}"
         })
       end
@@ -152,28 +143,29 @@ defmodule Fanfarr.JobsTest do
       assert_in_delta Jobs.eta_seconds(), 60, 2
     end
 
-    test "a dry run is not costed as if it were a download", %{item: item} do
-      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, 60)
-      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: true}, 2)
+    test "a lookup is not costed as if it were a download", %{item: item} do
+      # The two workers differ by orders of magnitude -- one fetches audio and
+      # re-encodes it, the other asks a JSON endpoint one question -- so they
+      # are measured apart. Averaged together, four lookups would be billed at
+      # the download's rate.
+      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, 60)
+      completed(Fanfarr.Workers.LookupTheme, %{media_item_id: item.id}, 2)
 
       for n <- 1..4 do
-        enqueue(Fanfarr.Workers.ApplyTheme, %{
-          media_item_id: item.id,
-          dry_run: true,
-          theme_url: "https://example.com/#{n}"
-        })
+        enqueue(Fanfarr.Workers.LookupTheme, %{media_item_id: item.id, nonce: n})
       end
 
-      # Four dry runs at ~2s over two slots is seconds, not minutes. Averaging
-      # the real apply in would have said 62.
-      assert_in_delta Jobs.eta_seconds(), 4, 2
+      # Four lookups at ~2s across the lookup queue's width rounds to a
+      # second. Averaged with the 60s apply the mean would be ~31s, and the
+      # same four jobs would be billed at thirteen.
+      assert Jobs.eta_seconds() == 1
     end
 
     test "queues run alongside each other, so the slowest one decides", %{item: item} do
-      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, 60)
+      completed(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, 60)
       completed(Fanfarr.Workers.LookupTheme, %{media_item_id: item.id}, 1)
 
-      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false})
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id})
 
       for n <- 1..10 do
         enqueue(Fanfarr.Workers.LookupTheme, %{media_item_id: item.id, nonce: n})
@@ -196,10 +188,10 @@ defmodule Fanfarr.JobsTest do
     } do
       for state <- ["available", "scheduled", "retryable", "executing"] do
         # theme_url varies so each lands as its own row rather than colliding
-        # with ApplyTheme's own uniqueness (media_item_id + dry_run + theme_url).
+        # with ApplyTheme's own uniqueness (media_item_id + theme_url).
         enqueue(
           Fanfarr.Workers.ApplyTheme,
-          %{media_item_id: item.id, dry_run: true, theme_url: "https://example.com/#{state}"},
+          %{media_item_id: item.id, theme_url: "https://example.com/#{state}"},
           state
         )
       end

@@ -33,7 +33,7 @@ defmodule FanfarrWeb.ActivityLiveTest do
 
   test "an estimate appears once there is history to base one on", %{conn: conn, item: item} do
     done =
-      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, "completed")
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
 
     Fanfarr.Repo.update_all(
       from(j in Oban.Job, where: j.id == ^done.id),
@@ -46,7 +46,7 @@ defmodule FanfarrWeb.ActivityLiveTest do
     for n <- 1..4 do
       enqueue(
         Fanfarr.Workers.ApplyTheme,
-        %{media_item_id: item.id, dry_run: false, theme_url: "https://example.com/#{n}"},
+        %{media_item_id: item.id, theme_url: "https://example.com/#{n}"},
         "available"
       )
     end
@@ -58,7 +58,7 @@ defmodule FanfarrWeb.ActivityLiveTest do
   end
 
   test "no estimate is shown before there is anything to measure", %{conn: conn, item: item} do
-    enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: false}, "available")
+    enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "available")
 
     {:ok, _view, html} = live(conn, "/activity")
 
@@ -72,7 +72,7 @@ defmodule FanfarrWeb.ActivityLiveTest do
   end
 
   test "the Stop button cancels queued and running theme work", %{conn: conn, item: item} do
-    enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id, dry_run: true}, "available")
+    enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "available")
     enqueue(Fanfarr.Workers.LookupTheme, %{media_item_id: item.id}, "executing")
 
     {:ok, view, html} = live(conn, "/activity")

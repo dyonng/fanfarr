@@ -34,7 +34,6 @@ defmodule Fanfarr.Themes.RemoverTest do
       source: :themerrdb,
       method: :local_file,
       destination_path: path,
-      dry_run: false,
       status: :succeeded
     })
 

@@ -130,20 +130,44 @@ defmodule FanfarrWeb.FeaturesTest do
       assert render_async(view) =~ "yt-dlp is not installed"
     end
 
-    test "apply queues the worker for real, not as a dry run", %{conn: conn, item: item} do
-      # The item page has no dry-run button any more: previewing one title was
-      # a rehearsal for a bulk run, and the bulk bar on the library still
-      # offers it where it is actually worth doing.
+    test "choosing a theme is what applies it", %{conn: conn, item: item} do
+      # There is no Apply button at the top of the page any more. Picking and
+      # writing were two steps with the second one somewhere else, so the
+      # common ending was a pick that was never applied. The button on the
+      # choice does both.
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
 
-      refute has_element?(view, ~s(button[phx-click="preview"]))
+      refute has_element?(view, ~s(button[phx-click="apply"]))
 
-      render_click(view, "apply", %{})
+      render_click(view, "use_video", %{
+        "url" => "https://youtu.be/chosen00000",
+        "title" => "Chosen"
+      })
 
-      jobs = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
-      assert [job] = jobs
-      assert job.args["dry_run"] == false
+      # Pinned...
+      reloaded = Fanfarr.Library.get_media_item!(item.id)
+      assert reloaded.manual_theme_url == "https://youtu.be/chosen00000"
+
+      # ...and queued, carrying the URL so the job says which theme it is for.
+      assert [job] = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
       assert job.args["media_item_id"] == item.id
+      assert job.args["theme_url"] == "https://youtu.be/chosen00000"
+    end
+
+    test "a pick already made can be applied again from the card that shows it",
+         %{conn: conn, item: item} do
+      # Without this the only route to a saved pick would be running the
+      # search that found it all over again.
+      Fanfarr.Library.set_manual_theme!(item, %{
+        manual_theme_url: "https://youtu.be/saved000000",
+        manual_theme_title: "Saved earlier"
+      })
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "apply_pick", %{})
+
+      assert [job] = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
+      assert job.args["theme_url"] == "https://youtu.be/saved000000"
     end
 
     test "Refresh pulls the item's metadata back from Plex and shows it",
@@ -340,7 +364,7 @@ defmodule FanfarrWeb.FeaturesTest do
 
     defp queue_apply(item) do
       {:ok, job} =
-        %{media_item_id: item.id, dry_run: false}
+        %{media_item_id: item.id}
         |> Fanfarr.Workers.ApplyTheme.new()
         |> Oban.insert()
 
@@ -350,7 +374,7 @@ defmodule FanfarrWeb.FeaturesTest do
     test "the queue names the title in its own column, linked to the item",
          %{conn: conn, item: item} do
       {:ok, _job} =
-        %{media_item_id: item.id, dry_run: false}
+        %{media_item_id: item.id}
         |> Fanfarr.Workers.ApplyTheme.new()
         |> Oban.insert()
 
@@ -365,7 +389,7 @@ defmodule FanfarrWeb.FeaturesTest do
 
     test "a job for an item that has since been deleted still renders", %{conn: conn} do
       {:ok, _job} =
-        %{media_item_id: Ash.UUID.generate(), dry_run: false}
+        %{media_item_id: Ash.UUID.generate()}
         |> Fanfarr.Workers.ApplyTheme.new()
         |> Oban.insert()
 
@@ -382,7 +406,7 @@ defmodule FanfarrWeb.FeaturesTest do
       # inside perform/1 and then carries on talking to Plex. No second
       # broadcast ever comes, so the page has to re-ask.
       {:ok, job} =
-        %{media_item_id: item.id, dry_run: false}
+        %{media_item_id: item.id}
         |> Fanfarr.Workers.ApplyTheme.new()
         |> Oban.insert()
 
@@ -398,35 +422,35 @@ defmodule FanfarrWeb.FeaturesTest do
       assert html =~ "Working on this item"
 
       # The poll is what gets it back, unaided.
-      assert eventually(fn -> render(view) =~ "Apply theme" end)
-      refute render(view) =~ "Working on this item"
+      assert eventually(fn -> not (render(view) =~ "Working on this item") end)
     end
   end
 
   describe "feedback while a theme is being applied" do
-    test "clicking apply immediately shows work in progress", %{conn: conn, item: item} do
-      {:ok, view, html} = live(conn, "/library/#{item.id}")
+    test "picking a theme immediately shows work in progress", %{conn: conn, item: item} do
+      Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/saved000000"})
 
+      {:ok, view, html} = live(conn, "/library/#{item.id}")
       refute html =~ "Working on this item"
 
-      html = render_click(view, "apply", %{})
+      html = render_click(view, "apply_pick", %{})
 
       # The click has to visibly do something. On a busy queue the worker may
       # not start for minutes, so this cannot wait for the worker to say so.
       assert html =~ "Working on this item"
       assert html =~ "Working…"
-      assert has_element?(view, ~s(button[phx-click="apply"][disabled]))
+      assert has_element?(view, ~s(button[phx-click="apply_pick"][disabled]))
     end
 
     test "a queued job is still reflected after a reload", %{conn: conn, item: item} do
-      {:ok, _} = Fanfarr.Workers.ApplyTheme.enqueue(item, dry_run: false)
+      {:ok, _} = Fanfarr.Workers.ApplyTheme.enqueue(item)
 
       {:ok, _view, html} = live(conn, "/library/#{item.id}")
       assert html =~ "Working on this item"
     end
 
     test "no in-flight state once nothing is queued", %{conn: conn, item: item} do
-      {:ok, job} = Fanfarr.Workers.ApplyTheme.enqueue(item, dry_run: false)
+      {:ok, job} = Fanfarr.Workers.ApplyTheme.enqueue(item)
       Fanfarr.Repo.delete!(job)
 
       {:ok, _view, html} = live(conn, "/library/#{item.id}")
@@ -610,14 +634,17 @@ defmodule FanfarrWeb.FeaturesTest do
       html = render_click(view, "select_page", %{})
       assert html =~ "2 selected"
 
-      render_click(view, "bulk", %{"action" => "preview"})
+      # No rehearsal action, and no confirmation in the way.
+      refute has_element?(view, ~s([phx-value-action="preview"]))
+      refute has_element?(view, ~s([phx-value-action="apply"][data-confirm]))
+
+      render_click(view, "bulk", %{"action" => "apply"})
 
       jobs = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
 
       assert Enum.map(jobs, & &1.args["media_item_id"]) |> Enum.sort() ==
                Enum.sort([item.id, other.id])
 
-      assert Enum.all?(jobs, & &1.args["dry_run"])
       refute has_element?(view, "#bulk-bar"), "selection clears after acting"
     end
 

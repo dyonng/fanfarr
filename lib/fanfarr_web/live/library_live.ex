@@ -102,8 +102,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
     {queued, label} =
       case action do
-        "preview" -> {Enum.count(ids, &enqueue_apply(&1, dry_run: true)), "dry runs"}
-        "apply" -> {Enum.count(ids, &enqueue_apply(&1, dry_run: false)), "theme writes"}
+        "apply" -> {Enum.count(ids, &enqueue_apply/1), "theme writes"}
         "lookup" -> {Enum.count(ids, &enqueue_lookup/1), "ThemerrDB lookups"}
       end
 
@@ -113,7 +112,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
      |> put_flash(:info, "Queued #{queued} #{label}")}
   end
 
-  defp enqueue_apply(id, opts), do: match?({:ok, _}, Fanfarr.Workers.ApplyTheme.enqueue(id, opts))
+  defp enqueue_apply(id), do: match?({:ok, _}, Fanfarr.Workers.ApplyTheme.enqueue(id))
 
   defp enqueue_lookup(id) do
     match?({:ok, _}, %{media_item_id: id} |> Fanfarr.Workers.LookupTheme.new() |> Oban.insert())
@@ -426,13 +425,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <span class="flex-1" />
           <button
             phx-click="bulk"
-            phx-value-action="preview"
-            class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
-          >
-            <.icon name="lucide-flask-conical" class="size-3.5" /> Preview (dry run)
-          </button>
-          <button
-            phx-click="bulk"
             phx-value-action="lookup"
             class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
           >
@@ -441,7 +433,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <button
             phx-click="bulk"
             phx-value-action="apply"
-            data-confirm={"Write theme.mp3 for #{MapSet.size(@selected)} items? Each file can be deleted to undo, but this is a lot of writes -- run a dry run first."}
             class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
             <.icon name="lucide-music" class="size-3.5" /> Apply themes
@@ -450,6 +441,8 @@ defmodule FanfarrWeb.LibraryLive.Index do
             clear
           </button>
         </div>
+
+        <.pagination page={@page} pages={@pages} filters={@filters} position="above the table" />
 
         <div :if={@items != []} class="overflow-x-auto rounded-lg border border-border">
           <table class="w-full text-sm">
@@ -560,47 +553,65 @@ defmodule FanfarrWeb.LibraryLive.Index do
           </table>
         </div>
 
-        <div
-          :if={@pages > 1}
-          class="flex flex-col items-center gap-2 text-sm text-muted-foreground"
-        >
-          <nav class="flex flex-wrap items-center justify-center gap-1" aria-label="Pagination">
-            <.link
-              :if={@page > 1}
-              patch={~p"/?#{filter_params(@filters, @page - 1)}"}
-              class="rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
-            >
-              Previous
-            </.link>
-
-            <%= for entry <- page_numbers(@page, @pages) do %>
-              <span :if={entry == :gap} class="px-1.5 text-muted-foreground">…</span>
-              <.link
-                :if={entry != :gap}
-                patch={~p"/?#{filter_params(@filters, entry)}"}
-                aria-current={entry == @page && "page"}
-                class={[
-                  "min-w-9 rounded-md border px-2.5 py-1.5 text-center tabular-nums",
-                  entry == @page && "border-primary bg-primary font-medium text-primary-foreground",
-                  entry != @page && "border-border hover:bg-accent hover:text-accent-foreground"
-                ]}
-              >
-                {entry}
-              </.link>
-            <% end %>
-
-            <.link
-              :if={@page < @pages}
-              patch={~p"/?#{filter_params(@filters, @page + 1)}"}
-              class="rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
-            >
-              Next
-            </.link>
-          </nav>
-          <span>Page {@page} of {@pages}</span>
-        </div>
+        <.pagination page={@page} pages={@pages} filters={@filters} position="below the table" />
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :page, :integer, required: true
+  attr :pages, :integer, required: true
+  attr :filters, :map, required: true
+  # Only ever the accessible name. Two <nav>s with one label read as two
+  # landmarks called the same thing, and "skip to Pagination" then has to
+  # guess which.
+  attr :position, :string, required: true
+
+  # Rendered above and below the table both. A library filtered to one status
+  # can still be several pages, and having to scroll past fifty rows to reach
+  # the control that changes which fifty rows you are looking at is the kind
+  # of thing that makes a list feel long.
+  defp pagination(assigns) do
+    ~H"""
+    <div :if={@pages > 1} class="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+      <nav
+        class="flex flex-wrap items-center justify-center gap-1"
+        aria-label={"Pagination, #{@position}"}
+      >
+        <.link
+          :if={@page > 1}
+          patch={~p"/?#{filter_params(@filters, @page - 1)}"}
+          class="rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
+        >
+          Previous
+        </.link>
+
+        <%= for entry <- page_numbers(@page, @pages) do %>
+          <span :if={entry == :gap} class="px-1.5 text-muted-foreground">…</span>
+          <.link
+            :if={entry != :gap}
+            patch={~p"/?#{filter_params(@filters, entry)}"}
+            aria-current={entry == @page && "page"}
+            class={[
+              "min-w-9 rounded-md border px-2.5 py-1.5 text-center tabular-nums",
+              entry == @page && "border-primary bg-primary font-medium text-primary-foreground",
+              entry != @page && "border-border hover:bg-accent hover:text-accent-foreground"
+            ]}
+          >
+            {entry}
+          </.link>
+        <% end %>
+
+        <.link
+          :if={@page < @pages}
+          patch={~p"/?#{filter_params(@filters, @page + 1)}"}
+          class="rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
+        >
+          Next
+        </.link>
+      </nav>
+      <span>Page {@page} of {@pages}</span>
+    </div>
     """
   end
 

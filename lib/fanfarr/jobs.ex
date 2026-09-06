@@ -15,6 +15,8 @@ defmodule Fanfarr.Jobs do
   """
   import Ecto.Query, only: [from: 2]
 
+  require Logger
+
   require Ash.Query
 
   @active ~w(executing available scheduled retryable)
@@ -98,13 +100,13 @@ defmodule Fanfarr.Jobs do
 
   ## How it is arrived at
 
-  Jobs are bucketed by worker *and* by dry-run flag, because those differ by
-  orders of magnitude -- a dry run resolves a URL and a path and stops, while
-  a real apply downloads audio, re-encodes it for loudness, and then waits on
-  Plex. Averaging the two together produced an estimate that was wrong for
-  both. Each bucket contributes `pending x its own mean duration`; the
-  queue's concurrency divides its total, and the queues run alongside each
-  other, so the answer is the slowest queue rather than the sum.
+  Jobs are bucketed by worker, because an apply and a ThemerrDB lookup differ
+  by orders of magnitude -- one downloads audio, re-encodes it for loudness
+  and then waits on Plex, the other asks a JSON endpoint one question.
+  Averaging the two together produced an estimate that was wrong for both.
+  Each bucket contributes `pending x its own mean duration`; the queue's
+  concurrency divides its total, and the queues run alongside each other, so
+  the answer is the slowest queue rather than the sum.
 
   Durations come from `attempted_at` to `completed_at` on recent completions,
   which is the time the job actually spent running rather than the time it
@@ -121,7 +123,7 @@ defmodule Fanfarr.Jobs do
       means = mean_durations()
 
       pending
-      |> Enum.group_by(fn {{_worker, _dry_run, queue}, _count} -> queue end)
+      |> Enum.group_by(fn {{_worker, queue}, _count} -> queue end)
       |> Enum.map(fn {queue, buckets} -> queue_seconds(queue, buckets, means) end)
       |> then(fn per_queue ->
         # Any bucket without a measurement makes the whole answer a guess.
@@ -132,8 +134,8 @@ defmodule Fanfarr.Jobs do
 
   defp queue_seconds(queue, buckets, means) do
     work =
-      Enum.reduce_while(buckets, 0, fn {{worker, dry_run, _q}, count}, acc ->
-        case Map.get(means, {worker, dry_run}) do
+      Enum.reduce_while(buckets, 0, fn {{worker, _q}, count}, acc ->
+        case Map.get(means, worker) do
           nil -> {:halt, nil}
           mean -> {:cont, acc + count * mean}
         end
@@ -205,6 +207,24 @@ defmodule Fanfarr.Jobs do
   end
 
   @doc """
+  Starts Oban with the operator's settings applied.
+
+  Called by the supervisor as an MFA rather than being evaluated into a child
+  tuple, because the settings this reads live in the database and the database
+  is a child that has to have started first. See `Fanfarr.Application`.
+  """
+  def start_oban do
+    config = oban_config()
+
+    Logger.info("[fanfarr] apply queue starting at #{config[:queues][:apply]} concurrent jobs")
+
+    :fanfarr
+    |> Application.fetch_env!(:ash_domains)
+    |> AshOban.config(config)
+    |> Oban.start_link()
+  end
+
+  @doc """
   The Oban config the supervisor should start, with the operator's apply width
   applied.
 
@@ -219,8 +239,6 @@ defmodule Fanfarr.Jobs do
       Keyword.update!(base, :queues, &Keyword.put(&1, :apply, apply_concurrency()))
     rescue
       error ->
-        require Logger
-
         Logger.warning(
           "[fanfarr] could not read the apply concurrency setting " <>
             "(#{inspect(error)}); starting at the default"
@@ -252,11 +270,9 @@ defmodule Fanfarr.Jobs do
       from j in Oban.Job,
         where: j.worker in ^@bulk_theme_workers,
         where: j.state in ^@active,
-        select: {j.worker, fragment("json_extract(?, ?)", j.args, "$.dry_run"), j.queue}
+        select: {j.worker, j.queue}
     )
-    |> Enum.frequencies_by(fn {worker, dry_run, queue} ->
-      {worker, truthy(dry_run), String.to_existing_atom(queue)}
-    end)
+    |> Enum.frequencies_by(fn {worker, queue} -> {worker, String.to_existing_atom(queue)} end)
   end
 
   # Only completions count. A cancelled or discarded job says nothing about
@@ -269,25 +285,16 @@ defmodule Fanfarr.Jobs do
         where: not is_nil(j.attempted_at) and not is_nil(j.completed_at),
         order_by: [desc: j.id],
         limit: @duration_sample,
-        select:
-          {j.worker, fragment("json_extract(?, ?)", j.args, "$.dry_run"), j.attempted_at,
-           j.completed_at}
+        select: {j.worker, j.attempted_at, j.completed_at}
     )
     |> Enum.group_by(
-      fn {worker, dry_run, _, _} -> {worker, truthy(dry_run)} end,
-      fn {_, _, started, finished} ->
+      fn {worker, _, _} -> worker end,
+      fn {_, started, finished} ->
         max(NaiveDateTime.diff(finished, started, :millisecond), 0) / 1000
       end
     )
     |> Map.new(fn {bucket, durations} -> {bucket, Enum.sum(durations) / length(durations)} end)
   end
-
-  # SQLite hands back 1/0 for a JSON boolean, and nil where the key is absent
-  # -- ApplyTheme defaults dry_run to true when it is missing, so nil is true.
-  defp truthy(nil), do: true
-  defp truthy(0), do: false
-  defp truthy(false), do: false
-  defp truthy(_), do: true
 
   @doc """
   Cancels every apply and ThemerrDB-lookup job that has not finished --
@@ -398,8 +405,8 @@ defmodule Fanfarr.Jobs do
   @spec describe(map()) :: String.t()
   def describe(job) do
     case {short_worker(job.worker), job.args} do
-      {"ApplyTheme", args} ->
-        if args["dry_run"], do: "Apply theme (dry run)", else: "Apply theme"
+      {"ApplyTheme", _args} ->
+        "Apply theme"
 
       {"LookupTheme", _args} ->
         "Look up in ThemerrDB"

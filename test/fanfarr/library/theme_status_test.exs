@@ -134,14 +134,6 @@ defmodule Fanfarr.Library.ThemeStatusTest do
     assert status(item) == :fanfarr_applied
   end
 
-  test "a dry run never changes what the item reports", %{section: section} do
-    item = item(section, %{})
-    apply_theme(item, %{status: :succeeded, dry_run: true})
-
-    # The preview happened, but nothing was applied to the server.
-    assert status(item) == :missing
-  end
-
   test "status is calculated for a batch in one pass", %{section: section} do
     a = item(section, %{})
     b = item(section, %{plex_theme_url: "https://plex.example/t.mp3"})

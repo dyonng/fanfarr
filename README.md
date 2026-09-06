@@ -83,8 +83,9 @@ downloads, and appearance, all in one place.
   that is the account, with an optional "remember me" and a Sonarr/Radarr-style
   bypass for local addresses. Leave both unset and the dashboard is open, same
   as the *arrs.
-- **Safe by default** — libraries are opt-in, dry-run is the default, and
-  posters are cached server-side so your Plex token never reaches a browser.
+- **Safe by default** — libraries are opt-in, a written theme is one file you
+  can delete to undo it, and posters are cached server-side so your Plex token
+  never reaches a browser.
 - **One container, one volume** — SQLite for everything, secrets generated on
   first boot, `PUID`/`PGID` respected, port 7373.
 

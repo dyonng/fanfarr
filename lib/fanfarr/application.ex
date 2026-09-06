@@ -27,13 +27,16 @@ defmodule Fanfarr.Application do
       # buffer above starts earlier on purpose and simply does not persist the
       # handful of lines logged before this point.
       Fanfarr.Log.Store,
-      {Oban,
-       AshOban.config(
-         Application.fetch_env!(:fanfarr, :ash_domains),
-         # Not the raw app env: the apply queue's width is a setting, and this
-         # is where a restart picks the operator's choice back up.
-         Fanfarr.Jobs.oban_config()
-       )},
+      # An MFA, not `{Oban, AshOban.config(...)}`. This list is a literal: every
+      # element is evaluated when the list is built, which is before any child
+      # has started. Written the obvious way, the apply queue's width was read
+      # out of the database before Fanfarr.Repo existed -- the read failed, the
+      # resolver's `_ -> nil` swallowed it, and Oban started at the compiled
+      # default of 2 while Settings went on displaying the 4 the operator had
+      # chosen. It only showed up after a restart, because scaling the running
+      # queue works fine. Supervisor calls this after the children before it
+      # are up, so the setting is there to be read.
+      %{id: Oban, type: :supervisor, start: {Fanfarr.Jobs, :start_oban, []}},
       # Start a worker by calling: Fanfarr.Worker.start_link(arg)
       # {Fanfarr.Worker, arg},
       # Start to serve requests, typically the last entry

@@ -21,7 +21,7 @@ defmodule Fanfarr.Themes.Remover do
   `Fanfarr.Themes.ThemeApplication` is append-only, so this appends a
   `:removed` row rather than touching the `:succeeded` one. That is also what
   keeps the status honest: `Fanfarr.Library.MediaItem.ThemeStatus` reads the
-  latest non-dry-run row, so without this the item would keep reporting
+  latest row, so without this the item would keep reporting
   `:fanfarr_applied` after its file was gone.
 
   ## What it deliberately does not do
@@ -82,7 +82,6 @@ defmodule Fanfarr.Themes.Remover do
       source: :local,
       method: :local_file,
       destination_path: path,
-      dry_run: false,
       status: :removed
     })
   end

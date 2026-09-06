@@ -397,7 +397,9 @@ defmodule FanfarrWeb.DashboardTest do
 
       {:ok, view, _html} = live(conn, "/?sort=-year&studio=Aardman&status=missing")
 
-      link = view |> element("a", "Next") |> render()
+      # Two of them now -- above and below the table -- so the assertion says
+      # which. Both are built from the same component.
+      link = view |> element(~s(nav[aria-label$="below the table"] a), "Next") |> render()
 
       # Page 2 of a differently sorted or differently filtered list is page 2
       # of something the reader was never looking at.
@@ -405,6 +407,13 @@ defmodule FanfarrWeb.DashboardTest do
       assert link =~ "studio=Aardman"
       assert link =~ "status=missing"
       assert link =~ "page=2"
+
+      # The same controls above the table: a filtered library is still pages
+      # deep, and the control that changes them should not be past all of them.
+      assert has_element?(view, ~s(nav[aria-label$="above the table"] a), "Next")
+
+      assert view |> element(~s(nav[aria-label$="above the table"] a), "Next") |> render() =~
+               "sort=-year"
     end
 
     defp first_item_id do

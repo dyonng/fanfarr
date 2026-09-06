@@ -37,11 +37,10 @@ defmodule Fanfarr.Library.MediaItem.ThemeStatus do
     end)
   end
 
-  # One query for every record in the batch. Dry runs are excluded throughout:
-  # a preview must never change what the dashboard reports about an item.
+  # One query for every record in the batch.
   defp latest_applications(item_ids) do
     Fanfarr.Themes.ThemeApplication
-    |> Ash.Query.filter(media_item_id in ^item_ids and dry_run == false)
+    |> Ash.Query.filter(media_item_id in ^item_ids)
     |> Ash.Query.select([:media_item_id, :status, :inserted_at])
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read!(authorize?: false)

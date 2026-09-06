@@ -2,17 +2,6 @@ defmodule Fanfarr.Workers.ApplyTheme do
   @moduledoc """
   Resolve a theme for one item and put it on disk.
 
-  ## Dry run is the default, deliberately
-
-  Writing a theme changes someone's media library, and the operator will
-  usually be doing it to thousands of titles at once. A dry run walks the
-  entire pipeline -- resolves the URL, resolves the destination directory,
-  checks it is writable -- and stops before the download. It reports what it
-  *would* do, which is the only way to find a misconfigured path mapping
-  before it has been applied 1,785 times.
-
-  Pass `"dry_run" => false` explicitly to actually write.
-
   ## Only local theme files, for now
 
   A theme.mp3 beside the media is reversible: deleting the file undoes it.
@@ -38,15 +27,15 @@ defmodule Fanfarr.Workers.ApplyTheme do
   leaves evidence rather than silence. No database transaction spans the
   download.
   """
-  # Unique per item *and* mode: with only the item as the key, a queued dry
-  # run silently swallowed the real apply that followed it for five minutes,
-  # which is precisely the order an operator does them in.
+  # Keyed on the URL as well as the item: applying a ThemerrDB suggestion and
+  # then a URL picked from search are two different jobs for the same item,
+  # and the second must not be swallowed as a duplicate of the first.
   use Oban.Worker,
     queue: :apply,
     max_attempts: 3,
     unique: [
       period: 300,
-      keys: [:media_item_id, :dry_run, :theme_url],
+      keys: [:media_item_id, :theme_url],
       states: [:available, :scheduled, :executing]
     ]
 
@@ -59,18 +48,17 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"media_item_id" => item_id} = args}) do
-    dry_run = Map.get(args, "dry_run", true)
     item = Library.get_media_item!(item_id)
 
     case plan(item, args) do
       {:ok, plan} ->
-        record_intent(item, plan, dry_run)
-        execute(item, plan, dry_run)
+        record_intent(item, plan)
+        execute(item, plan)
 
       {:error, reason} ->
         # A plan that cannot be made is a permanent condition -- a locked item,
         # an unmapped path, no ThemerrDB entry. Retrying does not help.
-        record_outcome(item, blank_plan(), dry_run, :skipped, reason)
+        record_outcome(item, blank_plan(), :skipped, reason)
         {:cancel, reason}
     end
   end
@@ -78,16 +66,16 @@ defmodule Fanfarr.Workers.ApplyTheme do
   @doc """
   Queues this worker for an item.
 
-  `:dry_run` defaults to true. `:theme_url` applies that URL instead of the
-  item's manual pick or ThemerrDB entry -- used by "apply this one" from a
-  search result, where the URL was just previewed.
+  `:theme_url` applies that URL instead of the item's manual pick or ThemerrDB
+  entry -- used by "apply this one" from a search result, where the URL was
+  just listened to.
   """
   @spec enqueue(Fanfarr.Library.MediaItem.t() | String.t(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue(item_or_id, opts \\ []) do
     id = if is_binary(item_or_id), do: item_or_id, else: item_or_id.id
 
-    %{media_item_id: id, dry_run: Keyword.get(opts, :dry_run, true)}
+    %{media_item_id: id}
     |> maybe_put(:theme_url, opts[:theme_url])
     |> maybe_put(:source, opts[:source])
     |> new()
@@ -192,21 +180,7 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
   # --- execution --------------------------------------------------------------
 
-  defp execute(item, plan, true = dry_run) do
-    # The point of a dry run is to fail here rather than in production, so the
-    # destination is checked for real even though nothing is written.
-    case writable?(plan.dir) do
-      :ok ->
-        record_outcome(item, plan, dry_run, :succeeded, nil)
-        :ok
-
-      {:error, reason} ->
-        record_outcome(item, plan, dry_run, :failed, reason)
-        {:cancel, reason}
-    end
-  end
-
-  defp execute(item, plan, false = dry_run) do
+  defp execute(item, plan) do
     with :ok <- writable?(plan.dir),
          {:ok, download} <- download(plan) do
       # The local theme is recorded first: record_outcome broadcasts, and a
@@ -219,12 +193,12 @@ defmodule Fanfarr.Workers.ApplyTheme do
           local_theme_path: plan.path
         })
 
-      record_outcome(item, plan, dry_run, :succeeded, nil, download)
+      record_outcome(item, plan, :succeeded, nil, download)
       hand_over_to_plex(item, plan)
       :ok
     else
       {:error, reason} ->
-        record_outcome(item, plan, dry_run, :failed, reason)
+        record_outcome(item, plan, :failed, reason)
         retry_or_stop(reason)
     end
   end
@@ -424,7 +398,7 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
   defp blank_plan, do: %{url: nil, path: nil, source: :themerrdb}
 
-  defp record_intent(item, plan, dry_run) do
+  defp record_intent(item, plan) do
     # Broadcast here as well as on the outcome: the page should show that work
     # started, not just that it finished.
     broadcast(item)
@@ -434,8 +408,7 @@ defmodule Fanfarr.Workers.ApplyTheme do
       source: plan.source,
       method: :local_file,
       theme_url: plan.url,
-      destination_path: plan.path,
-      dry_run: dry_run
+      destination_path: plan.path
     })
   end
 
@@ -489,14 +462,13 @@ defmodule Fanfarr.Workers.ApplyTheme do
   def explain({:http, status}), do: "Plex answered #{status}"
   def explain(other), do: inspect(other)
 
-  defp record_outcome(item, plan, dry_run, status, reason, download \\ %{}) do
+  defp record_outcome(item, plan, status, reason, download \\ %{}) do
     Themes.record_theme_outcome!(%{
       media_item_id: item.id,
       source: plan[:source] || :themerrdb,
       method: :local_file,
       theme_url: plan[:url],
       destination_path: plan[:path],
-      dry_run: dry_run,
       status: status,
       error: reason && explain(reason),
       codec: download[:codec],

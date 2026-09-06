@@ -93,8 +93,8 @@ defmodule Fanfarr.Plex.Client do
 
   @doc """
   Uploads a theme. IRREVERSIBLE: Plex has no API to delete a theme, so callers
-  go through the application log's intent/outcome pair, never call this
-  directly from UI code, and honour dry-run before reaching this point.
+  go through the application log's intent/outcome pair and never call this
+  directly from UI code.
   """
   @callback upload_theme(config, rating_key :: String.t(), {:url, String.t()} | {:file, Path.t()}) ::
               :ok | {:error, term()}

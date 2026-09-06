@@ -75,24 +75,14 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
   defp history(item), do: Themes.theme_history_for_item!(item.id)
 
-  describe "dry run (the default)" do
-    test "plans without downloading or writing anything", ctx do
-      themerr_hit()
-      item = item(ctx)
-
-      # No downloader expectation is set: verify_on_exit! turns any call into a
-      # failure, which is the assertion.
-      assert :ok = run(item)
-
-      refute File.exists?(Path.join(ctx.media, "theme.mp3"))
-
-      [outcome, intent] = history(item)
-      assert intent.status == :pending
-      assert intent.dry_run
-      assert outcome.status == :succeeded
-      assert outcome.dry_run
-      assert outcome.destination_path == Path.join(ctx.media, "theme.mp3")
-    end
+  # For tests about planning rather than about the audio: the download is not
+  # what is under test, it just has to happen for the run to reach the end.
+  defp stub_download do
+    stub(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      file = Path.join(dir, "theme.mp3")
+      File.write!(file, "the-audio")
+      {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 90.0}}
+    end)
   end
 
   describe "an unwritable destination" do
@@ -122,20 +112,21 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       %{readonly_media: media}
     end
 
-    test "a dry run reports it rather than succeeding", ctx do
+    test "it is reported before anything is downloaded", ctx do
       themerr_hit()
       item = item(ctx, %{plex_path: ctx.readonly_media})
 
+      # No downloader expectation: writability is checked first, so
+      # verify_on_exit! fails if audio was fetched for a file that could never
+      # have been written.
       assert {:cancel, {:destination_not_writable, _}} = run(item)
 
       [outcome | _] = history(item)
       assert outcome.status == :failed
-      # Finding this in a dry run is the entire reason dry run checks it.
-      assert outcome.dry_run
     end
   end
 
-  describe "more dry run" do
+  describe "planning" do
     test "an item with no ThemerrDB entry is skipped, not retried", ctx do
       item = item(ctx)
 
@@ -158,14 +149,13 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 88.0}}
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
 
       written = Path.join(ctx.media, "theme.mp3")
       assert File.read!(written) == "the-audio"
 
       [outcome | _] = history(item)
       assert outcome.status == :succeeded
-      refute outcome.dry_run
       assert outcome.codec == "mp3"
       assert outcome.bytes == 9
 
@@ -186,7 +176,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       # Cancelled, not retried: a video YouTube has taken down answers the same
       # way on every attempt, and five tries with backoff only keep the item
       # sitting in the queue looking like work in progress.
-      assert {:cancel, :unavailable} = run(item, %{"dry_run" => false})
+      assert {:cancel, :unavailable} = run(item)
 
       refute File.exists?(Path.join(ctx.media, "theme.mp3"))
       [outcome | _] = history(item)
@@ -202,7 +192,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:error, :unsupported_url}
       end)
 
-      assert {:cancel, :unsupported_url} = run(item, %{"dry_run" => false})
+      assert {:cancel, :unsupported_url} = run(item)
     end
 
     test "the scratch directory is cleaned up", ctx do
@@ -217,7 +207,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:ok, %{path: file, bytes: 1, codec: "mp3", duration: 1.0}}
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
       assert Path.wildcard(Path.join(parent, "fanfarr-dl-*")) == before
     end
   end
@@ -286,7 +276,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         :ok
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
 
       assert_received :scanned
       assert_received :refreshed
@@ -325,7 +315,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
       # Neither select_theme nor upload_theme is expected: calling either fails
       # the test, which is the assertion that a served theme is left alone.
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
     end
 
     test "a locked theme field goes straight to upload, without trying to select",
@@ -384,7 +374,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         :ok
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
 
       reloaded = Fanfarr.Library.get_media_item!(item.id)
       assert reloaded.plex_theme_origin == :uploaded
@@ -443,7 +433,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         :ok
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
       assert Fanfarr.Library.get_media_item!(item.id).plex_theme_origin == :uploaded
     end
 
@@ -461,7 +451,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:error, {:http, 500, "no"}}
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
       assert File.read!(Path.join(ctx.media, "theme.mp3")) == "the-audio"
       [outcome | _] = history(item)
       assert outcome.status == :succeeded
@@ -477,21 +467,12 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       stub(Fanfarr.PlexClientMock, :metadata, fn _c, _k -> {:error, :timeout} end)
       stub(Fanfarr.PlexClientMock, :themes, fn _c, _k -> {:error, :timeout} end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
 
       # The bytes are on disk and correct, which is what the job was for.
       assert File.read!(Path.join(ctx.media, "theme.mp3")) == "the-audio"
       [outcome | _] = history(item)
       assert outcome.status == :succeeded
-    end
-
-    test "a dry run tells Plex nothing", ctx do
-      themerr_hit()
-      item = item(ctx)
-
-      # No downloader and no Plex expectations at all: a preview that touched
-      # the server would not be a preview.
-      assert :ok = run(item, %{"dry_run" => true})
     end
   end
 
@@ -513,7 +494,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:ok, %{path: file, bytes: 1, codec: "mp3", duration: 1.0}}
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
       [outcome | _] = history(item)
       assert outcome.source == :youtube
       assert outcome.theme_url == "https://youtu.be/mypick00000"
@@ -524,12 +505,18 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       item = item(ctx)
       Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/mypick00000"})
 
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir ->
+        assert url == "https://youtu.be/explicit000"
+        file = Path.join(dir, "theme.mp3")
+        File.write!(file, "x")
+        {:ok, %{path: file, bytes: 1, codec: "mp3", duration: 1.0}}
+      end)
+
       assert :ok =
                run(item, %{"theme_url" => "https://youtu.be/explicit000", "source" => "youtube"})
 
       [outcome | _] = history(item)
       assert outcome.theme_url == "https://youtu.be/explicit000"
-      assert outcome.dry_run
     end
 
     test "with no pick and no entry, it is skipped with a reason", ctx do
@@ -539,36 +526,32 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
   end
 
   describe "enqueue/2" do
-    test "defaults to a dry run and carries an explicit URL", ctx do
+    test "it carries an explicit URL and source through to the job", ctx do
       item = item(ctx)
-      assert {:ok, %Oban.Job{}} = ApplyTheme.enqueue(item)
 
       assert {:ok, %Oban.Job{}} =
                ApplyTheme.enqueue(item.id,
-                 dry_run: false,
                  theme_url: "https://youtu.be/abc",
                  source: :youtube
                )
 
-      # Read back from the database: string keys, and proof that the second
-      # insert was not deduplicated against the first.
-      [dry, real] =
-        Fanfarr.Repo.all(Oban.Job)
-        |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
-        |> Enum.sort_by(& &1.id)
+      # Read back from the database, where the keys are strings.
+      [job] = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
 
-      assert dry.args["dry_run"] == true
-      assert real.args["dry_run"] == false
-      assert real.args["theme_url"] == "https://youtu.be/abc"
-      assert real.args["source"] == "youtube"
+      assert job.args["theme_url"] == "https://youtu.be/abc"
+      assert job.args["source"] == "youtube"
     end
 
-    test "a queued dry run does not swallow the apply that follows it", ctx do
+    test "picking a second video is a second job, not a duplicate", ctx do
+      # The uniqueness window is five minutes and keyed on the URL as well as
+      # the item. Keyed on the item alone, changing your mind about a theme
+      # within that window would be silently dropped -- which is exactly the
+      # pace someone auditions two videos at.
       item = item(ctx)
-      {:ok, first} = ApplyTheme.enqueue(item, dry_run: true)
-      {:ok, second} = ApplyTheme.enqueue(item, dry_run: false)
+      {:ok, first} = ApplyTheme.enqueue(item, theme_url: "https://youtu.be/first00000")
+      {:ok, second} = ApplyTheme.enqueue(item, theme_url: "https://youtu.be/second0000")
 
-      refute second.conflict?, "the apply was deduplicated against the dry run"
+      refute second.conflict?, "the second pick was deduplicated against the first"
       assert first.id != second.id
     end
   end
@@ -584,7 +567,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:ok, %{path: file, bytes: 5, codec: "mp3", duration: 90.0}}
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
 
       [outcome | _] = history(item)
       assert outcome.status == :succeeded
@@ -630,7 +613,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:ok, %{path: file, bytes: File.stat!(file).size, codec: "mp3", duration: 5.0}}
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
 
       [outcome | _] = history(item)
       assert outcome.status == :succeeded
@@ -682,7 +665,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 90.0}}
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
 
       written = Path.join([ctx.root, "tv2/One Pace", "theme.mp3"])
       assert File.read!(written) == "the-audio"
@@ -692,10 +675,11 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       assert outcome.destination_path == written
     end
 
-    test "a dry run reports the resolved destination, not the reported path", ctx do
+    test "the resolved destination is recorded, not the reported path", ctx do
       item = item(ctx, %{title: "One Pace", plex_path: "/media/red-10-redemption/TV/One Pace"})
       Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/abc12345678"})
 
+      stub_download()
       assert :ok = run(item)
 
       [outcome | _] = history(item)
@@ -733,6 +717,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       item = item(ctx, %{plex_path: Path.join(pool, "One Piece (1999)")})
 
+      stub_download()
       assert :ok = run(item)
 
       [outcome | _] = history(item)
@@ -751,6 +736,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       item = item(ctx, %{plex_path: Path.join(pool, "One Piece (1999)")})
 
+      stub_download()
       assert :ok = run(item)
       [outcome | _] = history(item)
       # Not the movies drive, even though a same-named directory exists there.
@@ -764,7 +750,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       item = item(ctx)
       item = Ash.Changeset.for_update(item, :update, %{theme_locked: true}) |> Ash.update!()
 
-      assert {:cancel, :theme_locked} = run(item, %{"dry_run" => false})
+      assert {:cancel, :theme_locked} = run(item)
     end
 
     test "a movie in its own folder is written like anything else", ctx do
@@ -786,7 +772,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 88.0}}
       end)
 
-      assert :ok = run(item, %{"dry_run" => false})
+      assert :ok = run(item)
       assert File.read!(Path.join(media, "theme.mp3")) == "the-audio"
     end
 
@@ -802,7 +788,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       # every neighbouring film's theme, not this one's.
       item = item(ctx, %{kind: :movie, title: "Heat", plex_path: movies})
 
-      assert {:cancel, {:not_in_own_folder, _}} = run(item, %{"dry_run" => false})
+      assert {:cancel, {:not_in_own_folder, _}} = run(item)
       refute File.exists?(Path.join(movies, "theme.mp3"))
     end
 
@@ -810,7 +796,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       item = item(ctx, %{plex_path: nil})
 
-      assert {:cancel, :no_plex_path} = run(item, %{"dry_run" => false})
+      assert {:cancel, :no_plex_path} = run(item)
     end
 
     test "with no root folders, a path the container cannot see is named", ctx do
@@ -819,7 +805,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
       # Nothing configured to bridge host paths to container mounts.
       assert {:cancel, {:destination_missing, "/media/red-10-redemption/TV/One Pace"}} =
-               run(item, %{"dry_run" => false})
+               run(item)
     end
   end
 end

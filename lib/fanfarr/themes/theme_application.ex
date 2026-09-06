@@ -24,11 +24,6 @@ defmodule Fanfarr.Themes.ThemeApplication do
   It also carries the idempotency check: before applying anything, look here.
   If the intended theme is already recorded as succeeded for this item, there
   is nothing to do, and re-uploading would grow the data directory for no gain.
-
-  Dry runs are recorded too, with `dry_run: true`. They are excluded from every
-  aggregate that feeds the dashboard, so previewing never changes what the
-  library reports -- but keeping them means a preview can be inspected after
-  the fact rather than only watched as it scrolls past.
   """
   use Ash.Resource,
     otp_app: :fanfarr,
@@ -62,7 +57,7 @@ defmodule Fanfarr.Themes.ThemeApplication do
     # Written BEFORE the upload is attempted, so a crash mid-upload leaves
     # evidence that something was in flight rather than silence.
     create :record_intent do
-      accept [:media_item_id, :source, :method, :theme_url, :destination_path, :dry_run]
+      accept [:media_item_id, :source, :method, :theme_url, :destination_path]
 
       change set_attribute(:status, :pending)
       change set_attribute(:attempted_at, &DateTime.utc_now/0)
@@ -75,7 +70,6 @@ defmodule Fanfarr.Themes.ThemeApplication do
         :method,
         :theme_url,
         :destination_path,
-        :dry_run,
         :status,
         :error,
         :codec,
@@ -93,7 +87,7 @@ defmodule Fanfarr.Themes.ThemeApplication do
     end
 
     read :failures do
-      filter expr(status == :failed and dry_run == false)
+      filter expr(status == :failed)
       prepare build(sort: [inserted_at: :desc])
     end
   end
@@ -140,13 +134,6 @@ defmodule Fanfarr.Themes.ThemeApplication do
       public? true
 
       description "For :local_file, the resolved directory actually written to, after root folder resolution."
-    end
-
-    attribute :dry_run, :boolean do
-      allow_nil? false
-      default false
-      public? true
-      description "Previews are recorded but excluded from every dashboard aggregate."
     end
 
     attribute :error, :string, public?: true

@@ -150,7 +150,7 @@ defmodule FanfarrWeb.ItemLive.Show do
   # "is this in line with the rest of the library" is answerable here.
   defp written_details(item) do
     Fanfarr.Themes.theme_history_for_item!(item.id)
-    |> Enum.find(&(&1.status == :succeeded and not &1.dry_run))
+    |> Enum.find(&(&1.status == :succeeded))
   end
 
   defp theme_version(%{local_theme_checked_at: nil}), do: 0
@@ -168,10 +168,6 @@ defmodule FanfarrWeb.ItemLive.Show do
   # --- events ---------------------------------------------------------------
 
   @impl true
-  def handle_event("apply", _params, socket) do
-    queue(socket, dry_run: false, flash: "Theme queued for writing")
-  end
-
   def handle_event("lookup", _params, socket) do
     case %{media_item_id: socket.assigns.item.id}
          |> LookupTheme.new()
@@ -184,7 +180,7 @@ defmodule FanfarrWeb.ItemLive.Show do
   def handle_event("use_themerr", _params, socket) do
     case socket.assigns.themerr do
       %{youtube_theme_url: url} when is_binary(url) and url != "" ->
-        set_manual(socket, url, "ThemerrDB suggestion")
+        apply_pick(socket, url, "ThemerrDB suggestion")
 
       _ ->
         {:noreply, put_flash(socket, :error, "ThemerrDB has no suggestion for this item")}
@@ -215,14 +211,14 @@ defmodule FanfarrWeb.ItemLive.Show do
   end
 
   def handle_event("use_video", %{"url" => url} = params, socket) do
-    set_manual(socket, url, params["title"])
+    apply_pick(socket, url, params["title"])
   end
 
   def handle_event("use_url", %{"url" => url}, socket) do
     url = String.trim(url)
 
     if Downloader.youtube_url?(url) do
-      set_manual(socket, url, nil)
+      apply_pick(socket, url, nil)
     else
       {:noreply, put_flash(socket, :error, "That is not a YouTube URL")}
     end
@@ -258,6 +254,18 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> start_async(:refresh, fn -> Fanfarr.Library.ItemRefresh.refresh(item) end)}
   end
 
+  # Re-applying what is already pinned, from the card that shows it. The pick
+  # survives a Remove, so this is the one-click way back.
+  def handle_event("apply_pick", _params, socket) do
+    case socket.assigns.item.manual_theme_url do
+      url when is_binary(url) and url != "" ->
+        apply_pick(socket, url, socket.assigns.item.manual_theme_title)
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "There is no pick to apply")}
+    end
+  end
+
   def handle_event("clear_manual", _params, socket) do
     Library.set_manual_theme!(socket.assigns.item, %{
       manual_theme_url: nil,
@@ -268,17 +276,26 @@ defmodule FanfarrWeb.ItemLive.Show do
      socket |> load() |> put_flash(:info, "Manual pick cleared; ThemerrDB is the source again")}
   end
 
-  defp set_manual(socket, url, title) do
+  # Choosing a theme and writing it were two steps, and the second one lived at
+  # the top of the page away from the choice that needed it -- so the common
+  # path was to pick something and leave without applying it. They are one
+  # action now.
+  #
+  # The URL is passed to the worker rather than left for it to re-resolve from
+  # the item. Two reasons: the job then says which theme it is for, and the
+  # worker's uniqueness window is keyed on it, so picking a second video within
+  # five minutes of the first is a different job rather than a duplicate that
+  # gets silently dropped.
+  defp apply_pick(socket, url, title) do
     Library.set_manual_theme!(socket.assigns.item, %{
       manual_theme_url: url,
       manual_theme_title: title
     })
 
-    {:noreply,
-     socket
-     |> load()
-     |> assign(:previewing, nil)
-     |> put_flash(:info, "Saved as this item's theme. Apply to write it.")}
+    socket
+    |> load()
+    |> assign(:previewing, nil)
+    |> queue(theme_url: url, flash: "Queued for writing")
   end
 
   defp queue(socket, opts) do
@@ -427,20 +444,6 @@ defmodule FanfarrWeb.ItemLive.Show do
             </div>
 
             <div class="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                phx-click="apply"
-                disabled={@applying or @item.theme_locked}
-                class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                title={apply_title(@item)}
-              >
-                <.icon
-                  :if={@applying}
-                  name="lucide-loader-circle"
-                  class="size-4 animate-spin"
-                />
-                <.icon :if={!@applying} name="lucide-music" class="size-4" />
-                {if @applying, do: "Working…", else: "Apply theme"}
-              </button>
               <button
                 phx-click="lookup"
                 class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground"
@@ -846,12 +849,13 @@ defmodule FanfarrWeb.ItemLive.Show do
                   <.icon name="lucide-play" class="size-3.5" /> Preview
                 </button>
                 <button
-                  :if={@item.manual_theme_url != @themerr.youtube_theme_url}
                   phx-click="use_themerr"
-                  class="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-                  title="Pin this as the item's pick so a later ThemerrDB edit cannot change it"
+                  disabled={@applying or @item.theme_locked}
+                  class="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  title={apply_title(@item)}
                 >
-                  <.icon name="lucide-check" class="size-3.5" /> Use this
+                  <.icon name="lucide-music" class="size-3.5" />
+                  {if @applying, do: "Working…", else: "Apply theme"}
                 </button>
                 <a
                   href={@themerr.youtube_theme_url}
@@ -885,6 +889,18 @@ defmodule FanfarrWeb.ItemLive.Show do
               >
                 {@item.manual_theme_url}
               </p>
+              <%!-- The only place a pick already made can be written again.
+              With the apply action moved onto the choice, a pick from a search
+              run yesterday would otherwise need the search running again. --%>
+              <button
+                phx-click="apply_pick"
+                disabled={@applying or @item.theme_locked}
+                class="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                title={apply_title(@item)}
+              >
+                <.icon name="lucide-music" class="size-3.5" />
+                {if @applying, do: "Working…", else: "Apply theme"}
+              </button>
               <div class="flex gap-3 text-xs">
                 <button
                   :if={Downloader.youtube_id(@item.manual_theme_url)}
@@ -1100,9 +1116,12 @@ defmodule FanfarrWeb.ItemLive.Show do
                   phx-click="use_video"
                   phx-value-url={hit.url}
                   phx-value-title={hit.title}
-                  class="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                  disabled={@applying or @item.theme_locked}
+                  class="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  title={apply_title(@item)}
                 >
-                  <.icon name="lucide-check" class="size-3.5" /> Use this
+                  <.icon name="lucide-music" class="size-3.5" />
+                  {if @applying, do: "Working…", else: "Apply theme"}
                 </button>
               </li>
             </ul>
@@ -1159,12 +1178,6 @@ defmodule FanfarrWeb.ItemLive.Show do
                       entry.status == :skipped && "bg-muted text-muted-foreground"
                     ]}>
                       {entry.status}
-                    </span>
-                    <span
-                      :if={entry.dry_run}
-                      class="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-                    >
-                      dry run
                     </span>
                   </td>
                   <td class="max-w-md px-2 py-2 text-xs text-muted-foreground">

@@ -368,7 +368,7 @@ defmodule Fanfarr.Diagnostics do
         |> Enum.take(10)
         |> Enum.map_join("\n", fn e ->
           "  #{Calendar.strftime(e.attempted_at, "%Y-%m-%d %H:%M")} #{e.status}" <>
-            "#{if e.dry_run, do: " (dry run)", else: ""} #{e.source} #{e.error || ""}"
+            " #{e.source} #{e.error || ""}"
         end)
     end
   end
