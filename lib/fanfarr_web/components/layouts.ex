@@ -77,14 +77,14 @@ defmodule FanfarrWeb.Layouts do
           </a>
           <button
             phx-click={JS.dispatch("phx:toggle-sidebar")}
-            class="rounded-md p-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [[data-sidebar=collapsed]_&]:hidden"
+            class="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground sm:size-8 [[data-sidebar=collapsed]_&]:hidden"
             title="Collapse sidebar"
           >
             <.icon name="lucide-panel-left-close" class="size-4" />
           </button>
           <button
             phx-click={JS.dispatch("phx:toggle-sidebar")}
-            class="hidden rounded-md p-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [[data-sidebar=collapsed]_&]:block"
+            class="hidden size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground sm:size-8 [[data-sidebar=collapsed]_&]:inline-flex"
             title="Expand sidebar"
           >
             <.icon name="lucide-panel-left-open" class="size-4" />
@@ -136,7 +136,7 @@ defmodule FanfarrWeb.Layouts do
             <a
               :if={assigns[:current_user]}
               href={~p"/sign-out"}
-              class="rounded-md p-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              class="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground sm:size-9"
               title="Sign out"
             >
               <.icon name="lucide-log-out" class="size-4" />
@@ -145,8 +145,21 @@ defmodule FanfarrWeb.Layouts do
         </div>
       </aside>
 
-      <div class="flex flex-1 flex-col pl-52 transition-[padding] [[data-sidebar=collapsed]_&]:pl-14">
-        <main class="flex-1 px-6 py-6">
+      <%!-- min-w-0 is why this page fits a phone at all.
+
+      A flex item will not shrink below its content's min-content width unless
+      told it may, and `truncate` sets white-space: nowrap, which makes a long
+      YouTube title's min-content width the whole title. Without min-w-0 here
+      that floor propagates all the way out: a search for one video took the
+      document to 1,246px inside a 390px viewport, and every page sat at 400-780
+      because of the library table's eight columns. The overflow-x-auto wrappers
+      that were supposed to contain all this could never engage, because nothing
+      above them was constrained. With it, the document is exactly the viewport
+      and those wrappers do their job.
+
+      px-4 below sm: six units of padding either side is 48px of a 390px screen. --%>
+      <div class="flex min-w-0 flex-1 flex-col pl-52 transition-[padding] [[data-sidebar=collapsed]_&]:pl-14">
+        <main class="min-w-0 flex-1 px-4 py-6 sm:px-6">
           {render_slot(@inner_block)}
         </main>
       </div>
@@ -259,7 +272,7 @@ defmodule FanfarrWeb.Layouts do
       navigate={@navigate}
       title={@label}
       class={[
-        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+        "flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors sm:min-h-0",
         "[[data-sidebar=collapsed]_&]:justify-center [[data-sidebar=collapsed]_&]:gap-0 [[data-sidebar=collapsed]_&]:px-0",
         @current && "bg-sidebar-accent text-sidebar-accent-foreground",
         !@current &&
@@ -376,7 +389,7 @@ defmodule FanfarrWeb.Layouts do
       <div class="absolute w-1/3 h-full rounded-full border border-border bg-background left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 [[data-theme-source=system]_&]:!left-0 transition-[left]" />
 
       <button
-        class="relative flex w-1/3 cursor-pointer items-center justify-center gap-2 p-2 text-xs font-medium opacity-75 hover:opacity-100"
+        class="relative flex min-h-11 w-1/3 cursor-pointer items-center justify-center gap-2 p-2 text-xs font-medium opacity-75 hover:opacity-100 sm:min-h-0"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="system"
       >
@@ -384,7 +397,7 @@ defmodule FanfarrWeb.Layouts do
       </button>
 
       <button
-        class="relative flex w-1/3 cursor-pointer items-center justify-center gap-2 p-2 text-xs font-medium opacity-75 hover:opacity-100"
+        class="relative flex min-h-11 w-1/3 cursor-pointer items-center justify-center gap-2 p-2 text-xs font-medium opacity-75 hover:opacity-100 sm:min-h-0"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
       >
@@ -392,7 +405,7 @@ defmodule FanfarrWeb.Layouts do
       </button>
 
       <button
-        class="relative flex w-1/3 cursor-pointer items-center justify-center gap-2 p-2 text-xs font-medium opacity-75 hover:opacity-100"
+        class="relative flex min-h-11 w-1/3 cursor-pointer items-center justify-center gap-2 p-2 text-xs font-medium opacity-75 hover:opacity-100 sm:min-h-0"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
       >

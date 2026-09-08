@@ -120,67 +120,72 @@ defmodule FanfarrWeb.ActivityLive.Index do
           <div :if={@jobs == []} class="px-4 py-6 text-sm text-muted-foreground">
             No jobs yet. A library sync or theme refresh will appear here.
           </div>
-          <table :if={@jobs != []} class="w-full text-sm">
-            <tbody>
-              <tr :for={job <- @jobs} class="border-b border-border/60 last:border-0">
-                <td class="px-4 py-2">
-                  <p class="text-sm">{job.label}</p>
-                  <p class="font-mono text-xs text-muted-foreground">
-                    {Fanfarr.Jobs.short_worker(job.worker)}
-                  </p>
-                </td>
-                <td class="px-3 py-2">
-                  <.link
-                    :if={job.item_id && job.item_title}
-                    navigate={~p"/library/#{job.item_id}"}
-                    class="text-sm hover:underline"
-                  >
-                    {job.item_title}
-                  </.link>
-                  <span
-                    :if={job.item_id && is_nil(job.item_title)}
-                    class="text-sm text-muted-foreground"
-                    title="The item this job was queued for no longer exists"
-                  >
-                    removed item
-                  </span>
-                  <span :if={is_nil(job.item_id)} class="text-xs text-muted-foreground">—</span>
-                </td>
-                <td class="px-2 py-2">
-                  <span class={[
-                    "rounded-full px-2 py-0.5 text-xs font-medium",
-                    job.state == "completed" &&
-                      "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-                    job.state == "executing" && "bg-primary/15 text-primary",
-                    job.state in ["retryable", "discarded"] && "bg-destructive/15 text-destructive",
-                    job.state in ["available", "scheduled"] && "bg-muted text-muted-foreground",
-                    job.state == "cancelled" && "bg-muted text-muted-foreground"
-                  ]}>
-                    {job.state}
-                  </span>
-                </td>
-                <td class="px-2 py-2 text-xs text-muted-foreground">
-                  attempt {job.attempt}/{job.max_attempts} · {job.queue}
-                </td>
-                <td class="px-2 py-2 text-xs text-destructive">
-                  <details :if={job.errors != []}>
-                    <summary class="cursor-pointer">last error</summary>
-                    <pre class="mt-1 max-w-xl overflow-x-auto whitespace-pre-wrap text-xs">{last_error(job)}</pre>
-                  </details>
-                </td>
-                <td class="px-4 py-2 text-right">
-                  <button
-                    :if={job.state in ["retryable", "discarded", "cancelled"]}
-                    phx-click="retry"
-                    phx-value-id={job.id}
-                    class="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground"
-                  >
-                    Retry
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <%!-- Scrolls inside itself rather than pushing the page sideways.
+          Without this the row wrapped into "attempt 1/3 · sync" over three
+          lines on a phone, and the page carried the overflow. --%>
+          <div :if={@jobs != []} class="overflow-x-auto">
+            <table class="w-full min-w-[34rem] text-sm">
+              <tbody>
+                <tr :for={job <- @jobs} class="border-b border-border/60 last:border-0">
+                  <td class="px-4 py-2">
+                    <p class="text-sm">{job.label}</p>
+                    <p class="font-mono text-xs text-muted-foreground">
+                      {Fanfarr.Jobs.short_worker(job.worker)}
+                    </p>
+                  </td>
+                  <td class="px-3 py-2">
+                    <.link
+                      :if={job.item_id && job.item_title}
+                      navigate={~p"/library/#{job.item_id}"}
+                      class="text-sm hover:underline"
+                    >
+                      {job.item_title}
+                    </.link>
+                    <span
+                      :if={job.item_id && is_nil(job.item_title)}
+                      class="text-sm text-muted-foreground"
+                      title="The item this job was queued for no longer exists"
+                    >
+                      removed item
+                    </span>
+                    <span :if={is_nil(job.item_id)} class="text-xs text-muted-foreground">—</span>
+                  </td>
+                  <td class="px-2 py-2">
+                    <span class={[
+                      "rounded-full px-2 py-0.5 text-xs font-medium",
+                      job.state == "completed" &&
+                        "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                      job.state == "executing" && "bg-primary/15 text-primary",
+                      job.state in ["retryable", "discarded"] && "bg-destructive/15 text-destructive",
+                      job.state in ["available", "scheduled"] && "bg-muted text-muted-foreground",
+                      job.state == "cancelled" && "bg-muted text-muted-foreground"
+                    ]}>
+                      {job.state}
+                    </span>
+                  </td>
+                  <td class="px-2 py-2 text-xs text-muted-foreground">
+                    attempt {job.attempt}/{job.max_attempts} · {job.queue}
+                  </td>
+                  <td class="px-2 py-2 text-xs text-destructive">
+                    <details :if={job.errors != []}>
+                      <summary class="cursor-pointer">last error</summary>
+                      <pre class="mt-1 max-w-xl overflow-x-auto whitespace-pre-wrap text-xs">{last_error(job)}</pre>
+                    </details>
+                  </td>
+                  <td class="px-4 py-2 text-right">
+                    <button
+                      :if={job.state in ["retryable", "discarded", "cancelled"]}
+                      phx-click="retry"
+                      phx-value-id={job.id}
+                      class="inline-flex min-h-10 items-center rounded-md border border-border px-2 py-1 text-xs sm:min-h-0 hover:bg-accent hover:text-accent-foreground"
+                    >
+                      Retry
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section class="rounded-lg border border-border bg-card">
@@ -190,21 +195,23 @@ defmodule FanfarrWeb.ActivityLive.Index do
           <div :if={@failures == []} class="px-4 py-6 text-sm text-muted-foreground">
             None. Failures land here with their actual error.
           </div>
-          <table :if={@failures != []} class="w-full text-sm">
-            <tbody>
-              <tr :for={f <- @failures} class="border-b border-border/60 last:border-0">
-                <td class="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                  {Calendar.strftime(f.attempted_at, "%Y-%m-%d %H:%M")}
-                </td>
-                <td class="px-2 py-2">
-                  <.link navigate={~p"/library/#{f.media_item_id}"} class="text-sm hover:underline">
-                    view item
-                  </.link>
-                </td>
-                <td class="px-2 py-2 text-xs text-destructive">{f.error}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div :if={@failures != []} class="overflow-x-auto">
+            <table class="w-full min-w-[34rem] text-sm">
+              <tbody>
+                <tr :for={f <- @failures} class="border-b border-border/60 last:border-0">
+                  <td class="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                    {Calendar.strftime(f.attempted_at, "%Y-%m-%d %H:%M")}
+                  </td>
+                  <td class="px-2 py-2">
+                    <.link navigate={~p"/library/#{f.media_item_id}"} class="text-sm hover:underline">
+                      view item
+                    </.link>
+                  </td>
+                  <td class="px-2 py-2 text-xs text-destructive">{f.error}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
     </Layouts.app>

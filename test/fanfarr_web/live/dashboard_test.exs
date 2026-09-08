@@ -125,6 +125,80 @@ defmodule FanfarrWeb.DashboardTest do
     end
   end
 
+  describe "the mobile layout" do
+    setup :register_and_log_in_user
+
+    setup do
+      # The table only renders with rows in it, and the column assertions
+      # below are about the table.
+      section =
+        Fanfarr.Library.sync_section_from_plex!(%{plex_key: "9", title: "TV", kind: :show})
+
+      Fanfarr.Library.sync_media_item_from_plex!(%{
+        plex_rating_key: "mobile-1",
+        section_id: section.id,
+        title: "One Piece",
+        kind: :show,
+        studio: "Toei Animation"
+      })
+
+      :ok
+    end
+
+    test "the content column may shrink below its content", %{conn: conn} do
+      # One class, and the whole page's width depends on it. A flex item will
+      # not go narrower than its content's min-content width unless told it
+      # may, and `truncate` sets white-space: nowrap -- so one long YouTube
+      # title in the search results took the document to 1,246px inside a
+      # 390px viewport, and the library table's eight columns held every page
+      # at 400-780. The overflow-x-auto wrappers meant to contain that could
+      # never engage, because nothing above them was constrained.
+      #
+      # Measured in a real browser at 390px after this landed: every page is
+      # exactly the viewport. This asserts the mechanism, which is the part a
+      # future refactor can quietly drop.
+      {:ok, _view, html} = live(conn, "/")
+
+      assert html =~ ~s(class="flex min-w-0 flex-1 flex-col pl-52)
+      assert html =~ ~s(<main class="min-w-0 flex-1)
+    end
+
+    test "the sidebar starts collapsed on a narrow viewport", %{conn: conn} do
+      # Decided before first paint by the script in root.html.heex, so there is
+      # no flash of a 208px sidebar on a 390px screen and no round trip. The
+      # rule that matters: a stored "expanded" governs wide viewports only.
+      # It used to be `stored || (narrow() ? ...)`, so one tap on a phone --
+      # or any desktop session, off the same storage key -- pinned it expanded
+      # for good.
+      {:ok, _view, html} = live(conn, "/")
+
+      assert html =~ ~s|const narrow = () => matchMedia("(max-width: 767px)").matches|
+      assert html =~ ~s|if (narrow()) {\n            setSidebar("collapsed", "system");|
+
+      # Crossing the breakpoint re-runs the whole rule rather than only
+      # nudging a state that is still "system".
+      assert html =~ ~s|matchMedia("(max-width: 767px)").addEventListener("change", start)|
+    end
+
+    test "the library keeps Title and Theme on a phone, and hides the rest", %{conn: conn} do
+      # Theme is the answer to the question the page exists to ask. The first
+      # cut of this hid Year, Type and the scores but left Studio in, which
+      # pushed Theme off the right-hand edge behind a horizontal scroll: the
+      # one column that had to survive was the one that did not.
+      {:ok, view, _html} = live(conn, "/")
+
+      hidden = ~s(th[class*="md:table-cell"])
+
+      for column <- ~w(Year Type Critics Audience Studio) do
+        assert has_element?(view, hidden, column), "#{column} should be hidden below md"
+      end
+
+      for column <- ~w(Title Theme) do
+        refute has_element?(view, hidden, column), "#{column} must survive on a phone"
+      end
+    end
+  end
+
   describe "page titles" do
     test "every page is prefixed with the product name", %{conn: conn} do
       for {path, title} <- [

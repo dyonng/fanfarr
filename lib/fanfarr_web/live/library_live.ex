@@ -343,7 +343,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
           </div>
           <button
             phx-click="sync"
-            class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            class="inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
           >
             <.icon name="lucide-refresh-cw" class="size-4" /> Sync library
           </button>
@@ -356,9 +356,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
             value={@filters.q}
             placeholder="Search titles…"
             phx-debounce="300"
-            class="h-9 w-56 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="h-11 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:w-56"
           />
-          <select name="status" class="h-9 rounded-md border border-input bg-background px-2 text-sm">
+          <select
+            name="status"
+            class="h-11 rounded-md border border-input bg-background px-2 text-sm sm:h-9"
+          >
             <option value="all" selected={@filters.status in [nil, "", "all"]}>Any status</option>
             <option value="missing" selected={@filters.status == "missing"}>Missing</option>
             <option value="failed" selected={@filters.status == "failed"}>Failed</option>
@@ -370,7 +373,10 @@ defmodule FanfarrWeb.LibraryLive.Index do
             </option>
             <option value="local_file" selected={@filters.status == "local_file"}>Local file</option>
           </select>
-          <select name="kind" class="h-9 rounded-md border border-input bg-background px-2 text-sm">
+          <select
+            name="kind"
+            class="h-11 rounded-md border border-input bg-background px-2 text-sm sm:h-9"
+          >
             <option value="all" selected={@filters.kind in [nil, "", "all"]}>Shows & movies</option>
             <option value="show" selected={@filters.kind == "show"}>Shows</option>
             <option value="movie" selected={@filters.kind == "movie"}>Movies</option>
@@ -378,7 +384,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <select
             :if={@studios != []}
             name="studio"
-            class="h-9 max-w-48 rounded-md border border-input bg-background px-2 text-sm"
+            class="h-11 max-w-48 rounded-md border border-input bg-background px-2 text-sm sm:h-9"
           >
             <option value="all" selected={@filters.studio in [nil, "", "all"]}>Any studio</option>
             <option :for={studio <- @studios} value={studio} selected={@filters.studio == studio}>
@@ -388,7 +394,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <select
             :if={@collections != []}
             name="collection"
-            class="h-9 max-w-48 rounded-md border border-input bg-background px-2 text-sm"
+            class="h-11 max-w-48 rounded-md border border-input bg-background px-2 text-sm sm:h-9"
           >
             <option value="all" selected={@filters.collection in [nil, "", "all"]}>
               Any collection
@@ -426,14 +432,14 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <button
             phx-click="bulk"
             phx-value-action="lookup"
-            class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
+            class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8"
           >
             <.icon name="lucide-database" class="size-3.5" /> Look up ThemerrDB
           </button>
           <button
             phx-click="bulk"
             phx-value-action="apply"
-            class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            class="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 sm:h-8"
           >
             <.icon name="lucide-music" class="size-3.5" /> Apply themes
           </button>
@@ -448,23 +454,45 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-border bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th class="w-8 px-3 py-2">
-                  <input
-                    type="checkbox"
-                    phx-click="select_page"
-                    checked={@items != [] and Enum.all?(@items, &MapSet.member?(@selected, &1.id))}
-                    aria-label="Select this page"
-                    class="size-4 rounded border-input"
-                  />
+                <th class="w-8 p-0">
+                  <label class="flex min-h-11 cursor-pointer items-center px-3 py-2 sm:min-h-0">
+                    <input
+                      type="checkbox"
+                      phx-click="select_page"
+                      checked={@items != [] and Enum.all?(@items, &MapSet.member?(@selected, &1.id))}
+                      aria-label="Select this page"
+                      class="size-4 rounded border-input"
+                    />
+                  </label>
                 </th>
-                <th class="w-10 px-1 py-2"></th>
+                <th class="hidden w-10 px-1 py-2 sm:table-cell"></th>
                 <.column_header sort={@filters.sort} column="title" params={@filters}>
                   Title
                 </.column_header>
-                <.column_header sort={@filters.sort} column="year" params={@filters}>
+                <%!-- On a phone this table is Title and Theme, and that is
+                deliberate: "which of these is missing a theme" is what the
+                page is for, and the status badge is the answer. The first cut
+                left Studio in and pushed Theme off the right-hand edge behind
+                a horizontal scroll -- the one column that had to survive was
+                the one that did not. The poster goes below sm as well; at 32px
+                it is a grey rectangle.
+
+                Nothing becomes unreachable: every hidden column's sort link is
+                still a URL, and the item page shows all of it. --%>
+                <.column_header
+                  sort={@filters.sort}
+                  column="year"
+                  params={@filters}
+                  class="hidden md:table-cell"
+                >
                   Year
                 </.column_header>
-                <.column_header sort={@filters.sort} column="kind" params={@filters}>
+                <.column_header
+                  sort={@filters.sort}
+                  column="kind"
+                  params={@filters}
+                  class="hidden md:table-cell"
+                >
                   Type
                 </.column_header>
                 <.column_header
@@ -472,6 +500,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   column="critic"
                   params={@filters}
                   title="What critics gave it, as Plex has it"
+                  class="hidden md:table-cell"
                 >
                   Critics
                 </.column_header>
@@ -480,10 +509,16 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   column="audience"
                   params={@filters}
                   title="What audiences gave it, as Plex has it"
+                  class="hidden md:table-cell"
                 >
                   Audience
                 </.column_header>
-                <.column_header sort={@filters.sort} column="studio" params={@filters}>
+                <.column_header
+                  sort={@filters.sort}
+                  column="studio"
+                  params={@filters}
+                  class="hidden md:table-cell"
+                >
                   Studio
                 </.column_header>
                 <.column_header sort={@filters.sort} column="status" params={@filters}>
@@ -499,17 +534,22 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   MapSet.member?(@selected, item.id) && "bg-primary/5"
                 ]}
               >
-                <td class="px-3 py-2">
-                  <input
-                    type="checkbox"
-                    phx-click="toggle_select"
-                    phx-value-id={item.id}
-                    checked={MapSet.member?(@selected, item.id)}
-                    aria-label={"Select #{item.title}"}
-                    class="size-4 rounded border-input"
-                  />
+                <%!-- The box itself stays 16px -- a bigger one looks wrong in
+                a dense table -- so the padded label around it is the tap
+                target instead. --%>
+                <td class="p-0">
+                  <label class="flex min-h-11 cursor-pointer items-center px-3 py-2 sm:min-h-0">
+                    <input
+                      type="checkbox"
+                      phx-click="toggle_select"
+                      phx-value-id={item.id}
+                      checked={MapSet.member?(@selected, item.id)}
+                      aria-label={"Select #{item.title}"}
+                      class="size-4 rounded border-input"
+                    />
+                  </label>
                 </td>
-                <td class="px-1 py-1">
+                <td class="hidden px-1 py-1 sm:table-cell">
                   <img
                     src={~p"/posters/#{item.id}"}
                     alt=""
@@ -532,17 +572,25 @@ defmodule FanfarrWeb.LibraryLive.Index do
                     picked
                   </span>
                 </td>
-                <td class="px-3 py-2 text-muted-foreground">{item.year}</td>
-                <td class="px-3 py-2 text-muted-foreground">
+                <td class="hidden px-3 py-2 text-muted-foreground md:table-cell">{item.year}</td>
+                <td class="hidden px-3 py-2 text-muted-foreground md:table-cell">
                   {if item.kind == :show, do: "Series", else: "Movie"}
                 </td>
-                <.score_cell score={item.critic_score} source={item.critic_score_source} />
-                <.score_cell score={item.audience_score} source={item.audience_score_source} />
+                <.score_cell
+                  score={item.critic_score}
+                  source={item.critic_score_source}
+                  class="hidden md:table-cell"
+                />
+                <.score_cell
+                  score={item.audience_score}
+                  source={item.audience_score_source}
+                  class="hidden md:table-cell"
+                />
                 <%!-- What Apply would actually use. Without it, a bulk apply
                 over a cold cache skips most of the selection for a reason
                 nothing on this page mentioned. --%>
                 <td
-                  class="max-w-40 truncate px-3 py-2 text-muted-foreground"
+                  class="hidden max-w-40 truncate px-3 py-2 text-muted-foreground md:table-cell"
                   title={studio_title(item)}
                 >
                   {item.studio}
@@ -581,7 +629,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
         <.link
           :if={@page > 1}
           patch={~p"/?#{filter_params(@filters, @page - 1)}"}
-          class="rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
+          class="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground sm:min-h-0"
         >
           Previous
         </.link>
@@ -593,7 +641,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
             patch={~p"/?#{filter_params(@filters, entry)}"}
             aria-current={entry == @page && "page"}
             class={[
-              "min-w-9 rounded-md border px-2.5 py-1.5 text-center tabular-nums",
+              "inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border px-2.5 py-1.5 text-center tabular-nums sm:min-h-0 sm:min-w-9",
               entry == @page && "border-primary bg-primary font-medium text-primary-foreground",
               entry != @page && "border-border hover:bg-accent hover:text-accent-foreground"
             ]}
@@ -605,7 +653,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
         <.link
           :if={@page < @pages}
           patch={~p"/?#{filter_params(@filters, @page + 1)}"}
-          class="rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
+          class="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground sm:min-h-0"
         >
           Next
         </.link>
@@ -707,6 +755,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
   attr :column, :string, required: true
   attr :params, :map, required: true
   attr :title, :string, default: nil
+  # For hiding a column on a narrow screen. The <th> and its <td> have to
+  # carry the same classes or the columns stop lining up.
+  attr :class, :any, default: nil
   slot :inner_block, required: true
 
   defp column_header(assigns) do
@@ -716,7 +767,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
       |> assign(:indicator, sort_indicator(assigns.sort, assigns.column))
 
     ~H"""
-    <th class="px-3 py-2 font-medium">
+    <th class={["px-3 py-2 font-medium", @class]}>
       <.link
         patch={~p"/?#{header_params(@params, @next)}"}
         title={@title}
@@ -758,10 +809,11 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
   attr :score, :float, default: nil
   attr :source, :string, default: nil
+  attr :class, :any, default: nil
 
   defp score_cell(assigns) do
     ~H"""
-    <td class="px-3 py-2 text-muted-foreground">
+    <td class={["px-3 py-2 text-muted-foreground", @class]}>
       <span
         :if={@score}
         title={"#{Fanfarr.Library.Score.label(@source)} · #{Fanfarr.Library.Score.out_of_ten(@score)}/10 as Plex stores it"}

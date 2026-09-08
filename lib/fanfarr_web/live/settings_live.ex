@@ -616,7 +616,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
               name="path_mappings"
               value={@path_mappings}
               placeholder="/media/merged-storage/TV:/tv"
-              class="h-9 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm"
+              class="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm sm:h-9"
             />
             <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               Save

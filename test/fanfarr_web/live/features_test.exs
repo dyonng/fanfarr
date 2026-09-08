@@ -605,10 +605,17 @@ defmodule FanfarrWeb.FeaturesTest do
          %{conn: conn, item: item} do
       # A wrapper span is a flex item sized by a line box, so the glyph sits on
       # that box's baseline rather than in the middle of the round button.
+      # Asserted as "data-icon is on the element that draws the icon", not as
+      # an exact class list -- the sizes are responsive and change.
       {:ok, _view, html} = live(conn, "/library/#{item.id}")
 
-      assert html =~ ~s(class="lucide-play size-4" data-icon="play")
-      assert html =~ ~s(class="lucide-pause hidden size-4" data-icon="pause")
+      for {icon, name} <- [{"lucide-play", "play"}, {"lucide-pause", "pause"}] do
+        assert Regex.match?(~r/class="#{icon}[^"]*" data-icon="#{name}"/, html),
+               "#{name} must carry data-icon itself, with no span around it"
+      end
+
+      # And the pause icon starts hidden, whatever the size classes say.
+      assert Regex.match?(~r/class="lucide-pause[^"]*\bhidden\b[^"]*" data-icon="pause"/, html)
     end
 
     test "removing the theme deletes the file and takes the card with it",

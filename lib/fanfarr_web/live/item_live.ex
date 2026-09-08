@@ -446,14 +446,14 @@ defmodule FanfarrWeb.ItemLive.Show do
             <div class="mt-4 flex flex-wrap items-center gap-2">
               <button
                 phx-click="lookup"
-                class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground"
+                class="inline-flex h-11 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground sm:h-9"
               >
                 <.icon name="lucide-database" class="size-4" /> Look up ThemerrDB
               </button>
               <button
                 phx-click="refresh"
                 disabled={@refreshing}
-                class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                class="inline-flex h-11 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:h-9"
                 title="Re-read this item from Plex: title, year, studio, collections, ratings and the theme it is serving"
               >
                 <.icon
@@ -507,7 +507,7 @@ defmodule FanfarrWeb.ItemLive.Show do
             <div class="flex shrink-0 items-center gap-2">
               <button
                 phx-click="remove_theme"
-                class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:h-8"
                 title="Delete the theme.mp3 Fanfarr wrote. Anything already uploaded into Plex itself stays -- Plex has no API to remove that."
               >
                 <.icon name="lucide-trash-2" class="size-3.5" /> Remove theme
@@ -536,31 +536,45 @@ defmodule FanfarrWeb.ItemLive.Show do
             phx-hook=".AudioPlayer"
             phx-update="ignore"
             data-src={~p"/library/#{@item.id}/theme?v=#{@theme_version}"}
-            class="mt-3 flex items-center gap-3 rounded-md border border-border bg-background px-3 py-2"
+            class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border bg-background px-3 py-2"
           >
             <button
               type="button"
               data-play
               aria-label="Play"
-              class="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+              class="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 sm:size-9"
             >
               <%!-- data-icon on the icon itself. Wrapped in a span it was a
               flex item whose height came from a line box, so the glyph sat on
               that box's baseline a pixel or so below the centre of the button.
               The icon element has an explicit size, so as the flex item it
               centres exactly. --%>
-              <.icon name="lucide-play" class="size-4" data-icon="play" />
-              <.icon name="lucide-pause" class="hidden size-4" data-icon="pause" />
+              <.icon name="lucide-play" class="size-5 sm:size-4" data-icon="play" />
+              <.icon name="lucide-pause" class="hidden size-5 sm:size-4" data-icon="pause" />
             </button>
 
+            <%!-- The seek bar gets a whole line to itself below sm, and it is
+            not a nicety: on a 390px screen the five controls each held their
+            width and this was the only one allowed to shrink, so it measured
+            0px. A scrub bar you cannot touch is the one control here that has
+            no substitute -- there is no other way to reach 1:20 of a track.
+
+            Wide enough, the row is unchanged: order-* only reorders inside a
+            flex container, so the small-screen line break comes from the
+            basis, and sm: puts it back beside the time. --%>
             <div
               data-track
               role="slider"
               aria-label="Seek"
               tabindex="0"
-              class="relative h-2 flex-1 cursor-pointer rounded-full bg-muted"
+              class="relative order-last h-6 w-full shrink-0 grow cursor-pointer rounded-full py-2 sm:order-none sm:h-2 sm:w-auto sm:basis-0 sm:py-0"
             >
-              <div data-fill class="absolute inset-y-0 left-0 w-0 rounded-full bg-primary"></div>
+              <%!-- The hit area is the parent's 24px; the bar drawn inside it
+              stays 8px, so it looks the same as it did and is three times
+              easier to hit. --%>
+              <div class="relative h-2 w-full rounded-full bg-muted">
+                <div data-fill class="absolute inset-y-0 left-0 w-0 rounded-full bg-primary"></div>
+              </div>
             </div>
 
             <span data-time class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
@@ -571,12 +585,15 @@ defmodule FanfarrWeb.ItemLive.Show do
               type="button"
               data-mute
               aria-label="Mute"
-              class="inline-flex shrink-0 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              class="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:size-8"
             >
-              <.icon name="lucide-volume-2" class="size-4" data-icon="unmuted" />
-              <.icon name="lucide-volume-x" class="hidden size-4" data-icon="muted" />
+              <.icon name="lucide-volume-2" class="size-5 sm:size-4" data-icon="unmuted" />
+              <.icon name="lucide-volume-x" class="hidden size-5 sm:size-4" data-icon="muted" />
             </button>
 
+            <%!-- The volume slider is the one control that does have a
+            substitute on a phone -- the hardware buttons -- and at 80x6px it
+            was not usable anyway. Mute stays. --%>
             <input
               type="range"
               data-volume
@@ -584,7 +601,7 @@ defmodule FanfarrWeb.ItemLive.Show do
               max="1"
               step="0.01"
               aria-label="Volume"
-              class="h-1.5 w-20 shrink-0 cursor-pointer accent-primary"
+              class="hidden h-1.5 w-20 shrink-0 cursor-pointer accent-primary sm:block"
             />
           </div>
 
@@ -694,13 +711,21 @@ defmodule FanfarrWeb.ItemLive.Show do
           </script>
         </section>
 
-        <div class="grid gap-4 lg:grid-cols-3">
+        <%!-- grid-cols-1 is not redundant with the implicit single column.
+        Tailwind's grid-cols-* expand to repeat(n, minmax(0, 1fr)), and it is
+        the minmax(0, ...) that lets a track go narrower than its content:
+        an implicit auto track keeps a grid item's min-width: auto floor, so
+        these three cards each measured 337px inside a 302px column and the
+        page carried the difference. --%>
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <section class="rounded-lg border border-border bg-card p-4">
             <h2 class="text-sm font-semibold text-card-foreground">Plex</h2>
             <dl class="mt-3 space-y-2 text-sm">
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Reported path</dt>
-                <dd class="truncate font-mono text-xs" title={@item.plex_path}>
+                <%!-- min-w-0, or the nowrap from `truncate` makes this path's
+                full length the row's floor and the card outgrows the screen. --%>
+                <dd class="min-w-0 truncate font-mono text-xs" title={@item.plex_path}>
                   {@item.plex_path || "—"}
                 </dd>
               </div>
@@ -844,14 +869,14 @@ defmodule FanfarrWeb.ItemLive.Show do
                   :if={Downloader.youtube_id(@themerr.youtube_theme_url)}
                   phx-click="preview_video"
                   phx-value-id={Downloader.youtube_id(@themerr.youtube_theme_url)}
-                  class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs hover:bg-accent hover:text-accent-foreground"
+                  class="inline-flex h-10 items-center gap-1 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8 sm:px-2"
                 >
                   <.icon name="lucide-play" class="size-3.5" /> Preview
                 </button>
                 <button
                   phx-click="use_themerr"
                   disabled={@applying or @item.theme_locked}
-                  class="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  class="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
                   title={apply_title(@item)}
                 >
                   <.icon name="lucide-music" class="size-3.5" />
@@ -895,7 +920,7 @@ defmodule FanfarrWeb.ItemLive.Show do
               <button
                 phx-click="apply_pick"
                 disabled={@applying or @item.theme_locked}
-                class="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                class="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
                 title={apply_title(@item)}
               >
                 <.icon name="lucide-music" class="size-3.5" />
@@ -935,11 +960,11 @@ defmodule FanfarrWeb.ItemLive.Show do
                 value={@search_query}
                 placeholder="Search YouTube…"
                 autocomplete="off"
-                class="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                class="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm sm:h-9"
               />
               <button
                 disabled={@searching}
-                class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                class="inline-flex h-11 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 sm:h-9"
               >
                 <.icon
                   name={if @searching, do: "lucide-loader-circle", else: "lucide-search"}
@@ -1088,41 +1113,58 @@ defmodule FanfarrWeb.ItemLive.Show do
               :if={is_list(@search_results) and @search_results != []}
               class="divide-y divide-border/60"
             >
-              <li :for={hit <- @search_results} class="flex items-center gap-3 py-2">
-                <img
-                  :if={hit.thumbnail}
-                  src={hit.thumbnail}
-                  alt=""
-                  loading="lazy"
-                  class="h-12 w-20 shrink-0 rounded bg-muted object-cover"
-                />
-                <div :if={!hit.thumbnail} class="h-12 w-20 shrink-0 rounded bg-muted" />
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-medium" title={hit.title}>{hit.title}</p>
-                  <p class="text-xs text-muted-foreground">
-                    <span :if={hit.channel}>{hit.channel} · </span>
-                    <span :if={hit.duration}>{duration(hit.duration)}</span>
-                    <span :if={hit.view_count}> · {views(hit.view_count)}</span>
-                  </p>
+              <%!-- A thumbnail, a title that must not wrap, and two buttons
+              are four things that do not fit across a phone. Below sm this is
+              two rows -- thumbnail and title, then the actions under them,
+              full width and thumb-sized. From sm it is the single line it
+              always was.
+
+              The title is `truncate`, so its min-content width is the whole
+              title (nowrap). That is what took this page to 1,246px on a
+              390px screen before the layout gained min-w-0; the wrapper here
+              needs its own, or the title's floor propagates out of the row. --%>
+              <li
+                :for={hit <- @search_results}
+                class="flex flex-col gap-2 py-2 sm:flex-row sm:items-center sm:gap-3"
+              >
+                <div class="flex min-w-0 items-center gap-3">
+                  <img
+                    :if={hit.thumbnail}
+                    src={hit.thumbnail}
+                    alt=""
+                    loading="lazy"
+                    class="h-12 w-20 shrink-0 rounded bg-muted object-cover"
+                  />
+                  <div :if={!hit.thumbnail} class="h-12 w-20 shrink-0 rounded bg-muted" />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-medium" title={hit.title}>{hit.title}</p>
+                    <p class="truncate text-xs text-muted-foreground">
+                      <span :if={hit.channel}>{hit.channel} · </span>
+                      <span :if={hit.duration}>{duration(hit.duration)}</span>
+                      <span :if={hit.view_count}> · {views(hit.view_count)}</span>
+                    </p>
+                  </div>
                 </div>
-                <button
-                  phx-click="preview_video"
-                  phx-value-id={hit.id}
-                  class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs hover:bg-accent hover:text-accent-foreground"
-                >
-                  <.icon name="lucide-play" class="size-3.5" /> Play
-                </button>
-                <button
-                  phx-click="use_video"
-                  phx-value-url={hit.url}
-                  phx-value-title={hit.title}
-                  disabled={@applying or @item.theme_locked}
-                  class="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                  title={apply_title(@item)}
-                >
-                  <.icon name="lucide-music" class="size-3.5" />
-                  {if @applying, do: "Working…", else: "Apply theme"}
-                </button>
+                <div class="flex shrink-0 items-center gap-2 pl-[5.75rem] sm:gap-3 sm:pl-0">
+                  <button
+                    phx-click="preview_video"
+                    phx-value-id={hit.id}
+                    class="inline-flex h-10 shrink-0 items-center gap-1 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8 sm:px-2"
+                  >
+                    <.icon name="lucide-play" class="size-3.5" /> Play
+                  </button>
+                  <button
+                    phx-click="use_video"
+                    phx-value-url={hit.url}
+                    phx-value-title={hit.title}
+                    disabled={@applying or @item.theme_locked}
+                    class="inline-flex h-10 shrink-0 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
+                    title={apply_title(@item)}
+                  >
+                    <.icon name="lucide-music" class="size-3.5" />
+                    {if @applying, do: "Working…", else: "Apply theme"}
+                  </button>
+                </div>
               </li>
             </ul>
             <p
@@ -1141,9 +1183,9 @@ defmodule FanfarrWeb.ItemLive.Show do
                 type="url"
                 name="url"
                 placeholder="…or paste a YouTube URL"
-                class="h-9 flex-1 rounded-md border border-input bg-background px-3 font-mono text-xs"
+                class="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-xs sm:h-9"
               />
-              <button class="h-9 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground">
+              <button class="h-11 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground sm:h-9">
                 Use URL
               </button>
             </form>

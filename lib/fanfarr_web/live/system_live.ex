@@ -233,7 +233,7 @@ defmodule FanfarrWeb.SystemLive.Index do
                 name="query"
                 value={@item_query}
                 placeholder="Item title or id — why can't this get a theme?"
-                class="h-8 min-w-64 flex-1 rounded-md border border-input bg-background px-2.5 text-xs"
+                class="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-xs sm:h-8 sm:min-w-64"
               />
               <button class="h-8 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground">
                 Trace item
@@ -247,7 +247,7 @@ defmodule FanfarrWeb.SystemLive.Index do
                 name="url"
                 value={@probe_url}
                 placeholder="YouTube URL — can yt-dlp actually download it?"
-                class="h-8 min-w-64 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-xs"
+                class="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-xs sm:h-8 sm:min-w-64"
               />
               <button class="h-8 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground">
                 Check video
@@ -261,7 +261,7 @@ defmodule FanfarrWeb.SystemLive.Index do
                 name="path"
                 value={@plex_path}
                 placeholder="/library/sections"
-                class="h-8 min-w-64 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-xs"
+                class="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-xs sm:h-8 sm:min-w-64"
               />
               <button class="h-8 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground">
                 Ask Plex

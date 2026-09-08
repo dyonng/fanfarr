@@ -60,41 +60,66 @@
       })();
 
       (() => {
-        // Same shape as the theme script above: an explicit choice persists
-        // and wins; absent one, this follows the viewport the way "system"
-        // follows the OS. 767px is where a 208px sidebar starts competing
-        // with the page for room -- a resized desktop window crosses it the
-        // same as a phone does.
+        // Like the theme script above, but with one rule that is not a
+        // preference: a narrow viewport always starts collapsed.
+        //
+        // It used to read `stored || (narrow() ? "collapsed" : "expanded")`,
+        // so a stored "expanded" -- set on a desktop window, or by one tap on
+        // the phone itself, since both share this origin's storage -- beat the
+        // narrow default forever after. 208px of a 390px screen is over half
+        // the width, given to a nav whose labels are the only thing that
+        // padding buys. So the stored choice governs wide viewports only.
+        //
+        // 767px is where a 208px sidebar starts competing with the page for
+        // room; a resized desktop window crosses it the same as a phone does.
         const narrow = () => matchMedia("(max-width: 767px)").matches;
 
+        // Guarded: storage throws rather than returning null in a private
+        // window, and an exception here would leave the document with no
+        // data-sidebar at all -- which renders as neither state.
+        const read = () => {
+          try { return localStorage.getItem("phx:sidebar") } catch (_e) { return null }
+        };
+
+        const remember = (state) => {
+          try { localStorage.setItem("phx:sidebar", state) } catch (_e) {}
+        };
+
         const setSidebar = (state, source) => {
-          if (source === "user") {
-            localStorage.setItem("phx:sidebar", state);
-          } else {
-            localStorage.removeItem("phx:sidebar");
-          }
           document.documentElement.setAttribute("data-sidebar", state);
           document.documentElement.setAttribute("data-sidebar-source", source);
         };
 
-        const stored = localStorage.getItem("phx:sidebar");
-        setSidebar(stored || (narrow() ? "collapsed" : "expanded"), stored ? "user" : "system");
+        const start = () => {
+          const stored = read();
 
-        window.addEventListener("storage", (e) => {
-          if (e.key !== "phx:sidebar") return;
-          setSidebar(e.newValue || (narrow() ? "collapsed" : "expanded"), e.newValue ? "user" : "system");
-        });
+          if (narrow()) {
+            setSidebar("collapsed", "system");
+          } else {
+            setSidebar(stored || "expanded", stored ? "user" : "system");
+          }
+        };
+
+        start();
+
+        window.addEventListener("storage", (e) => e.key === "phx:sidebar" && start());
 
         window.addEventListener("phx:toggle-sidebar", () => {
           const next = document.documentElement.getAttribute("data-sidebar") === "collapsed" ? "expanded" : "collapsed";
+
+          // On a phone the toggle is for the moment, not for next time: it
+          // opens the nav, you tap a page, and the next load is collapsed
+          // again. Persisting it would also silently change what a desktop
+          // window opens with, off the same storage key.
+          if (!narrow()) { remember(next) }
+
           setSidebar(next, "user");
         });
 
-        matchMedia("(max-width: 767px)").addEventListener("change", (e) => {
-          if (document.documentElement.getAttribute("data-sidebar-source") === "system") {
-            setSidebar(e.matches ? "collapsed" : "expanded", "system");
-          }
-        });
+        // Crossing the breakpoint re-runs the rule rather than only nudging a
+        // "system" state: dragging a window narrow has to collapse a sidebar
+        // the operator expanded when there was room for it.
+        matchMedia("(max-width: 767px)").addEventListener("change", start);
       })();
     </script>
   </head>
