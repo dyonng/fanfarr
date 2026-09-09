@@ -29,7 +29,12 @@ downloads, and appearance, all in one place.
 
 ## Features
 
-- **Library dashboard** — every show and movie with its poster, theme status,
+- **Overview** — the homepage: coverage per Plex library, what is worth acting
+  on right now (titles missing a theme that ThemerrDB has an answer for, and
+  anything that failed), what is running with an ETA, when the next sync is
+  due, and any failing health check. Every number links into the library view
+  that lists exactly those titles.
+- **Library** — every show and movie with its poster, theme status,
   critic/audience scores (normalised to one scale, whichever service Plex
   used), and studio. Filter by status, type, studio, or collection; sort any
   column by clicking it; search. Served from a local mirror, so it stays fast

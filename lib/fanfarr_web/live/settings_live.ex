@@ -8,8 +8,6 @@ defmodule FanfarrWeb.SettingsLive.Index do
   """
   use FanfarrWeb, :live_view
 
-  on_mount {FanfarrWeb.LiveUserAuth, :live_user_required}
-
   # Short and without retries: the answer is wanted now, and "no answer in five
   # seconds" is itself the answer.
   @probe_options [retry: false, receive_timeout: 5_000, connect_options: [timeout: 5_000]]
@@ -358,7 +356,12 @@ defmodule FanfarrWeb.SettingsLive.Index do
       queue={@queue}
     >
       <div class="max-w-3xl space-y-6">
-        <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
+        <Layouts.page_header title="Settings">
+          <:subtitle>
+            Everything here takes effect without a restart, and overrides the matching
+            environment variable.
+          </:subtitle>
+        </Layouts.page_header>
 
         <section class="rounded-lg border border-border bg-card p-4">
           <h2 class="text-sm font-semibold text-card-foreground">Appearance</h2>

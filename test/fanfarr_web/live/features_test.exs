@@ -635,7 +635,7 @@ defmodule FanfarrWeb.FeaturesTest do
 
   describe "library bulk actions" do
     test "select the page, then act on the selection", %{conn: conn, item: item, other: other} do
-      {:ok, view, _html} = live(conn, "/")
+      {:ok, view, _html} = live(conn, "/library")
 
       refute has_element?(view, "#bulk-bar")
       html = render_click(view, "select_page", %{})
@@ -656,14 +656,14 @@ defmodule FanfarrWeb.FeaturesTest do
     end
 
     test "select all matching reaches beyond the current page", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/?q=flea")
+      {:ok, view, _html} = live(conn, "/library?q=flea")
       render_click(view, "toggle_select", %{"id" => "x"})
       html = render_click(view, "select_all_matching", %{})
       assert html =~ "1 selected"
     end
 
     test "rows show a poster", %{conn: conn, item: item} do
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, _view, html} = live(conn, "/library")
       assert html =~ ~s(src="/posters/#{item.id}")
     end
   end

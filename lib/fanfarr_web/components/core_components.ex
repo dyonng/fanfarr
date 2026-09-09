@@ -468,6 +468,53 @@ defmodule FanfarrWeb.CoreComponents do
     """
   end
 
+  @doc """
+  An item's theme status, as a coloured pill.
+
+  Lived in `LibraryLive.Index` and was imported from there by the item page,
+  which made a page module the owner of a shared component -- and then the
+  Overview page needed it too. It renders in three places, so it lives here.
+
+  The *arr colour vocabulary: red demands action, green is settled, blue is
+  informational. Failed gets the loudest treatment because it is the only
+  state that asks the operator to do something.
+  """
+  attr :status, :atom, required: true
+
+  def status_badge(assigns) do
+    {label, classes} =
+      case assigns.status do
+        :missing ->
+          {"Missing", "bg-destructive/15 text-destructive"}
+
+        :failed ->
+          {"Failed", "bg-destructive text-destructive-foreground"}
+
+        :plex_supplied ->
+          {"Plex", "bg-primary/15 text-primary"}
+
+        :fanfarr_applied ->
+          {"Fanfarr", "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"}
+
+        :local_file ->
+          {"Local file", "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"}
+
+        _ ->
+          {"Unknown", "bg-muted text-muted-foreground"}
+      end
+
+    assigns = assign(assigns, label: label, classes: classes)
+
+    ~H"""
+    <span class={[
+      "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium",
+      @classes
+    ]}>
+      {@label}
+    </span>
+    """
+  end
+
   ## JS Commands
 
   def show(js \\ %JS{}, selector) do

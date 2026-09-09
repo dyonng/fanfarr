@@ -36,6 +36,13 @@ through.
   mailer, no confirmation, no magic link -- all stripped, see router comments).
   Registration closes after the first user
   (`Accounts.User.Validations.OnlyFirstUser`).
+- Routes: `/` is the Overview dashboard, `/library` the table, `/library/:id`
+  an item. The library was the homepage until v0.1.52.
+- **Authentication is declared in the router**, once, on the
+  `ash_authentication_live_session` block -- not per LiveView. It used to be
+  per module, and adding a page without remembering the `on_mount` line left
+  it readable with no session. `dashboard_test.exs` enumerates every
+  authenticated path; add new ones there.
 
 ## Decisions that answer recurring questions
 
@@ -80,7 +87,9 @@ isn't -- read that first. What follows here is implementation detail that
 doesn't belong in a roadmap.
 
 Built: resource model, auth (env-based login, remember-me, local-address
-bypass), dashboard (Library with posters, scores, studio/collection filters,
+bypass), pages (Overview dashboard at `/` -- coverage, needs-attention,
+queue, schedule, failing health checks, all from `Fanfarr.Overview` /
+Library with posters, scores, studio/collection filters,
 sortable columns and bulk actions / Item with YouTube search, inline preview
 and manual picks / Activity with an ETA / Settings with a folder browser and
 appearance / System with health checks / a full-page log console), sync +

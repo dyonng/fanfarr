@@ -29,7 +29,8 @@ defmodule FanfarrWeb.Layouts do
 
   attr :current_path, :atom,
     default: nil,
-    doc: "which sidebar entry to highlight: :library, :activity, :settings, :system or :logs"
+    doc:
+      "which sidebar entry to highlight: :overview, :library, :activity, :settings, :system or :logs"
 
   attr :current_user, :map, default: nil, doc: "the signed-in user, when there is one"
 
@@ -57,9 +58,15 @@ defmodule FanfarrWeb.Layouts do
         goes to "/" which is the first nav item anyway, and the way back to a
         usable sidebar is the one thing a rail must not hide. --%>
         <div class="flex h-14 items-center justify-between gap-2 border-b border-border px-4 [[data-sidebar=collapsed]_&]:justify-center [[data-sidebar=collapsed]_&]:px-2">
-          <a
-            href={~p"/"}
-            class="flex items-center gap-2 [[data-sidebar=collapsed]_&]:hidden"
+          <%!-- The wordmark is a link home, which is the one convention every
+          site has and this one did not honour: it was an <a href>, so clicking
+          it tore down the socket and reloaded the whole page to reach a route
+          LiveView could have patched to. `navigate` makes it the same
+          transition as the nav below it. --%>
+          <.link
+            navigate={~p"/"}
+            title="Fanfarr home"
+            class="flex min-h-11 items-center gap-2 sm:min-h-0 [[data-sidebar=collapsed]_&]:hidden"
           >
             <%!-- The drawn mark rather than the emoji it replaced: an emoji renders
             in whatever the viewer's system font decides, so the brand changed
@@ -74,7 +81,7 @@ defmodule FanfarrWeb.Layouts do
             <span class="text-base font-semibold tracking-tight [[data-sidebar=collapsed]_&]:hidden">
               Fanfarr
             </span>
-          </a>
+          </.link>
           <button
             phx-click={JS.dispatch("phx:toggle-sidebar")}
             class="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground sm:size-8 [[data-sidebar=collapsed]_&]:hidden"
@@ -94,6 +101,12 @@ defmodule FanfarrWeb.Layouts do
         <nav class="flex-1 space-y-1 px-2 py-3">
           <.nav_link
             navigate={~p"/"}
+            icon="lucide-layout-dashboard"
+            label="Overview"
+            current={@current_path == :overview}
+          />
+          <.nav_link
+            navigate={~p"/library"}
             icon="lucide-clapperboard"
             label="Library"
             current={@current_path == :library}
@@ -257,6 +270,40 @@ defmodule FanfarrWeb.Layouts do
     </div>
 
     <.flash_group flash={@flash} />
+    """
+  end
+
+  @doc """
+  The title row every page starts with.
+
+  It was hand-rolled six times and had drifted into six slightly different
+  things -- `items-center` against `items-start`, a subtitle with `mt-1` and
+  four without, one page that wrapped its actions and five that pushed them
+  off the side of a phone. None of that was a decision. One component means
+  the vertical rhythm is the same on every page by construction rather than
+  by everyone remembering the same three classes.
+  """
+  attr :title, :string, required: true
+
+  slot :title_suffix, doc: "rendered inline after the title, e.g. a year"
+  slot :subtitle
+  slot :actions, doc: "buttons, right-aligned on one line and wrapping below the title on a phone"
+
+  def page_header(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="text-2xl font-semibold tracking-tight">
+          {@title}<span :for={suffix <- @title_suffix}>{render_slot(suffix)}</span>
+        </h1>
+        <p :if={@subtitle != []} class="mt-1 text-sm text-muted-foreground">
+          {render_slot(@subtitle)}
+        </p>
+      </div>
+      <div :if={@actions != []} class="flex shrink-0 flex-wrap items-center gap-2">
+        {render_slot(@actions)}
+      </div>
+    </div>
     """
   end
 

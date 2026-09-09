@@ -8,8 +8,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
   """
   use FanfarrWeb, :live_view
 
-  on_mount {FanfarrWeb.LiveUserAuth, :live_user_required}
-
   require Ash.Query
 
   alias Fanfarr.Library.MediaItem
@@ -50,7 +48,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
     # which would end up in the URL.
     overrides = Map.take(params, ["status", "kind", "studio", "collection", "q"])
 
-    {:noreply, push_patch(socket, to: ~p"/?#{query_params(socket, overrides)}")}
+    {:noreply, push_patch(socket, to: ~p"/library?#{query_params(socket, overrides)}")}
   end
 
   def handle_event("sync", _params, socket) do
@@ -333,21 +331,20 @@ defmodule FanfarrWeb.LibraryLive.Index do
       current_user={@current_user}
       queue={@queue}
     >
-      <div class="space-y-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h1 class="text-2xl font-semibold tracking-tight">Library</h1>
-            <p class="text-sm text-muted-foreground">
-              {@total} items · {Map.get(@counts, :missing, 0)} without a theme
-            </p>
-          </div>
-          <button
-            phx-click="sync"
-            class="inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
-          >
-            <.icon name="lucide-refresh-cw" class="size-4" /> Sync library
-          </button>
-        </div>
+      <div class="space-y-6">
+        <Layouts.page_header title="Library">
+          <:subtitle>
+            {@total} items · {Map.get(@counts, :missing, 0)} without a theme
+          </:subtitle>
+          <:actions>
+            <button
+              phx-click="sync"
+              class="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
+            >
+              <.icon name="lucide-refresh-cw" class="size-4" /> Sync library
+            </button>
+          </:actions>
+        </Layouts.page_header>
 
         <form id="library-filters" phx-change="filter" class="flex flex-wrap items-end gap-2">
           <input
@@ -628,7 +625,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
       >
         <.link
           :if={@page > 1}
-          patch={~p"/?#{filter_params(@filters, @page - 1)}"}
+          patch={~p"/library?#{filter_params(@filters, @page - 1)}"}
           class="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground sm:min-h-0"
         >
           Previous
@@ -638,7 +635,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <span :if={entry == :gap} class="px-1.5 text-muted-foreground">…</span>
           <.link
             :if={entry != :gap}
-            patch={~p"/?#{filter_params(@filters, entry)}"}
+            patch={~p"/library?#{filter_params(@filters, entry)}"}
             aria-current={entry == @page && "page"}
             class={[
               "inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border px-2.5 py-1.5 text-center tabular-nums sm:min-h-0 sm:min-w-9",
@@ -652,7 +649,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
         <.link
           :if={@page < @pages}
-          patch={~p"/?#{filter_params(@filters, @page + 1)}"}
+          patch={~p"/library?#{filter_params(@filters, @page + 1)}"}
           class="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground sm:min-h-0"
         >
           Next
@@ -715,42 +712,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp put_page(params, 1), do: params
   defp put_page(params, page), do: Map.put(params, "page", page)
 
-  attr :status, :atom, required: true
-
-  # The *arr colour vocabulary: red demands action, green is settled, blue is
-  # informational. Failed gets the loudest treatment because it is the only
-  # state that asks the operator to do something.
-  def status_badge(assigns) do
-    {label, classes} =
-      case assigns.status do
-        :missing ->
-          {"Missing", "bg-destructive/15 text-destructive"}
-
-        :failed ->
-          {"Failed", "bg-destructive text-destructive-foreground"}
-
-        :plex_supplied ->
-          {"Plex", "bg-primary/15 text-primary"}
-
-        :fanfarr_applied ->
-          {"Fanfarr", "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"}
-
-        :local_file ->
-          {"Local file", "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"}
-
-        _ ->
-          {"Unknown", "bg-muted text-muted-foreground"}
-      end
-
-    assigns = assign(assigns, label: label, classes: classes)
-
-    ~H"""
-    <span class={["inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", @classes]}>
-      {@label}
-    </span>
-    """
-  end
-
   attr :sort, :string, default: nil
   attr :column, :string, required: true
   attr :params, :map, required: true
@@ -769,7 +730,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
     ~H"""
     <th class={["px-3 py-2 font-medium", @class]}>
       <.link
-        patch={~p"/?#{header_params(@params, @next)}"}
+        patch={~p"/library?#{header_params(@params, @next)}"}
         title={@title}
         class="inline-flex items-center gap-1 hover:text-foreground"
       >

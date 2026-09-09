@@ -25,8 +25,6 @@ defmodule FanfarrWeb.LogsLive.Index do
   """
   use FanfarrWeb, :live_view
 
-  on_mount {FanfarrWeb.LiveUserAuth, :live_user_required}
-
   @log_levels ~w(debug info warning error)
 
   # Frequent enough to read as live while watching a job run, and cheap: a
@@ -298,15 +296,12 @@ defmodule FanfarrWeb.LogsLive.Index do
       is one of the few things that should take the whole screen: the useful
       amount of scrollback is however much the reader made room for. --%>
       <div class="flex h-[calc(100vh-3rem)] flex-col gap-3">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 class="text-2xl font-semibold tracking-tight">Logs</h1>
-            <p class="text-xs text-muted-foreground">
-              The last {@retention} lines, kept across restarts. Secrets are removed as they are
-              captured, so this is safe to paste into a bug report.
-            </p>
-          </div>
-          <div class="flex items-center gap-2">
+        <Layouts.page_header title="Logs">
+          <:subtitle>
+            The last {@retention} lines, kept across restarts. Secrets are removed as they are
+            captured, so this is safe to paste into a bug report.
+          </:subtitle>
+          <:actions>
             <button
               phx-click="toggle_live"
               class={[
@@ -338,8 +333,8 @@ defmodule FanfarrWeb.LogsLive.Index do
             >
               <.icon name="lucide-trash-2" class="size-3.5" /> Clear
             </button>
-          </div>
-        </div>
+          </:actions>
+        </Layouts.page_header>
 
         <div class="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
           <form id="log-search-form" phx-change="search" class="relative min-w-56 flex-1">

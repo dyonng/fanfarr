@@ -11,11 +11,7 @@ defmodule FanfarrWeb.ItemLive.Show do
   """
   use FanfarrWeb, :live_view
 
-  on_mount {FanfarrWeb.LiveUserAuth, :live_user_required}
-
   require Ash.Query
-
-  import FanfarrWeb.LibraryLive.Index, only: [status_badge: 1]
 
   require Logger
 
@@ -59,7 +55,7 @@ defmodule FanfarrWeb.ItemLive.Show do
   # point.
   #
   # Only these keys are read, and they are only ever reassembled into a query
-  # string on "/", so a hand-edited URL cannot turn this into a link to
+  # string on "/library", so a hand-edited URL cannot turn this into a link to
   # somewhere else. Arriving from anywhere without them -- Activity, a
   # bookmark, a shared link -- simply goes to the library.
   @carried ~w(status kind studio collection q sort page)
@@ -71,7 +67,7 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
       |> Map.new()
 
-    if query == %{}, do: ~p"/", else: ~p"/?#{query}"
+    if query == %{}, do: ~p"/library", else: ~p"/library?#{query}"
   end
 
   # Opening an item is a request to know what ThemerrDB has for it, so the
@@ -427,20 +423,21 @@ defmodule FanfarrWeb.ItemLive.Show do
             >
               ← Library
             </.link>
-            <div class="mt-1 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h1 class="text-2xl font-semibold tracking-tight">
-                  {@item.title}
+            <div class="mt-1">
+              <Layouts.page_header title={@item.title}>
+                <:title_suffix>
                   <span :if={@item.year} class="ml-1 font-normal text-muted-foreground">
                     ({@item.year})
                   </span>
-                </h1>
-                <p class="mt-1 text-sm text-muted-foreground">
+                </:title_suffix>
+                <:subtitle>
                   {if @item.kind == :show, do: "Series", else: "Movie"}
                   <span :if={@item.section}> · {@item.section.title}</span>
-                </p>
-              </div>
-              <.status_badge status={@item.theme_status} />
+                </:subtitle>
+                <:actions>
+                  <.status_badge status={@item.theme_status} />
+                </:actions>
+              </Layouts.page_header>
             </div>
 
             <div class="mt-4 flex flex-wrap items-center gap-2">
@@ -743,7 +740,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                 <dd class="text-right">
                   <.link
                     :if={@item.studio not in [nil, ""]}
-                    navigate={~p"/?#{%{"studio" => @item.studio}}"}
+                    navigate={~p"/library?#{%{"studio" => @item.studio}}"}
                     class="underline decoration-dotted underline-offset-4 hover:text-primary"
                     title={"Everything from #{@item.studio}"}
                   >
@@ -762,7 +759,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                   "Batman Collection , DC Universe". --%>
                   <span :for={{collection, index} <- Enum.with_index(@item.collections)}>
                     <.link
-                      navigate={~p"/?#{%{"collection" => collection}}"}
+                      navigate={~p"/library?#{%{"collection" => collection}}"}
                       class="underline decoration-dotted underline-offset-4 hover:text-primary"
                       title={"Everything in #{collection}"}
                     >{collection}</.link><span :if={index < length(@item.collections) - 1}>,</span>

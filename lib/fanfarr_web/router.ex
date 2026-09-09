@@ -64,10 +64,23 @@ defmodule FanfarrWeb.Router do
   scope "/", FanfarrWeb do
     pipe_through :browser
 
+    # Authentication is declared HERE, once, for every route in the block --
+    # not on each LiveView. It was per-module, and adding the Overview page
+    # without remembering the line left the homepage readable with no session:
+    # a new page defaulted to unauthenticated, which is the wrong direction for
+    # a default to fail in. The test that iterates these paths caught it, and
+    # now the routes carry it whether or not the module says anything.
+    #
+    # Order matters: the user is resolved before QueueStatus, so an
+    # unauthenticated visitor never causes a queue read.
     ash_authentication_live_session :authenticated_routes,
-      on_mount: [FanfarrWeb.QueueStatus],
+      on_mount: [
+        {FanfarrWeb.LiveUserAuth, :live_user_required},
+        FanfarrWeb.QueueStatus
+      ],
       session: {FanfarrWeb.LiveUserAuth, :extra_session, []} do
-      live "/", LibraryLive.Index, :index
+      live "/", OverviewLive.Index, :index
+      live "/library", LibraryLive.Index, :index
       live "/library/:id", ItemLive.Show, :show
       live "/activity", ActivityLive.Index, :index
       live "/settings", SettingsLive.Index, :index

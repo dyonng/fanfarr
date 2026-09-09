@@ -9,8 +9,6 @@ defmodule FanfarrWeb.SystemLive.Index do
   """
   use FanfarrWeb, :live_view
 
-  on_mount {FanfarrWeb.LiveUserAuth, :live_user_required}
-
   alias Fanfarr.Diagnostics
   alias Fanfarr.Health.Monitor
 
@@ -149,27 +147,26 @@ defmodule FanfarrWeb.SystemLive.Index do
       queue={@queue}
     >
       <div class="max-w-3xl space-y-6">
-        <div class="flex items-center justify-between">
-          <div>
-            <h1 class="text-2xl font-semibold tracking-tight">System</h1>
-            <p class="text-sm text-muted-foreground">
-              <span :if={@snapshot}>
-                Checked {Calendar.strftime(@snapshot.at, "%Y-%m-%d %H:%M:%S UTC")} · re-checked every 10 minutes
-              </span>
-              <span :if={!@snapshot}>Running the first checks…</span>
-            </p>
-          </div>
-          <button
-            phx-click="refresh"
-            disabled={@running}
-            class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-          >
-            <.icon
-              name="lucide-refresh-cw"
-              class={["size-4", @running && "animate-spin"]}
-            /> {if @running, do: "Checking…", else: "Run checks now"}
-          </button>
-        </div>
+        <Layouts.page_header title="System">
+          <:subtitle>
+            <span :if={@snapshot}>
+              Checked {Calendar.strftime(@snapshot.at, "%Y-%m-%d %H:%M:%S UTC")} · re-checked every 10 minutes
+            </span>
+            <span :if={!@snapshot}>Running the first checks…</span>
+          </:subtitle>
+          <:actions>
+            <button
+              phx-click="refresh"
+              disabled={@running}
+              class="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-60 sm:h-9"
+            >
+              <.icon
+                name="lucide-refresh-cw"
+                class={["size-4", @running && "animate-spin"]}
+              /> {if @running, do: "Checking…", else: "Run checks now"}
+            </button>
+          </:actions>
+        </Layouts.page_header>
 
         <section class="rounded-lg border border-border bg-card">
           <h2 class="border-b border-border px-4 py-3 text-sm font-semibold text-card-foreground">

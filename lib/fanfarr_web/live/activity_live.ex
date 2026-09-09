@@ -7,8 +7,6 @@ defmodule FanfarrWeb.ActivityLive.Index do
   """
   use FanfarrWeb, :live_view
 
-  on_mount {FanfarrWeb.LiveUserAuth, :live_user_required}
-
   @refresh_ms 3_000
 
   @impl true
@@ -88,27 +86,26 @@ defmodule FanfarrWeb.ActivityLive.Index do
       queue={@queue}
     >
       <div class="space-y-6">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h1 class="text-2xl font-semibold tracking-tight">Activity</h1>
-            <p class="text-sm text-muted-foreground">
-              <span :if={Fanfarr.Jobs.busy?(@summary)}>
-                {@summary.running} running · {@summary.queued} waiting{remaining(@eta)}. Everything
-                here runs in the background, so you can leave this page.
-              </span>
-              <span :if={not Fanfarr.Jobs.busy?(@summary)}>
-                Nothing running. Jobs refresh every few seconds.
-              </span>
-            </p>
-          </div>
-          <button
-            :if={@bulk_theme_work_pending}
-            phx-click="stop_bulk"
-            class="h-9 shrink-0 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
-          >
-            Stop bulk theme work
-          </button>
-        </div>
+        <Layouts.page_header title="Activity">
+          <:subtitle>
+            <span :if={Fanfarr.Jobs.busy?(@summary)}>
+              {@summary.running} running · {@summary.queued} waiting{remaining(@eta)}. Everything
+              here runs in the background, so you can leave this page.
+            </span>
+            <span :if={not Fanfarr.Jobs.busy?(@summary)}>
+              Nothing running. Jobs refresh every few seconds.
+            </span>
+          </:subtitle>
+          <:actions>
+            <button
+              :if={@bulk_theme_work_pending}
+              phx-click="stop_bulk"
+              class="h-11 whitespace-nowrap rounded-md border border-border px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground sm:h-9"
+            >
+              Stop bulk theme work
+            </button>
+          </:actions>
+        </Layouts.page_header>
 
         <section class="rounded-lg border border-border bg-card">
           <h2 class="border-b border-border px-4 py-3 text-sm font-semibold text-card-foreground">

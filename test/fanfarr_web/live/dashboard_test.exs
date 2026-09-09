@@ -14,8 +14,13 @@ defmodule FanfarrWeb.DashboardTest do
       })
       |> Ash.create!(authorize?: false)
 
-      for path <- ["/", "/activity", "/settings"] do
-        assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, path)
+      # Every authenticated route, not a sample. This is the assertion that
+      # caught the Overview page being added without authentication, back when
+      # each LiveView declared its own -- so it enumerates all of them, and a
+      # new page has to be added here to be considered covered.
+      for path <- ~w(/ /library /activity /settings /system /logs) do
+        assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, path),
+               "#{path} must require sign-in"
       end
     end
 
@@ -59,7 +64,7 @@ defmodule FanfarrWeb.DashboardTest do
       Fanfarr.Accounts.AuthMode.set_bypass_enabled(true)
 
       # Phoenix.ConnTest's default conn has remote_ip 127.0.0.1.
-      for path <- ["/", "/activity", "/settings"] do
+      for path <- ~w(/ /library /activity /settings /system /logs) do
         assert {:ok, _view, _html} = live(conn, path)
       end
     end
@@ -157,7 +162,7 @@ defmodule FanfarrWeb.DashboardTest do
       # Measured in a real browser at 390px after this landed: every page is
       # exactly the viewport. This asserts the mechanism, which is the part a
       # future refactor can quietly drop.
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, _view, html} = live(conn, "/library")
 
       assert html =~ ~s(class="flex min-w-0 flex-1 flex-col pl-52)
       assert html =~ ~s(<main class="min-w-0 flex-1)
@@ -170,7 +175,7 @@ defmodule FanfarrWeb.DashboardTest do
       # It used to be `stored || (narrow() ? ...)`, so one tap on a phone --
       # or any desktop session, off the same storage key -- pinned it expanded
       # for good.
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, _view, html} = live(conn, "/library")
 
       assert html =~ ~s|const narrow = () => matchMedia("(max-width: 767px)").matches|
       assert html =~ ~s|if (narrow()) {\n            setSidebar("collapsed", "system");|
@@ -185,7 +190,7 @@ defmodule FanfarrWeb.DashboardTest do
       # cut of this hid Year, Type and the scores but left Studio in, which
       # pushed Theme off the right-hand edge behind a horizontal scroll: the
       # one column that had to survive was the one that did not.
-      {:ok, view, _html} = live(conn, "/")
+      {:ok, view, _html} = live(conn, "/library")
 
       hidden = ~s(th[class*="md:table-cell"])
 
@@ -202,9 +207,11 @@ defmodule FanfarrWeb.DashboardTest do
   describe "page titles" do
     test "every page is prefixed with the product name", %{conn: conn} do
       for {path, title} <- [
-            {"/", "Library"},
+            {"/", "Overview"},
+            {"/library", "Library"},
             {"/activity", "Activity"},
             {"/settings", "Settings"},
+            {"/system", "System"},
             {"/logs", "Logs"}
           ] do
         {:ok, view, _html} = live(conn, path)
@@ -251,7 +258,7 @@ defmodule FanfarrWeb.DashboardTest do
     end
 
     test "lists items with their status", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, _view, html} = live(conn, "/library")
 
       assert html =~ "One Piece"
       assert html =~ "Fleabag"
@@ -262,7 +269,7 @@ defmodule FanfarrWeb.DashboardTest do
     end
 
     test "the status filter narrows the table", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/?status=missing")
+      {:ok, view, _html} = live(conn, "/library?status=missing")
 
       html = render(view)
       assert html =~ "One Piece"
@@ -270,7 +277,7 @@ defmodule FanfarrWeb.DashboardTest do
     end
 
     test "search narrows by title", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/?q=flea")
+      {:ok, view, _html} = live(conn, "/library?q=flea")
 
       html = render(view)
       assert html =~ "Fleabag"
@@ -281,7 +288,7 @@ defmodule FanfarrWeb.DashboardTest do
       item.(%{title: "Toy Story", studio: "Pixar"})
       item.(%{title: "Heat", studio: "Warner Bros."})
 
-      {:ok, view, _html} = live(conn, "/?studio=Pixar")
+      {:ok, view, _html} = live(conn, "/library?studio=Pixar")
 
       html = render(view)
       assert html =~ "Toy Story"
@@ -295,7 +302,7 @@ defmodule FanfarrWeb.DashboardTest do
       item.(%{title: "Iron Man", studio: "Paramount", collections: ["Marvel Cinematic Universe"]})
       item.(%{title: "Toy Story", studio: "Pixar", collections: ["Pixar Collection"]})
 
-      {:ok, view, _html} = live(conn, "/?collection=Marvel+Cinematic+Universe")
+      {:ok, view, _html} = live(conn, "/library?collection=Marvel+Cinematic+Universe")
 
       html = render(view)
       assert html =~ "Iron Man"
@@ -308,7 +315,7 @@ defmodule FanfarrWeb.DashboardTest do
 
       # Narrowed to Pixar, the other options must still be there -- otherwise
       # picking one is a one-way door out of which the only route is the URL.
-      {:ok, view, _html} = live(conn, "/?studio=Pixar")
+      {:ok, view, _html} = live(conn, "/library?studio=Pixar")
 
       html = render(view)
       assert html =~ "Warner Bros."
@@ -318,7 +325,7 @@ defmodule FanfarrWeb.DashboardTest do
     test "a library with neither shows neither dropdown", %{conn: conn} do
       # The seeded items have no studio and no collections. A dropdown that
       # offers only "Any" promises a way to narrow and then has none.
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, _view, html} = live(conn, "/library")
 
       refute html =~ "Any studio"
       refute html =~ "Any collection"
@@ -327,7 +334,7 @@ defmodule FanfarrWeb.DashboardTest do
     test "the studio filter survives being opened and come back from", %{conn: conn, item: item} do
       item.(%{title: "Toy Story", studio: "Pixar"})
 
-      {:ok, view, _html} = live(conn, "/?studio=Pixar")
+      {:ok, view, _html} = live(conn, "/library?studio=Pixar")
 
       assert view |> element("a", "Toy Story") |> render() =~ "studio=Pixar"
     end
@@ -351,7 +358,7 @@ defmodule FanfarrWeb.DashboardTest do
         audience_score_source: "imdb"
       })
 
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, _view, html} = live(conn, "/library")
 
       # Both as percentages, though one came from Rotten Tomatoes and the
       # other from IMDb. A column mixing 87% with 7.2 read as unsorted.
@@ -365,17 +372,17 @@ defmodule FanfarrWeb.DashboardTest do
     end
 
     test "an item with no rating shows nothing rather than a nought", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, _view, html} = live(conn, "/library")
 
       assert html =~ "—"
       refute html =~ ">0%<"
     end
 
     test "clicking a column header sorts by it, and again reverses it", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/?sort=year")
+      {:ok, view, _html} = live(conn, "/library?sort=year")
       assert order(render(view)) == ["One Piece", "Fleabag"]
 
-      {:ok, view, _html} = live(conn, "/?sort=-year")
+      {:ok, view, _html} = live(conn, "/library?sort=-year")
       assert order(render(view)) == ["Fleabag", "One Piece"]
     end
 
@@ -387,10 +394,10 @@ defmodule FanfarrWeb.DashboardTest do
 
       # Ascending would otherwise lead with every item that has no score,
       # burying the low ones actually being looked for.
-      {:ok, view, _html} = live(conn, "/?sort=critic")
+      {:ok, view, _html} = live(conn, "/library?sort=critic")
       assert order(render(view)) == ["Fleabag", "One Piece", "Unrated Thing"]
 
-      {:ok, view, _html} = live(conn, "/?sort=-critic")
+      {:ok, view, _html} = live(conn, "/library?sort=-critic")
       assert order(render(view)) == ["One Piece", "Fleabag", "Unrated Thing"]
     end
 
@@ -402,7 +409,7 @@ defmodule FanfarrWeb.DashboardTest do
     end
 
     test "sorting keeps the filters, and filtering keeps the sort", %{conn: conn} do
-      {:ok, view, html} = live(conn, "/?q=one&sort=-year")
+      {:ok, view, html} = live(conn, "/library?q=one&sort=-year")
 
       # The header links carry the search along rather than dropping it.
       assert html =~ "q=one"
@@ -410,13 +417,13 @@ defmodule FanfarrWeb.DashboardTest do
     end
 
     test "an unknown sort is ignored rather than crashing the page", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/?sort=havoc")
+      {:ok, _view, html} = live(conn, "/library?sort=havoc")
 
       assert html =~ "One Piece"
     end
 
     test "opening an item carries the view it was opened from", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/?status=missing&sort=-year&q=one&page=1")
+      {:ok, view, _html} = live(conn, "/library?status=missing&sort=-year&q=one&page=1")
 
       # The link out has to carry the filters, or the item page has nothing to
       # send the reader back to.
@@ -442,7 +449,7 @@ defmodule FanfarrWeb.DashboardTest do
     end
 
     test "page one is left off the link rather than spelled out", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/?status=missing")
+      {:ok, view, _html} = live(conn, "/library?status=missing")
 
       link = view |> element("a", "One Piece") |> render()
 
@@ -454,7 +461,7 @@ defmodule FanfarrWeb.DashboardTest do
       # A page past the first, which is exactly where losing your place hurts.
       for n <- 1..60, do: item.(%{title: "Filler #{String.pad_leading("#{n}", 3, "0")}"})
 
-      {:ok, view, _html} = live(conn, "/?page=2")
+      {:ok, view, _html} = live(conn, "/library?page=2")
       link = view |> element("a", "One Piece") |> render()
       assert link =~ "page=2"
 
@@ -469,7 +476,7 @@ defmodule FanfarrWeb.DashboardTest do
         item.(%{title: "Filler #{String.pad_leading("#{n}", 3, "0")}", studio: "Aardman"})
       end
 
-      {:ok, view, _html} = live(conn, "/?sort=-year&studio=Aardman&status=missing")
+      {:ok, view, _html} = live(conn, "/library?sort=-year&studio=Aardman&status=missing")
 
       # Two of them now -- above and below the table -- so the assertion says
       # which. Both are built from the same component.
@@ -500,7 +507,7 @@ defmodule FanfarrWeb.DashboardTest do
 
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
 
-      assert view |> element("a", "← Library") |> render() =~ ~s(href="/")
+      assert view |> element("a", "← Library") |> render() =~ ~s(href="/library")
     end
 
     test "the return link cannot be pointed somewhere else", %{conn: conn} do
