@@ -4,7 +4,7 @@ defmodule Fanfarr.MixProject do
   def project do
     [
       app: :fanfarr,
-      version: "0.1.52",
+      version: "0.1.53",
       elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
