@@ -19,6 +19,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # ffmpeg is a runtime dependency, not a test convenience: the image
+      # ships it, the apply pipeline cuts and normalises with it, and the
+      # tests that exercise it are the ones that caught a cut which produced
+      # a correctly-sized but completely silent file. Without this the suite
+      # skips exactly the code most likely to be wrong -- so it is installed
+      # rather than the tests being tagged around.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Set up BEAM
         uses: erlef/setup-beam@v1
         with:

@@ -186,6 +186,11 @@ is silently dropped as a duplicate of the first. There is no dry run -- it was
 removed in v0.1.51 along with its column, and its rows were deleted, because
 every query over that table had to remember to exclude them.
 
+**Running the suite needs ffmpeg and ffprobe.** The cutter, waveform, source
+cache and apply tests shell out to the real binaries rather than stubbing
+them -- a stub would have happily agreed that a silent file was correct. CI
+installs ffmpeg for the same reason.
+
 **Trimming:** the crop is `theme_start_ms`/`theme_end_ms` on the item, never a
 second audio file -- the mp3 is derived output, so a crop is two more
 parameters on the recipe and can be *widened* later. Pipeline order is
