@@ -40,6 +40,11 @@ downloads, and appearance, all in one place.
   column by clicking it; search. Served from a local mirror, so it stays fast
   at thousands of items, and remembers your filters when you open an item and
   come back.
+- **Trim what gets written** — pick where a theme starts and ends on a
+  waveform, with fades at both ends and a "loop the join" preview, because
+  Plex loops themes and the seam is what you would otherwise get wrong. The
+  crop is stored as two numbers, not a second copy of the audio, so it can be
+  widened later; the mp3 next to your media stays the only audio file.
 - **Knows a stock theme from a chosen one** — Plex marks its own agent's
   themes in the `ratingKey`, and Fanfarr reads it. A show that "has a theme"
   because Plex shipped one is listed as such, so it can be found and replaced.

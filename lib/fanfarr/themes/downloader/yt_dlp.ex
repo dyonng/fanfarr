@@ -180,7 +180,12 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
   end
 
   @impl true
-  def download(url, dir) do
+  def download(url, dir), do: fetch(url, dir, :mp3)
+
+  @impl true
+  def download_source(url, dir), do: fetch(url, dir, :original)
+
+  defp fetch(url, dir, format) do
     with :ok <- validate_url(url),
          :ok <- ensure_dir(dir) do
       # A private subdirectory means the glob afterwards cannot pick up an
@@ -189,37 +194,42 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
       File.mkdir_p!(work)
 
       try do
-        do_download(url, work, dir)
+        do_download(url, work, dir, format)
       after
         File.rm_rf(work)
       end
     end
   end
 
-  defp do_download(url, work, dir) do
-    args = [
-      "--no-playlist",
-      "--no-progress",
-      "--no-warnings",
-      # Reject before downloading rather than after.
-      "--match-filter",
-      "duration < #{@max_duration_seconds}",
-      "--max-filesize",
-      "#{@max_bytes}",
-      "--extract-audio",
-      "--audio-format",
-      "mp3",
-      "--audio-quality",
-      "0",
-      "--restrict-filenames",
-      "--output",
-      Path.join(work, "theme.%(ext)s"),
-      "--print-to-file",
-      "%(duration)s",
-      Path.join(work, "duration.txt"),
-      "--no-simulate",
-      url
-    ]
+  # mp3 for the file that goes next to the media; the original container for
+  # the trim cache, where a transcode would spend fidelity to gain nothing.
+  defp audio_args(:mp3), do: ["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"]
+
+  defp audio_args(:original), do: ["--format", "bestaudio/best"]
+
+  defp do_download(url, work, dir, format) do
+    args =
+      [
+        "--no-playlist",
+        "--no-progress",
+        "--no-warnings",
+        # Reject before downloading rather than after.
+        "--match-filter",
+        "duration < #{@max_duration_seconds}",
+        "--max-filesize",
+        "#{@max_bytes}"
+      ] ++
+        audio_args(format) ++
+        [
+          "--restrict-filenames",
+          "--output",
+          Path.join(work, "theme.%(ext)s"),
+          "--print-to-file",
+          "%(duration)s",
+          Path.join(work, "duration.txt"),
+          "--no-simulate",
+          url
+        ]
 
     case run([@binary | proxy_args() ++ args], @timeout_ms) do
       {:ok, output} -> collect(work, dir, output)

@@ -47,6 +47,22 @@ defmodule Fanfarr.Themes.Downloader do
   @callback download(url :: String.t(), dir :: Path.t()) :: {:ok, result()} | {:error, error()}
 
   @doc """
+  The audio stream as the site serves it, with no transcode.
+
+  `download/2` extracts to mp3, which is what gets written next to the media.
+  This is for the trim editor's cache, where the point is to keep whatever
+  arrived: YouTube's Opus or AAC is already the best audio that will ever
+  exist for a given video, and re-encoding it to mp3 to store it -- or
+  decoding it to WAV to call it lossless -- both spend size or fidelity for
+  nothing.
+
+  The extension is whatever the container turns out to be, so callers must
+  take it from the returned path rather than assuming one.
+  """
+  @callback download_source(url :: String.t(), dir :: Path.t()) ::
+              {:ok, result()} | {:error, error()}
+
+  @doc """
   Whether the downloader can run at all, and what version.
 
   Surfaced on the settings page: a missing binary should read as a

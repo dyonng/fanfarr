@@ -91,8 +91,28 @@ defmodule Fanfarr.Workers.ApplyTheme do
     with :ok <- check_eligible(item),
          {:ok, url, source} <- theme_url(item, args),
          {:ok, dir} <- destination_dir(item) do
-      {:ok, %{url: url, source: source, dir: dir, path: Path.join(dir, @theme_filename)}}
+      {:ok,
+       %{
+         url: url,
+         source: source,
+         dir: dir,
+         path: Path.join(dir, @theme_filename),
+         trim: trim(item)
+       }}
     end
+  end
+
+  # Read off the item rather than passed in the job args: the trim is a
+  # property of the pick, and a job queued before an edit should write what the
+  # item says now. The alternative -- baking it into the args -- means a queued
+  # bulk apply carries a stale crop for however long the queue is deep.
+  defp trim(item) do
+    %{
+      start_ms: item.theme_start_ms,
+      end_ms: item.theme_end_ms,
+      fade_in_ms: item.theme_fade_in_ms,
+      fade_out_ms: item.theme_fade_out_ms
+    }
   end
 
   defp shared_root?(dir, roots) do
@@ -312,8 +332,17 @@ defmodule Fanfarr.Workers.ApplyTheme do
     File.mkdir_p!(tmp)
 
     try do
-      case Themes.Downloader.impl().download(plan.url, tmp) do
+      case obtain(plan.url, tmp) do
         {:ok, %{path: downloaded} = result} ->
+          # Cut BEFORE normalising, and the order is load-bearing. Normalizer
+          # is two-pass: it measures integrated loudness and applies exactly
+          # that gain. Measure the whole track and then throw most of it away
+          # and the surviving segment is at whatever level it happened to be --
+          # trim to a quiet intro and the theme is quiet, trim to the chorus
+          # and it is hot. Every other theme in the library is level-matched;
+          # cutting last would quietly exempt the cropped ones.
+          result = cut(downloaded, plan.trim, result)
+
           # Before it is moved into place, so a normalisation that fails does
           # not leave a half-processed file next to the media.
           result = normalize(downloaded, result)
@@ -338,6 +367,63 @@ defmodule Fanfarr.Workers.ApplyTheme do
   # A failure here is logged and ignored: an unnormalised theme is worse than a
   # normalised one and far better than no theme, so this never turns a
   # successful download into a failed apply.
+  # The trim editor leaves the original stream in the cache, and the very next
+  # thing an operator does after trimming is press Apply. Reusing it skips the
+  # download and renders from the better audio -- source -> cut -> mp3 rather
+  # than source -> mp3 -> cut -> mp3.
+  #
+  # Only ever a `:source` entry: `fetch_source/1` refuses a `:render`, which is
+  # an mp3 we wrote earlier and would compound its own losses. Nothing here
+  # populates the cache; it is written on the edit path alone, or a bulk apply
+  # would fill the volume for a run nobody is editing.
+  defp obtain(url, tmp) do
+    case Themes.SourceCache.fetch_source(url) do
+      {:ok, cached} ->
+        # Copied into the scratch dir, because the pipeline cuts and normalises
+        # in place and the cache is not ours to rewrite.
+        working = Path.join(tmp, "source" <> Path.extname(cached))
+
+        case File.cp(cached, working) do
+          :ok ->
+            {:ok, %{path: working, bytes: File.stat!(working).size, codec: nil, duration: nil}}
+
+          {:error, _reason} ->
+            Themes.Downloader.impl().download(url, tmp)
+        end
+
+      :miss ->
+        Themes.Downloader.impl().download(url, tmp)
+    end
+  end
+
+  # A no-op range does not get a re-encode: running ffmpeg to produce the same
+  # audio costs a generation of lossy loss for nothing.
+  defp cut(path, trim, result) do
+    if Themes.Cutter.trims?(trim) do
+      case Themes.Cutter.cut(path, trim) do
+        {:ok, %{duration_ms: duration_ms}} ->
+          Map.merge(result, %{
+            bytes: File.stat!(path).size,
+            duration_ms: duration_ms,
+            start_ms: trim.start_ms,
+            end_ms: trim.end_ms
+          })
+
+        {:error, reason} ->
+          # The same trade normalisation makes: an untrimmed theme is not what
+          # was asked for, but it is a theme, and failing the apply over the
+          # fades would be worse than the fades.
+          Logger.warning(
+            "[fanfarr] could not trim the theme (#{inspect(reason)}); using it whole"
+          )
+
+          result
+      end
+    else
+      result
+    end
+  end
+
   defp normalize(path, result) do
     case Fanfarr.Themes.Normalizer.normalize(path) do
       {:ok, measured} ->
@@ -408,7 +494,9 @@ defmodule Fanfarr.Workers.ApplyTheme do
       source: plan.source,
       method: :local_file,
       theme_url: plan.url,
-      destination_path: plan.path
+      destination_path: plan.path,
+      start_ms: plan.trim.start_ms,
+      end_ms: plan.trim.end_ms
     })
   end
 
@@ -469,6 +557,8 @@ defmodule Fanfarr.Workers.ApplyTheme do
       method: :local_file,
       theme_url: plan[:url],
       destination_path: plan[:path],
+      start_ms: get_in(plan, [:trim, :start_ms]),
+      end_ms: get_in(plan, [:trim, :end_ms]),
       status: status,
       error: reason && explain(reason),
       codec: download[:codec],

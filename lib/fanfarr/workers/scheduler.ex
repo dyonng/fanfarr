@@ -22,6 +22,13 @@ defmodule Fanfarr.Workers.Scheduler do
       if Fanfarr.Scheduling.due?(key, now), do: Fanfarr.Scheduling.enqueue(key)
     end)
 
+    # Not a scheduled task with its own interval: the trim cache is an
+    # implementation detail with nothing for an operator to decide about, and
+    # a directory listing every five minutes is cheaper than a settings row.
+    # It also self-sweeps on write, so this only matters for a cache that was
+    # filled and then left alone.
+    Fanfarr.Themes.SourceCache.sweep()
+
     :ok
   end
 end

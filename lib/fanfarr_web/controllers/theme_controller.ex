@@ -33,6 +33,50 @@ defmodule FanfarrWeb.ThemeController do
     end
   end
 
+  @doc """
+  The audio the trim editor scrubs, which is not the written theme.
+
+  A crop has to be chosen against the *whole* source; the file next to the
+  media may already be a trimmed rendering of it. `Fanfarr.Themes.EditSource`
+  decides which of the cache, the written file or a fresh download can answer
+  that, and this only serves the result.
+
+  Nothing about the request names a path. The item id is looked up, the source
+  is resolved from what the item already points at, and the file that comes
+  back is one Fanfarr put in its own cache directory -- a request cannot ask
+  for a file of its own choosing.
+  """
+  def edit_source(conn, %{"id" => id}) do
+    with {:ok, item} <- Fanfarr.Library.get_media_item(id),
+         {:ok, %{path: path}} <- Fanfarr.Themes.EditSource.resolve(item),
+         {:ok, %{size: size}} <- regular_file(path) do
+      conn
+      |> put_resp_content_type(content_type(path))
+      |> put_resp_header("cache-control", "no-store")
+      |> serve(path, size)
+    else
+      _ -> send_resp(conn, 404, "no editable source for this item")
+    end
+  end
+
+  @doc """
+  The waveform peaks for that same source, as JSON.
+
+  Computed once when the source enters the cache, so this is a file read.
+  """
+  def edit_peaks(conn, %{"id" => id}) do
+    with {:ok, item} <- Fanfarr.Library.get_media_item(id),
+         {:ok, %{peaks: peaks}} <- Fanfarr.Themes.EditSource.resolve(item),
+         {:ok, body} <- File.read(peaks) do
+      conn
+      |> put_resp_content_type("application/json")
+      |> put_resp_header("cache-control", "no-store")
+      |> send_resp(200, body)
+    else
+      _ -> send_resp(conn, 404, ~s({"error":"no waveform for this item"}))
+    end
+  end
+
   defp regular_file(path) do
     case File.stat(path) do
       {:ok, %{type: :regular} = stat} -> {:ok, stat}

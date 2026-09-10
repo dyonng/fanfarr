@@ -57,7 +57,15 @@ defmodule Fanfarr.Themes.ThemeApplication do
     # Written BEFORE the upload is attempted, so a crash mid-upload leaves
     # evidence that something was in flight rather than silence.
     create :record_intent do
-      accept [:media_item_id, :source, :method, :theme_url, :destination_path]
+      accept [
+        :media_item_id,
+        :source,
+        :method,
+        :theme_url,
+        :destination_path,
+        :start_ms,
+        :end_ms
+      ]
 
       change set_attribute(:status, :pending)
       change set_attribute(:attempted_at, &DateTime.utc_now/0)
@@ -70,6 +78,8 @@ defmodule Fanfarr.Themes.ThemeApplication do
         :method,
         :theme_url,
         :destination_path,
+        :start_ms,
+        :end_ms,
         :status,
         :error,
         :codec,
@@ -135,6 +145,12 @@ defmodule Fanfarr.Themes.ThemeApplication do
 
       description "For :local_file, the resolved directory actually written to, after root folder resolution."
     end
+
+    # The crop that was written, not the crop currently set on the item. Two
+    # applies of one URL can produce different files, and without this the log
+    # cannot say why -- which is the whole job of an append-only record.
+    attribute :start_ms, :integer, public?: true
+    attribute :end_ms, :integer, public?: true
 
     attribute :error, :string, public?: true
 

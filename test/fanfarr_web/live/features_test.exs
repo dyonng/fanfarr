@@ -633,6 +633,164 @@ defmodule FanfarrWeb.FeaturesTest do
     end
   end
 
+  describe "trimming a theme" do
+    setup %{item: item} do
+      cache = Path.join(System.tmp_dir!(), "fanfarr-cache-#{System.unique_integer([:positive])}")
+      dir = Path.join(System.tmp_dir!(), "fanfarr-trim-#{System.unique_integer([:positive])}")
+      Application.put_env(:fanfarr, :cache_dir, cache)
+      File.mkdir_p!(dir)
+
+      on_exit(fn ->
+        File.rm_rf(cache)
+        File.rm_rf(dir)
+        Application.delete_env(:fanfarr, :cache_dir)
+      end)
+
+      path = Path.join(dir, "theme.mp3")
+
+      {_out, 0} =
+        System.cmd(
+          "ffmpeg",
+          ~w(-hide_banner -loglevel error -y -f lavfi -i sine=frequency=440:duration=4 -c:a libmp3lame) ++
+            [path],
+          stderr_to_stdout: true
+        )
+
+      url = "https://www.youtube.com/watch?v=trimme00000"
+      item = Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: url})
+
+      # Applied whole, so the editor's source resolves off the written file
+      # and no download is needed.
+      Fanfarr.Themes.record_theme_outcome!(%{
+        media_item_id: item.id,
+        source: :youtube,
+        method: :local_file,
+        theme_url: url,
+        destination_path: path,
+        status: :succeeded
+      })
+
+      item =
+        Fanfarr.Library.record_local_theme!(item, %{
+          local_theme_present: true,
+          local_theme_path: path
+        })
+
+      %{item: item, url: url}
+    end
+
+    test "the editor opens in the card, replacing the player", %{conn: conn, item: item} do
+      {:ok, view, html} = live(conn, "/library/#{item.id}")
+      assert html =~ "theme-player-"
+
+      html = render_click(view, "trim", %{})
+      assert render_async(view, 10_000) =~ "Trim theme"
+
+      # The editor replaces the player rather than sitting beside it: same
+      # audio, same card, and a modal is the worst shape this has on a phone.
+      refute render(view) =~ "theme-player-"
+      # Colocated hooks are rewritten to a fully qualified name at compile time.
+      assert has_element?(view, ~s([phx-hook="FanfarrWeb.ItemLive.Show.Trimmer"]))
+      _ = html
+    end
+
+    test "the button says what it will write", %{conn: conn, item: item} do
+      # The only confirmation this flow gets, since the dialogs went.
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      assert render_async(view, 10_000) =~ "Apply theme"
+
+      html =
+        render_click(view, "trim_change", %{
+          "start_ms" => "2000",
+          "end_ms" => "62000",
+          "duration_ms" => "120000"
+        })
+
+      assert html =~ "Apply trimmed theme (1:00)"
+    end
+
+    test "applying stores the crop and queues the write", %{conn: conn, item: item, url: url} do
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      render_async(view, 10_000)
+
+      render_click(view, "trim_change", %{
+        "start_ms" => "1500",
+        "end_ms" => "3500",
+        "fade_in_ms" => "100",
+        "fade_out_ms" => "800",
+        "duration_ms" => "4000"
+      })
+
+      render_click(view, "apply_trim", %{})
+
+      stored = Fanfarr.Library.get_media_item!(item.id)
+      assert stored.theme_start_ms == 1_500
+      assert stored.theme_end_ms == 3_500
+      assert stored.theme_fade_in_ms == 100
+      assert stored.theme_fade_out_ms == 800
+
+      # Trim then Apply is one action: a "saved but not written" crop would be
+      # the only state on this page that means neither.
+      assert [job] = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
+      assert job.args["theme_url"] == url
+    end
+
+    test "an end before the start is refused rather than written", %{conn: conn, item: item} do
+      # The hook keeps the handles from crossing, but the hook is not the only
+      # thing that can send these numbers.
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      render_async(view, 10_000)
+
+      render_click(view, "trim_change", %{
+        "start_ms" => "3000",
+        "end_ms" => "1000",
+        "duration_ms" => "4000"
+      })
+
+      render_click(view, "apply_trim", %{})
+
+      stored = Fanfarr.Library.get_media_item!(item.id)
+      assert stored.theme_start_ms == 3_000
+      assert is_nil(stored.theme_end_ms), "an impossible end should be dropped, not stored"
+    end
+
+    test "cancelling leaves nothing behind", %{conn: conn, item: item} do
+      # The draft lives in the socket until Apply. A half-dragged handle
+      # surviving a cancel would be the only staged change on the page.
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      render_async(view, 10_000)
+
+      render_click(view, "trim_change", %{"start_ms" => "1000", "duration_ms" => "4000"})
+      html = render_click(view, "close_trim", %{})
+
+      refute html =~ "Trim theme"
+      assert html =~ "theme-player-"
+      assert is_nil(Fanfarr.Library.get_media_item!(item.id).theme_start_ms)
+    end
+
+    test "picking a different video clears the crop", %{conn: conn, item: item} do
+      # A crop belongs to the audio it was measured against. Carried across a
+      # change of video it would apply someone else's timings to a track
+      # nobody has listened to.
+      Fanfarr.Library.set_theme_trim!(item, %{theme_start_ms: 1_000, theme_end_ms: 3_000})
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+
+      render_click(view, "use_video", %{
+        "url" => "https://youtu.be/somethingelse",
+        "title" => "Different"
+      })
+
+      stored = Fanfarr.Library.get_media_item!(item.id)
+      assert is_nil(stored.theme_start_ms)
+      assert is_nil(stored.theme_end_ms)
+    end
+  end
+
   describe "library bulk actions" do
     test "select the page, then act on the selection", %{conn: conn, item: item, other: other} do
       {:ok, view, _html} = live(conn, "/library")

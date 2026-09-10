@@ -47,6 +47,7 @@ defmodule Fanfarr.Library do
       define :record_local_theme, action: :record_local_theme
       define :record_plex_theme, action: :record_plex_theme
       define :set_manual_theme, action: :set_manual_theme
+      define :set_theme_trim, action: :set_theme_trim
     end
 
     resource Fanfarr.Library.RootFolder do

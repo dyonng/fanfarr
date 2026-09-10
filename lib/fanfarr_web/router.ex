@@ -109,7 +109,11 @@ defmodule FanfarrWeb.Router do
   # Session-aware so an operator login gates them the same as the pages that
   # show them, but no CSRF: these are GETs for files.
   pipeline :media do
-    plug :accepts, ["html", "*/*"]
+    # "json" is not decoration: the trim editor fetches its waveform with an
+    # explicit `accept: application/json`, and without it listed here Phoenix
+    # answers 406 and the editor draws an empty canvas with no error anywhere
+    # a person would look.
+    plug :accepts, ["html", "json", "*/*"]
     plug :fetch_session
     plug :sign_in_with_remember_me
     plug :load_from_session
@@ -121,6 +125,13 @@ defmodule FanfarrWeb.Router do
 
     get "/posters/:id", PosterController, :show
     get "/library/:id/theme", ThemeController, :show
+
+    # The trim editor's source and its waveform. Behind the same session gate
+    # as the theme itself: this can trigger a download, and an unauthenticated
+    # request that makes the server fetch from YouTube is a way to use someone
+    # else's bandwidth.
+    get "/library/:id/edit-source", ThemeController, :edit_source
+    get "/library/:id/edit-peaks", ThemeController, :edit_peaks
   end
 
   # Other scopes may use custom stacks.

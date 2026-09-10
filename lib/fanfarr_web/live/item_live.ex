@@ -41,6 +41,13 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:refreshing, false)
       |> assign(:looking_up, false)
       |> assign(:poll_scheduled, false)
+      # nil when the editor is closed. A map while it is open, holding the
+      # draft crop -- deliberately not persisted until Apply, because a
+      # half-dragged handle surviving a reload would be the only thing on this
+      # page that stages a change.
+      |> assign(:trim, nil)
+      |> assign(:trim_loading, false)
+      |> assign(:trim_error, nil)
       |> load()
       |> track_applying()
       |> maybe_lookup()
@@ -262,6 +269,56 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  # Opening the editor is what triggers source resolution, and that can mean a
+  # yt-dlp round trip -- so it happens off the LiveView process and the panel
+  # says it is fetching rather than the page appearing to hang.
+  def handle_event("trim", _params, socket) do
+    item = socket.assigns.item
+
+    {:noreply,
+     socket
+     |> assign(:trim_error, nil)
+     |> assign(:trim_loading, true)
+     |> assign(:trim, draft(item))
+     |> start_async(:trim_source, fn -> Fanfarr.Themes.EditSource.resolve(item) end)}
+  end
+
+  def handle_event("close_trim", _params, socket) do
+    {:noreply, socket |> assign(:trim, nil) |> assign(:trim_error, nil)}
+  end
+
+  # One event for every control in the panel -- handles, nudges, typed fields
+  # -- because they all say the same thing: here are the new points. The hook
+  # owns the interaction; the server owns the numbers.
+  def handle_event("trim_change", params, socket) do
+    {:noreply, assign(socket, :trim, apply_change(socket.assigns.trim, params))}
+  end
+
+  def handle_event("trim_reset", _params, socket) do
+    trim = socket.assigns.trim
+    {:noreply, assign(socket, :trim, %{trim | start_ms: nil, end_ms: nil})}
+  end
+
+  # Trim then Apply is one action from here: the page's grammar is that
+  # choosing is applying, and a "saved but not written" crop would be the only
+  # state on it that means neither.
+  def handle_event("apply_trim", _params, socket) do
+    trim = socket.assigns.trim
+    item = socket.assigns.item
+
+    Library.set_theme_trim!(item, %{
+      theme_start_ms: trim.start_ms,
+      theme_end_ms: trim.end_ms,
+      theme_fade_in_ms: trim.fade_in_ms,
+      theme_fade_out_ms: trim.fade_out_ms
+    })
+
+    socket
+    |> assign(:trim, nil)
+    |> load()
+    |> queue(theme_url: trim.url, flash: "Queued for writing")
+  end
+
   def handle_event("clear_manual", _params, socket) do
     Library.set_manual_theme!(socket.assigns.item, %{
       manual_theme_url: nil,
@@ -365,6 +422,29 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> assign(:search_error, "Search crashed: #{inspect(reason, limit: 5)}")}
   end
 
+  def handle_async(:trim_source, {:ok, {:ok, resolved}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:trim_loading, false)
+     |> assign(:trim, socket.assigns.trim && %{socket.assigns.trim | url: resolved.url})}
+  end
+
+  def handle_async(:trim_source, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:trim_loading, false)
+     |> assign(:trim, nil)
+     |> assign(:trim_error, trim_error(reason))}
+  end
+
+  def handle_async(:trim_source, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:trim_loading, false)
+     |> assign(:trim, nil)
+     |> assign(:trim_error, trim_error(reason))}
+  end
+
   # Relative, because "when did Fanfarr last look" is the question the Refresh
   # button raises and a timestamp is a worse answer to it.
   defp last_synced(nil), do: "never"
@@ -384,6 +464,94 @@ defmodule FanfarrWeb.ItemLive.Show do
   defp search_error(:timeout), do: "YouTube did not answer in time"
   defp search_error({:exit, _code, out}), do: "yt-dlp failed: #{out}"
   defp search_error(other), do: "Search failed: #{inspect(other)}"
+
+  defp apply_trim_label(_trim, true), do: "Working…"
+
+  defp apply_trim_label(%{start_ms: nil, end_ms: nil}, _applying), do: "Apply theme"
+
+  defp apply_trim_label(%{start_ms: start, end_ms: finish}, _applying) do
+    case finish && finish - (start || 0) do
+      nil -> "Apply trimmed theme"
+      ms -> "Apply trimmed theme (#{clock(ms)})"
+    end
+  end
+
+  defp clock(ms) do
+    total = div(ms, 1000)
+    "#{div(total, 60)}:#{String.pad_leading("#{rem(total, 60)}", 2, "0")}"
+  end
+
+  defp trim_error(:no_theme_url), do: "There is no theme chosen for this item yet."
+  defp trim_error(:unavailable), do: "The video is no longer available on YouTube."
+  defp trim_error(:not_installed), do: "yt-dlp is not installed, so the source cannot be fetched."
+  defp trim_error(reason), do: "Could not load the audio to trim: #{inspect(reason)}"
+
+  # The draft starts from what is already stored, so re-opening the editor
+  # shows the crop that is on disk rather than a blank slate.
+  defp draft(item) do
+    %{
+      url: nil,
+      start_ms: item.theme_start_ms,
+      end_ms: item.theme_end_ms,
+      fade_in_ms: item.theme_fade_in_ms,
+      fade_out_ms: item.theme_fade_out_ms,
+      duration_ms: nil
+    }
+  end
+
+  # Everything arrives as a string from the DOM. An unparseable value leaves
+  # the field alone rather than resetting it to zero, which is what a half-typed
+  # "1:2" would otherwise do on every keystroke.
+  defp apply_change(nil, _params), do: nil
+
+  defp apply_change(trim, params) do
+    trim
+    |> put_ms(params, "start_ms")
+    |> put_ms(params, "end_ms")
+    |> put_ms(params, "fade_in_ms")
+    |> put_ms(params, "fade_out_ms")
+    |> put_ms(params, "duration_ms")
+    |> sane()
+  end
+
+  defp put_ms(trim, params, field) do
+    case Map.fetch(params, field) do
+      {:ok, ""} -> Map.put(trim, String.to_existing_atom(field), nil)
+      {:ok, raw} -> maybe_put_int(trim, String.to_existing_atom(field), raw)
+      :error -> trim
+    end
+  end
+
+  defp maybe_put_int(trim, key, raw) do
+    case Integer.parse(to_string(raw)) do
+      {value, _rest} when value >= 0 -> Map.put(trim, key, value)
+      _ -> trim
+    end
+  end
+
+  # The server is the last word on whether the numbers make sense, because the
+  # hook is not the only thing that can send them.
+  defp sane(trim) do
+    trim
+    |> clamp_to_duration()
+    |> then(fn t ->
+      if is_integer(t.start_ms) and is_integer(t.end_ms) and t.end_ms <= t.start_ms do
+        %{t | end_ms: nil}
+      else
+        t
+      end
+    end)
+  end
+
+  defp clamp_to_duration(%{duration_ms: nil} = trim), do: trim
+
+  defp clamp_to_duration(%{duration_ms: duration} = trim) do
+    %{
+      trim
+      | start_ms: trim.start_ms && min(trim.start_ms, duration),
+        end_ms: trim.end_ms && min(trim.end_ms, duration)
+    }
+  end
 
   @impl true
   def handle_info({:item_updated, _id}, socket),
@@ -503,6 +671,14 @@ defmodule FanfarrWeb.ItemLive.Show do
             </div>
             <div class="flex shrink-0 items-center gap-2">
               <button
+                :if={is_nil(@trim)}
+                phx-click="trim"
+                class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8"
+                title="Choose where this theme starts and ends"
+              >
+                <.icon name="lucide-scissors" class="size-3.5" /> Trim
+              </button>
+              <button
                 phx-click="remove_theme"
                 class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:h-8"
                 title="Delete the theme.mp3 Fanfarr wrote. Anything already uploaded into Plex itself stays -- Plex has no API to remove that."
@@ -510,6 +686,156 @@ defmodule FanfarrWeb.ItemLive.Show do
                 <.icon name="lucide-trash-2" class="size-3.5" /> Remove theme
               </button>
             </div>
+          </div>
+
+          <%!-- The editor replaces the player rather than opening beside it or
+          in a modal. It is the same audio and the same card, a modal is the
+          worst shape this has on a phone, and the page already knows how to
+          hand a subtree to JS. --%>
+          <div
+            :if={@trim_error}
+            class="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
+            {@trim_error}
+          </div>
+
+          <div :if={@trim} class="mt-3 space-y-3 rounded-md border border-border bg-background p-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="text-xs font-medium">Trim theme</p>
+              <button
+                phx-click="close_trim"
+                class="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:underline sm:min-h-0"
+              >
+                Cancel
+              </button>
+            </div>
+
+            <p :if={@trim_loading} class="flex items-center gap-2 text-xs text-muted-foreground">
+              <.icon name="lucide-loader-circle" class="size-3.5 animate-spin" />
+              Fetching the audio to trim… the first time for a theme this means a download.
+            </p>
+
+            <%!-- Everything below is the hook's. It draws the waveform, drags
+            the handles and drives the audio; the server only ever hears the
+            resulting numbers, through trim_change. --%>
+            <div
+              :if={!@trim_loading}
+              id={"trimmer-#{@item.id}-#{@theme_version}"}
+              phx-hook=".Trimmer"
+              phx-update="ignore"
+              data-audio={~p"/library/#{@item.id}/edit-source"}
+              data-peaks={~p"/library/#{@item.id}/edit-peaks"}
+              data-start={@trim.start_ms}
+              data-end={@trim.end_ms}
+              data-fade-in={@trim.fade_in_ms}
+              data-fade-out={@trim.fade_out_ms}
+              class="space-y-3"
+            >
+              <div class="relative">
+                <canvas
+                  data-wave
+                  class="h-24 w-full cursor-pointer touch-none rounded bg-muted/40 sm:h-28"
+                ></canvas>
+                <div
+                  data-handle="start"
+                  role="slider"
+                  aria-label="Start"
+                  tabindex="0"
+                  class="absolute inset-y-0 -ml-5 w-10 cursor-ew-resize touch-none"
+                >
+                  <div class="mx-auto h-full w-0.5 bg-primary"></div>
+                </div>
+                <div
+                  data-handle="end"
+                  role="slider"
+                  aria-label="End"
+                  tabindex="0"
+                  class="absolute inset-y-0 -ml-5 w-10 cursor-ew-resize touch-none"
+                >
+                  <div class="mx-auto h-full w-0.5 bg-primary"></div>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <div :for={edge <- ~w(start end)} class="flex flex-wrap items-center gap-2">
+                  <span class="w-10 shrink-0 text-xs capitalize text-muted-foreground">{edge}</span>
+                  <input
+                    data-time={edge}
+                    inputmode="numeric"
+                    class="h-11 w-28 shrink-0 rounded-md border border-input bg-background px-2 text-center font-mono text-xs tabular-nums sm:h-8"
+                  />
+                  <%!-- Dragging finds the spot; these land on it. At 390px a
+                  two-minute track is about 300ms per pixel, which no thumb can
+                  place exactly. --%>
+                  <div class="flex items-center gap-1">
+                    <button
+                      :for={step <- [-1000, -100, 100, 1000]}
+                      data-nudge={edge}
+                      data-step={step}
+                      class="inline-flex h-11 min-w-11 items-center justify-center rounded-md border border-border px-1.5 font-mono text-[11px] hover:bg-accent hover:text-accent-foreground sm:h-8 sm:min-w-0"
+                    >
+                      {if step > 0, do: "+", else: ""}{Float.round(step / 1000, 1)}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  data-play
+                  class="inline-flex h-11 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
+                >
+                  <.icon name="lucide-play" class="size-3.5" />
+                  <span data-play-label>Play selection</span>
+                </button>
+                <%!-- The one control here no generic trimmer has, and the most
+                useful: Plex loops themes, so the join from the out point back
+                to the in point is heard every time round and is the thing you
+                will get wrong. --%>
+                <button
+                  data-loop
+                  aria-pressed="true"
+                  class="inline-flex h-11 items-center gap-1.5 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary sm:h-9"
+                  title="Play the end, then the start, so the loop's seam can be heard"
+                >
+                  <.icon name="lucide-repeat" class="size-3.5" /> Loop the join
+                </button>
+                <button
+                  data-reset
+                  class="inline-flex min-h-11 items-center gap-1.5 text-xs text-muted-foreground hover:underline sm:min-h-0"
+                >
+                  <.icon name="lucide-rotate-ccw" class="size-3.5" /> Whole track
+                </button>
+              </div>
+
+              <details class="text-xs text-muted-foreground">
+                <summary class="min-h-11 cursor-pointer list-none sm:min-h-0">
+                  <span data-summary>—</span>
+                </summary>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <span :for={{edge, label} <- [{"in", "Fade in"}, {"out", "Fade out"}]}>
+                    <label class="mr-1">{label}</label>
+                    <input
+                      data-fade={edge}
+                      inputmode="numeric"
+                      class="h-11 w-20 rounded-md border border-input bg-background px-2 text-center font-mono text-xs sm:h-8"
+                    />
+                  </span>
+                  <span class="text-muted-foreground">ms</span>
+                </div>
+              </details>
+            </div>
+
+            <button
+              :if={!@trim_loading}
+              phx-click="apply_trim"
+              disabled={@applying or @item.theme_locked}
+              class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-auto"
+              title={apply_title(@item)}
+            >
+              <.icon name="lucide-music" class="size-4" />
+              {apply_trim_label(@trim, @applying)}
+            </button>
           </div>
 
           <%!-- The browser's own audio controls render in its default chrome,
@@ -529,6 +855,7 @@ defmodule FanfarrWeb.ItemLive.Show do
           random. The subtree is the hook's; the server only decides whether it
           exists and which file it points at. --%>
           <div
+            :if={is_nil(@trim)}
             id={"theme-player-#{@theme_version}"}
             phx-hook=".AudioPlayer"
             phx-update="ignore"
@@ -602,6 +929,377 @@ defmodule FanfarrWeb.ItemLive.Show do
             />
           </div>
 
+          <script :type={Phoenix.LiveView.ColocatedHook} name=".Trimmer">
+            export default {
+              mounted() {
+                const el = this.el
+                const ms = (v) => (v === "" || v == null ? null : Number(v))
+
+                this.state = {
+                  start: ms(el.dataset.start),
+                  end: ms(el.dataset.end),
+                  fadeIn: ms(el.dataset.fadeIn) ?? 250,
+                  fadeOut: ms(el.dataset.fadeOut) ?? 500,
+                  duration: null,
+                  peaks: [],
+                  loop: true,
+                }
+
+                this.canvas = el.querySelector("[data-wave]")
+                this.audio = new Audio(el.dataset.audio)
+                this.audio.preload = "metadata"
+
+                // Shared with the theme player and the YouTube preview, so
+                // trimming does not blast at a level nothing else uses.
+                this.unsubscribe = window.Fanfarr.volume.subscribe(({level, muted}) => {
+                  this.audio.volume = level
+                  this.audio.muted = muted
+                })
+
+                this.load()
+                this.wire()
+              },
+
+              // Peaks arrive as JSON rather than being decoded here: the
+              // browser would be decoding whatever container YouTube served,
+              // and Safari's Opus support is not worth betting this on.
+              async load() {
+                try {
+                  const res = await fetch(this.el.dataset.peaks, {headers: {accept: "application/json"}})
+                  if (!res.ok) throw new Error(res.status)
+                  const body = await res.json()
+                  this.state.peaks = body.peaks || []
+                  this.state.duration = body.duration_ms || null
+                } catch (_e) {
+                  this.state.peaks = []
+                }
+                this.clamp()
+                this.paint()
+                this.pushState()
+              },
+
+              wire() {
+                const el = this.el
+
+                // One pointer handler for both handles and for clicking the
+                // waveform, because they are the same gesture at different
+                // precisions.
+                for (const edge of ["start", "end"]) {
+                  const handle = el.querySelector(`[data-handle="${edge}"]`)
+
+                  handle.addEventListener("pointerdown", (event) => {
+                    event.preventDefault()
+                    handle.setPointerCapture(event.pointerId)
+                    this.dragging = edge
+                  })
+
+                  handle.addEventListener("pointermove", (event) => {
+                    if (this.dragging !== edge) return
+                    this.set(edge, this.timeAt(event.clientX), {silent: true})
+                  })
+
+                  const release = () => {
+                    if (!this.dragging) return
+                    this.dragging = null
+                    // Pushed on release, not on every pointermove: a drag is
+                    // hundreds of events and the server only needs where it
+                    // ended up.
+                    this.pushState()
+                    if (this.state.loop) this.playSelection()
+                  }
+
+                  handle.addEventListener("pointerup", release)
+                  handle.addEventListener("pointercancel", release)
+
+                  handle.addEventListener("keydown", (event) => {
+                    const step = event.shiftKey ? 1000 : 100
+                    if (event.key === "ArrowLeft") { this.nudge(edge, -step); event.preventDefault() }
+                    if (event.key === "ArrowRight") { this.nudge(edge, step); event.preventDefault() }
+                  })
+                }
+
+                // Clicking the waveform moves the playhead, which is what
+                // every audio editor does and what the bracket keys need.
+                this.canvas.addEventListener("pointerdown", (event) => {
+                  const at = this.timeAt(event.clientX)
+                  this.audio.currentTime = at / 1000
+                  this.paint()
+                })
+
+                el.querySelectorAll("[data-nudge]").forEach((button) => {
+                  button.addEventListener("click", () => {
+                    this.nudge(button.dataset.nudge, Number(button.dataset.step))
+                  })
+                })
+
+                for (const edge of ["start", "end"]) {
+                  const input = el.querySelector(`[data-time="${edge}"]`)
+
+                  input.addEventListener("change", () => {
+                    const parsed = this.parseClock(input.value)
+                    if (parsed === null) { this.paint(); return }
+                    this.set(edge, parsed)
+                  })
+                }
+
+                el.querySelectorAll("[data-fade]").forEach((input) => {
+                  input.addEventListener("change", () => {
+                    const value = Math.max(0, Math.min(10000, Number(input.value) || 0))
+                    this.state[input.dataset.fade === "in" ? "fadeIn" : "fadeOut"] = value
+                    this.paint()
+                    this.pushState()
+                  })
+                })
+
+                el.querySelector("[data-play]").addEventListener("click", () => {
+                  if (!this.audio.paused) { this.stop(); return }
+                  this.playSelection()
+                })
+
+                const loop = el.querySelector("[data-loop]")
+                loop.addEventListener("click", () => {
+                  this.state.loop = !this.state.loop
+                  loop.setAttribute("aria-pressed", String(this.state.loop))
+                })
+
+                el.querySelector("[data-reset]").addEventListener("click", () => {
+                  this.state.start = null
+                  this.state.end = null
+                  this.paint()
+                  this.pushState()
+                })
+
+                // The classic in/out idiom, and free: the playhead is already
+                // where you were listening.
+                this.onKey = (event) => {
+                  if (event.target.tagName === "INPUT") return
+                  const at = Math.round(this.audio.currentTime * 1000)
+                  if (event.key === "[") { this.set("start", at) }
+                  if (event.key === "]") { this.set("end", at) }
+                }
+                window.addEventListener("keydown", this.onKey)
+
+                this.audio.addEventListener("loadedmetadata", () => {
+                  if (isFinite(this.audio.duration)) {
+                    this.state.duration = Math.round(this.audio.duration * 1000)
+                    this.clamp()
+                    this.paint()
+                    this.pushState()
+                  }
+                })
+
+                this.audio.addEventListener("timeupdate", () => this.tick())
+                this.audio.addEventListener("play", () => this.paintPlaying(true))
+                this.audio.addEventListener("pause", () => this.paintPlaying(false))
+
+                this.repaint = () => this.paint()
+                window.addEventListener("resize", this.repaint)
+              },
+
+              // --- playback --------------------------------------------------
+
+              playSelection() {
+                const {start, end} = this.bounds()
+                // Loop mode starts near the out point so the join is the first
+                // thing heard, rather than making you sit through the track to
+                // reach the only part in question.
+                const from = this.state.loop ? Math.max(start, end - 3000) : start
+                this.audio.currentTime = from / 1000
+                this.audio.play().catch(() => this.paintPlaying(false))
+              },
+
+              stop() {
+                this.audio.pause()
+              },
+
+              tick() {
+                const {start, end} = this.bounds()
+                const at = this.audio.currentTime * 1000
+
+                if (at >= end) {
+                  if (this.state.loop) {
+                    this.audio.currentTime = start / 1000
+                  } else {
+                    this.audio.pause()
+                    this.audio.currentTime = start / 1000
+                  }
+                }
+
+                this.paint()
+              },
+
+              // --- state -----------------------------------------------------
+
+              bounds() {
+                const duration = this.state.duration || 0
+                return {
+                  start: this.state.start ?? 0,
+                  end: this.state.end ?? duration,
+                }
+              },
+
+              set(edge, value, opts = {}) {
+                const duration = this.state.duration || 0
+                let at = Math.max(0, Math.min(Math.round(value), duration))
+
+                // The handles cannot cross. Half a second of minimum length,
+                // because a zero-length selection renders to silence and the
+                // failure is only audible after it has been written.
+                if (edge === "start") {
+                  const ceiling = (this.state.end ?? duration) - 500
+                  this.state.start = Math.min(at, Math.max(0, ceiling))
+                } else {
+                  const floor = (this.state.start ?? 0) + 500
+                  this.state.end = Math.max(at, Math.min(floor, duration))
+                }
+
+                this.paint()
+                if (!opts.silent) this.pushState()
+              },
+
+              nudge(edge, step) {
+                const current = edge === "start" ? (this.state.start ?? 0) : (this.state.end ?? this.state.duration ?? 0)
+                this.set(edge, current + step)
+              },
+
+              clamp() {
+                const duration = this.state.duration
+                if (!duration) return
+                if (this.state.start != null) this.state.start = Math.min(this.state.start, duration)
+                if (this.state.end != null) this.state.end = Math.min(this.state.end, duration)
+              },
+
+              pushState() {
+                this.pushEvent("trim_change", {
+                  start_ms: this.state.start == null ? "" : String(this.state.start),
+                  end_ms: this.state.end == null ? "" : String(this.state.end),
+                  fade_in_ms: String(this.state.fadeIn),
+                  fade_out_ms: String(this.state.fadeOut),
+                  duration_ms: this.state.duration == null ? "" : String(this.state.duration),
+                })
+              },
+
+              // --- drawing ---------------------------------------------------
+
+              timeAt(clientX) {
+                const box = this.canvas.getBoundingClientRect()
+                const ratio = Math.min(Math.max((clientX - box.left) / box.width, 0), 1)
+                return ratio * (this.state.duration || 0)
+              },
+
+              paintPlaying(playing) {
+                const label = this.el.querySelector("[data-play-label]")
+                if (label) label.textContent = playing ? "Stop" : "Play selection"
+              },
+
+              paint() {
+                const canvas = this.canvas
+                const box = canvas.getBoundingClientRect()
+                if (box.width === 0) return
+
+                const dpr = window.devicePixelRatio || 1
+                canvas.width = Math.round(box.width * dpr)
+                canvas.height = Math.round(box.height * dpr)
+
+                const ctx = canvas.getContext("2d")
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+                ctx.clearRect(0, 0, box.width, box.height)
+
+                const styles = getComputedStyle(this.el)
+                const peaks = this.state.peaks
+                const duration = this.state.duration || 0
+                const {start, end} = this.bounds()
+                const mid = box.height / 2
+
+                // Scaled to the file's own loudest peak. YouTube audio is
+                // often mastered well below full scale -- a real one measured
+                // 0.13 -- and drawn against an absolute 1.0 the waveform is a
+                // flat line that shows nothing.
+                const ceiling = peaks.length ? Math.max(...peaks, 0.05) : 1
+
+                for (let x = 0; x < box.width; x++) {
+                  const at = (x / box.width) * duration
+                  const peak = peaks.length ? peaks[Math.min(peaks.length - 1, Math.floor((x / box.width) * peaks.length))] : 0
+                  const height = Math.max(1, (peak / ceiling) * (box.height * 0.9))
+                  const inside = at >= start && at <= end
+
+                  ctx.fillStyle = inside
+                    ? styles.getPropertyValue("--color-primary") || "#7c93f7"
+                    : "rgba(127,127,127,0.35)"
+
+                  ctx.fillRect(x, mid - height / 2, 1, height)
+                }
+
+                // The playhead, but only while there is something to follow.
+                if (!this.audio.paused && duration) {
+                  const x = (this.audio.currentTime * 1000 / duration) * box.width
+                  ctx.fillStyle = styles.getPropertyValue("--color-foreground") || "#fff"
+                  ctx.fillRect(x, 0, 1, box.height)
+                }
+
+                this.position(start, end, box.width)
+                this.labels(start, end)
+              },
+
+              position(start, end, width) {
+                const duration = this.state.duration || 1
+                const place = (edge, at) => {
+                  const handle = this.el.querySelector(`[data-handle="${edge}"]`)
+                  handle.style.left = `${(at / duration) * width}px`
+                  handle.setAttribute("aria-valuenow", String(Math.round(at)))
+                }
+                place("start", start)
+                place("end", end)
+              },
+
+              labels(start, end) {
+                const set = (selector, value) => {
+                  const node = this.el.querySelector(selector)
+                  if (node && node !== document.activeElement) node.value = value
+                }
+                set('[data-time="start"]', this.clock(start))
+                set('[data-time="end"]', this.clock(end))
+                set('[data-fade="in"]', String(this.state.fadeIn))
+                set('[data-fade="out"]', String(this.state.fadeOut))
+
+                const summary = this.el.querySelector("[data-summary]")
+                if (summary) {
+                  summary.textContent =
+                    `${this.clock(end - start)} selected · fades ${this.state.fadeIn}ms / ${this.state.fadeOut}ms`
+                }
+              },
+
+              clock(ms) {
+                const total = Math.max(0, ms) / 1000
+                const minutes = Math.floor(total / 60)
+                const seconds = (total - minutes * 60).toFixed(1).padStart(4, "0")
+                return `${minutes}:${seconds}`
+              },
+
+              // "1:23.4", "83.4" and "83" all mean the same thing; anything
+              // else leaves the field alone rather than becoming zero.
+              parseClock(raw) {
+                const text = String(raw).trim()
+                if (!text) return null
+
+                const parts = text.split(":")
+                const seconds = Number(parts.pop())
+                if (!isFinite(seconds)) return null
+
+                const minutes = parts.length ? Number(parts.pop()) : 0
+                if (!isFinite(minutes)) return null
+
+                return Math.round((minutes * 60 + seconds) * 1000)
+              },
+
+              destroyed() {
+                window.removeEventListener("keydown", this.onKey)
+                window.removeEventListener("resize", this.repaint)
+                if (this.unsubscribe) this.unsubscribe()
+                if (this.audio) { this.audio.pause(); this.audio.src = "" }
+              }
+            }
+          </script>
           <script :type={Phoenix.LiveView.ColocatedHook} name=".AudioPlayer">
             export default {
               mounted() {

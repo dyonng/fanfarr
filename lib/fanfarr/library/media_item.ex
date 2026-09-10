@@ -134,6 +134,44 @@ defmodule Fanfarr.Library.MediaItem do
     # reuses the choice rather than reverting to the database's suggestion.
     update :set_manual_theme do
       accept [:manual_theme_url, :manual_theme_title]
+      # The crop reset below reads the changeset, which no atomic update can.
+      require_atomic? false
+
+      # A crop belongs to the audio it was measured against. Keeping the old
+      # points across a change of video would apply someone else's timings to a
+      # track that has never been listened to -- silently, and with a written
+      # file to show for it.
+      change fn changeset, _context ->
+        if Ash.Changeset.changing_attribute?(changeset, :manual_theme_url) do
+          changeset
+          |> Ash.Changeset.force_change_attribute(:theme_start_ms, nil)
+          |> Ash.Changeset.force_change_attribute(:theme_end_ms, nil)
+        else
+          changeset
+        end
+      end
+    end
+
+    @doc """
+    The crop, set from the trim editor.
+
+    Separate from `set_manual_theme` because trimming does not change which
+    video is chosen, and because that action clears these on purpose.
+    """
+    update :set_theme_trim do
+      accept [:theme_start_ms, :theme_end_ms, :theme_fade_in_ms, :theme_fade_out_ms]
+      require_atomic? false
+
+      validate fn changeset, _context ->
+        start = Ash.Changeset.get_attribute(changeset, :theme_start_ms)
+        finish = Ash.Changeset.get_attribute(changeset, :theme_end_ms)
+
+        cond do
+          is_nil(start) or is_nil(finish) -> :ok
+          finish > start -> :ok
+          true -> {:error, field: :theme_end_ms, message: "must be after the start"}
+        end
+      end
     end
 
     read :by_section do
@@ -276,6 +314,46 @@ defmodule Fanfarr.Library.MediaItem do
     attribute :manual_theme_title, :string do
       public? true
       description "The video title at the time it was picked, for the dashboard."
+    end
+
+    # --- the trim ------------------------------------------------------------
+    #
+    # Not a second audio file. The theme.mp3 next to the media is derived
+    # output -- Fanfarr writes it from a URL it stored and can rewrite it -- so
+    # a crop is two more parameters on that recipe rather than a copy of the
+    # audio with the ends cut off. It also means a crop can be *widened* later,
+    # which cropping a cropped file cannot do.
+    #
+    # Milliseconds because that is what both ffmpeg and an HTMLAudioElement
+    # think in, and a float of seconds would round differently in each.
+    attribute :theme_start_ms, :integer do
+      public? true
+      constraints min: 0
+      description "Where the written theme starts within the source. nil means the beginning."
+    end
+
+    attribute :theme_end_ms, :integer do
+      public? true
+      constraints min: 0
+      description "Where the written theme ends within the source. nil means the end."
+    end
+
+    # A hard cut clicks, and Plex loops themes, so the click is heard every
+    # time round. These default to on rather than to zero: a fade is what makes
+    # a cut sound deliberate, and nobody who has not thought about it wants the
+    # click.
+    attribute :theme_fade_in_ms, :integer do
+      allow_nil? false
+      default 250
+      public? true
+      constraints min: 0, max: 10_000
+    end
+
+    attribute :theme_fade_out_ms, :integer do
+      allow_nil? false
+      default 500
+      public? true
+      constraints min: 0, max: 10_000
     end
 
     attribute :local_theme_present, :boolean do

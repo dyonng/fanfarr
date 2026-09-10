@@ -186,6 +186,25 @@ is silently dropped as a duplicate of the first. There is no dry run -- it was
 removed in v0.1.51 along with its column, and its rows were deleted, because
 every query over that table had to remember to exclude them.
 
+**Trimming:** the crop is `theme_start_ms`/`theme_end_ms` on the item, never a
+second audio file -- the mp3 is derived output, so a crop is two more
+parameters on the recipe and can be *widened* later. Pipeline order is
+download -> **cut** -> normalise -> place, and that order is load-bearing:
+normalisation is two-pass, so cutting afterwards leaves the surviving segment
+at whatever level it happened to be. `Fanfarr.Themes.Cutter` uses
+`atrim`+`asetpts` rather than `-ss`/`-to`, because output-side seeking does not
+rebase timestamps before the filter graph and `afade` then silences the whole
+file. `set_manual_theme` clears the crop: it belongs to the audio it was
+measured against.
+
+**Trim source ladder** (`Fanfarr.Themes.EditSource`): cached original ->
+the written mp3 when the last apply had no crop (derived from the application
+log, not a stored flag) -> fresh download. A *cropped* mp3 can never seed an
+edit; that audio is gone. `Fanfarr.Themes.SourceCache` keeps the untranscoded
+stream (YouTube is lossy already; WAV would be bigger and no better), keyed on
+a hash of the URL, kinds `:source` and `:render`, age limit plus an LRU byte
+cap. Populated on the edit path only -- a bulk apply must never fill it.
+
 **Loudness:** downloads are normalised to -14 LUFS by default via ffmpeg
 `loudnorm` two-pass (`theme_loudness_lufs` to change it). Measure any file with
 `Fanfarr.Themes.Normalizer.measure/1` to calibrate against themes already in

@@ -525,6 +525,119 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
   end
 
+  describe "trimming" do
+    # Real audio and real ffmpeg: the whole point of these is that the file
+    # written next to the media is shorter than the one downloaded, and a
+    # stubbed cutter would assert only that we called ourselves.
+    defp tone(dir, seconds) do
+      path = Path.join(dir, "theme.mp3")
+
+      {_out, 0} =
+        System.cmd(
+          "ffmpeg",
+          ~w(-hide_banner -loglevel error -y -f lavfi -i sine=frequency=440:duration=#{seconds} -c:a libmp3lame) ++
+            [path],
+          stderr_to_stdout: true
+        )
+
+      path
+    end
+
+    defp duration(path) do
+      {out, 0} =
+        System.cmd(
+          "ffprobe",
+          ~w(-v error -show_entries format=duration -of default=nw=1:nk=1) ++ [path],
+          stderr_to_stdout: true
+        )
+
+      out |> String.trim() |> String.to_float()
+    end
+
+    test "the written file is the chosen range, not the whole download", ctx do
+      themerr_hit()
+
+      item =
+        ctx
+        |> item()
+        |> Fanfarr.Library.set_theme_trim!(%{theme_start_ms: 4_000, theme_end_ms: 14_000})
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        path = tone(dir, 30)
+        {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 30.0}}
+      end)
+
+      assert :ok = run(item)
+
+      written = Path.join(ctx.media, "theme.mp3")
+      assert_in_delta duration(written), 10.0, 0.3
+    end
+
+    test "the log says what range was written", ctx do
+      # Two applies of one URL can produce different files. Without this the
+      # history cannot explain why, which is the job of an append-only record.
+      themerr_hit()
+
+      item =
+        ctx
+        |> item()
+        |> Fanfarr.Library.set_theme_trim!(%{theme_start_ms: 2_000, theme_end_ms: 9_000})
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        path = tone(dir, 20)
+        {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 20.0}}
+      end)
+
+      assert :ok = run(item)
+
+      [outcome, intent] = history(item)
+      assert intent.start_ms == 2_000 and intent.end_ms == 9_000
+      assert outcome.start_ms == 2_000 and outcome.end_ms == 9_000
+    end
+
+    test "an untrimmed item is not re-encoded at all", ctx do
+      # Running ffmpeg to produce the same audio spends a generation of lossy
+      # loss for nothing. The proof is the byte-for-byte match: a re-encode,
+      # even to the same settings, does not round-trip identically.
+      themerr_hit()
+      item = item(ctx)
+      downloaded = :erlang.unique_integer([:positive])
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        path = tone(dir, 5)
+        File.write!(Path.join(dir, "copy-#{downloaded}"), File.read!(path))
+        {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 5.0}}
+      end)
+
+      assert :ok = run(item)
+
+      # Fades default to on, but with no crop there is nothing to fade into or
+      # out of, so trims?/1 says no and the download is placed untouched.
+      assert item.theme_start_ms == nil and item.theme_end_ms == nil
+      assert_in_delta duration(Path.join(ctx.media, "theme.mp3")), 5.0, 0.2
+    end
+
+    test "the trim is read at run time, not baked into the job", ctx do
+      # A bulk apply can sit in the queue for a long while. Reading the crop
+      # off the item when the worker runs means an edit made in the meantime
+      # is what gets written, rather than whatever was true when it queued.
+      themerr_hit()
+      item = item(ctx)
+
+      {:ok, _job} = ApplyTheme.enqueue(item)
+
+      item = Fanfarr.Library.set_theme_trim!(item, %{theme_start_ms: 1_000, theme_end_ms: 6_000})
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        path = tone(dir, 20)
+        {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 20.0}}
+      end)
+
+      assert :ok = run(item)
+      assert_in_delta duration(Path.join(ctx.media, "theme.mp3")), 5.0, 0.3
+    end
+  end
+
   describe "enqueue/2" do
     test "it carries an explicit URL and source through to the job", ctx do
       item = item(ctx)
