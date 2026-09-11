@@ -105,6 +105,16 @@ array in JSON, and `selected` is a boolean there, not `"1"`. Plex does honour
 `Accept: application/json`. Set `config :fanfarr, req_options: [plug: ...]` to
 serve captured responses through the real client in tests.
 
+**A section's listing is not only its titles.** `/library/sections/{key}/all`
+returns the section's *collections* alongside its films, as entries of type
+`"collection"`. `kind/1` answers `nil` for anything that is not `movie` or
+`show` and `items/2` drops those -- it used to default to `:movie`, which put
+"Aquaman Collection" in the library as a film that could never have a theme,
+so it sat permanently under the missing filter. `sections/1` had always
+filtered on type; the listing never got the same guard. No migration is needed
+for installs that stored them: `prune/2` deletes whatever the listing stops
+mentioning.
+
 **Movies were the last big unverified piece and are done.** Plex's movie
 agent supplies no themes at all, so a local `theme.mp3` was the only possible
 path, and whether Plex would even read one was open until it was tried on the

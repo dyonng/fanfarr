@@ -384,6 +384,27 @@ defmodule Fanfarr.Workers.SyncTest do
       assert Fanfarr.Themes.list_theme_applications!() == []
     end
 
+    test "collections stored by an older build are cleaned out by the next sync",
+         %{section: s} do
+      # Until the listing was filtered on type, a movie section's collections
+      # came through as movies -- so an upgraded install still has rows like
+      # "Aquaman Collection" in its library, and no migration puts them right.
+      # None is needed: a collection stops appearing in the parsed listing, and
+      # anything the listing stops mentioning is already pruned. This is that
+      # upgrade, with the first sync standing in for the old build's output.
+      sync_listing(s, [
+        plex_item(%{rating_key: "1", title: "Aquaman", kind: :movie}),
+        plex_item(%{rating_key: "900", title: "Aquaman Collection", kind: :movie}),
+        plex_item(%{rating_key: "901", title: "AVP Collection", kind: :movie})
+      ])
+
+      assert length(Fanfarr.Library.list_media_items!()) == 3
+
+      sync_listing(s, [plex_item(%{rating_key: "1", title: "Aquaman", kind: :movie})])
+
+      assert [%{title: "Aquaman"}] = Fanfarr.Library.list_media_items!()
+    end
+
     test "an empty listing deletes nothing", %{section: s} do
       # Plex returns an empty listing mid-scan, and for a section whose storage
       # is offline. Believing it would delete the entire library.

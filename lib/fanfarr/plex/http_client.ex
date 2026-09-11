@@ -20,6 +20,8 @@ defmodule Fanfarr.Plex.HTTPClient do
   """
   @behaviour Fanfarr.Plex.Client
 
+  require Logger
+
   @impl true
   def server_info(config) do
     with {:ok, body} <- get(config, "/") do
@@ -54,13 +56,40 @@ defmodule Fanfarr.Plex.HTTPClient do
     query = "includeGuids=1&includeCollections=1"
 
     with {:ok, body} <- get(config, "/library/sections/#{section_key}/all?#{query}") do
-      items =
-        body
-        |> containers(["Directory", "Video", "Metadata"])
-        |> Enum.map(&parse_item/1)
+      entries = containers(body, ["Directory", "Video", "Metadata"])
+      {titles, other} = Enum.split_with(entries, &(kind(&1["type"]) != nil))
 
-      {:ok, items}
+      log_skipped(section_key, other)
+
+      {:ok, Enum.map(titles, &parse_item/1)}
     end
+  end
+
+  # A movie section's listing is not only movies. Plex puts the section's
+  # collections in it too -- "Aquaman Collection", "AVP Collection" -- as
+  # entries of type "collection", and they arrived here as movies because
+  # `kind/1` used to answer :movie for anything it did not recognise. A
+  # collection has no file and no theme, so every one of them landed in the
+  # library as a title permanently missing its theme, which is exactly the
+  # filter someone looking for work to do is sitting on.
+  #
+  # `sections/1` has always filtered on type this way; the listing simply never
+  # got the same guard. Dropping them here is enough to remove the ones already
+  # stored: `prune/2` deletes whatever the listing no longer mentions, so the
+  # next sync takes them out.
+  defp log_skipped(_section_key, []), do: :ok
+
+  defp log_skipped(section_key, entries) do
+    counts =
+      entries
+      |> Enum.map(&(&1["type"] || "unknown"))
+      |> Enum.frequencies()
+      |> Enum.map_join(", ", fn {type, count} -> "#{count} #{type}" end)
+
+    Logger.debug(
+      "[fanfarr] section #{section_key}: ignored #{counts} in the listing -- " <>
+        "only movies and shows can carry a theme"
+    )
   end
 
   @impl true
@@ -69,8 +98,16 @@ defmodule Fanfarr.Plex.HTTPClient do
 
     with {:ok, body} <- get(config, "/library/metadata/#{rating_key}?#{query}") do
       case containers(body, ["Directory", "Video", "Metadata"]) do
-        [item | _] -> {:ok, parse_item(item)}
-        [] -> {:error, :not_found}
+        # Asking for one thing by ratingKey can land on a collection just as
+        # the listing can -- a stale key, or one typed by hand into the item
+        # trace. Saying so beats inventing a movie out of it.
+        [item | _] ->
+          if kind(item["type"]),
+            do: {:ok, parse_item(item)},
+            else: {:error, :unsupported_type}
+
+        [] ->
+          {:error, :not_found}
       end
     end
   end
@@ -364,9 +401,13 @@ defmodule Fanfarr.Plex.HTTPClient do
     end)
   end
 
+  # nil, not :movie. The catch-all used to answer :movie, which meant every
+  # collection, season, clip or anything else Plex chose to put in a listing
+  # became a movie in the library rather than being recognised as something
+  # this cannot theme.
   defp kind("show"), do: :show
   defp kind("movie"), do: :movie
-  defp kind(_), do: :movie
+  defp kind(_), do: nil
 
   defp unix(nil), do: nil
   defp unix(ts) when is_integer(ts), do: DateTime.from_unix!(ts)

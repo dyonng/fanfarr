@@ -281,6 +281,54 @@ defmodule Fanfarr.Plex.HTTPClientTest do
   end
 
   describe "items/2" do
+    test "a movie section's collections are not movies" do
+      # Reported from a real library: with the filters on missing + movies,
+      # "Aquaman Collection" and "AVP Collection" were listed as titles. A
+      # movie section's listing carries its collections alongside its films,
+      # and `kind/1` answered :movie for anything it did not recognise -- so
+      # each one was stored as a movie that would never have a theme, landing
+      # it permanently under the one filter someone uses to find work to do.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":1,"title":"Aquaman","year":2018,"type":"movie","guid":"plex://movie/aq"},
+        {"ratingKey":900,"title":"Aquaman Collection","type":"collection",
+         "guid":"collection://abc","childCount":2},
+        {"ratingKey":901,"title":"AVP Collection","type":"collection",
+         "guid":"collection://def","childCount":2},
+        {"ratingKey":2,"title":"Heat","year":1995,"type":"movie","guid":"plex://movie/heat"}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, items} = HTTPClient.items(@config, "1")
+
+      assert Enum.map(items, & &1.title) == ["Aquaman", "Heat"]
+      assert Enum.all?(items, &(&1.kind == :movie))
+    end
+
+    test "nothing else Plex puts in a listing becomes a movie either" do
+      # The catch-all was the bug, so the fix is tested as one: a season, a
+      # clip or a type Plex has not invented yet must all be dropped rather
+      # than each defaulting to the one kind the parser knew.
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":10,"title":"Season 1","type":"season"},
+        {"ratingKey":11,"title":"Trailer","type":"clip"},
+        {"ratingKey":12,"title":"Some Band","type":"artist"},
+        {"ratingKey":13,"title":"Whatever Plex Adds Next","type":"hologram"},
+        {"ratingKey":14,"title":"No type at all"},
+        {"ratingKey":15,"title":"OSHI NO KO","year":2023,"type":"show"}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, [item]} = HTTPClient.items(@config, "2")
+      assert item.title == "OSHI NO KO"
+      assert item.kind == :show
+    end
+
     test "the listing's theme attribute is captured but carries no origin" do
       # Verified: the listing reports theme="/library/metadata/45870/theme/1788156492".
       # That is a timestamped URL, not an origin -- which is exactly why sync
