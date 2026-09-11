@@ -694,6 +694,37 @@ defmodule FanfarrWeb.FeaturesTest do
       _ = html
     end
 
+    test "the editor renders every control the hook reaches for", %{conn: conn, item: item} do
+      # Everything inside the editor is phx-update="ignore", so the server
+      # renders this markup once and then never hears about it again. A
+      # renamed hook -- or a control quietly dropped in a redesign -- fails as
+      # a silent querySelector returning null in a browser, and nothing here
+      # would notice. These are the attributes the hook binds to by name.
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      render_async(view, 10_000)
+
+      for attribute <-
+            ~w(data-wave data-ruler data-play data-restart data-seam data-loop data-reset data-summary) do
+        assert has_element?(view, "[#{attribute}]"), "the editor is missing [#{attribute}]"
+      end
+
+      assert has_element?(view, ~s([data-handle="start"]))
+      assert has_element?(view, ~s([data-handle="end"]))
+      assert has_element?(view, ~s([data-icon="play"]))
+      assert has_element?(view, ~s([data-icon="stop"]))
+
+      # Repeat is a flag, so it is drawn as a switch rather than as a button
+      # tinted when active -- which read as "hovered" and was the reason it
+      # was not recognisable as a toggle at all.
+      assert has_element?(view, ~s([data-loop][role="switch"][aria-checked="true"]))
+
+      # The edge grips live in the ruler above the waveform, not on top of it.
+      # As full-height overlays they swallowed every click within 20px of an
+      # edge, so the playhead could not be put near either end of a track.
+      refute has_element?(view, ~s([data-wave] [data-handle]))
+    end
+
     test "the button says what it will write", %{conn: conn, item: item} do
       # The only confirmation this flow gets, since the dialogs went.
       {:ok, view, _html} = live(conn, "/library/#{item.id}")

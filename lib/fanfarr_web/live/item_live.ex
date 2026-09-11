@@ -731,29 +731,41 @@ defmodule FanfarrWeb.ItemLive.Show do
               data-fade-out={@trim.fade_out_ms}
               class="space-y-3"
             >
-              <div class="relative">
+              <%!-- Audacity's layout, for Audacity's reason: the ruler is a
+              strip of its own above the track, so the grips that drag the
+              selection are not lying on top of the audio you are trying to
+              click.
+
+              They used to be. Each handle was a 40px-wide overlay spanning the
+              full height of the waveform, so any press within 20px of an edge
+              grabbed a handle instead of moving the playhead -- and an
+              untrimmed selection puts the two handles at the very ends, which
+              made the first and last 20px of every track unreachable. Up here
+              a fat target costs nothing, because there is nothing behind it to
+              hit. --%>
+              <div class="relative select-none">
+                <div class="relative h-6 sm:h-5">
+                  <canvas data-ruler class="block size-full rounded-t bg-muted/60"></canvas>
+                  <div
+                    :for={{edge, label} <- [{"start", "Start"}, {"end", "End"}]}
+                    data-handle={edge}
+                    role="slider"
+                    aria-label={label}
+                    aria-valuemin="0"
+                    tabindex="0"
+                    class="group absolute inset-y-0 -ml-4 flex w-8 cursor-ew-resize touch-none justify-center sm:-ml-3 sm:w-6"
+                  >
+                    <div class="h-full w-1.5 rounded-t-sm bg-primary group-focus-visible:ring-2 group-focus-visible:ring-ring">
+                    </div>
+                  </div>
+                </div>
+                <%!-- The edges continue into the waveform as hairlines painted
+                on the canvas rather than as DOM sitting over it, so they can be
+                seen without being in the way. --%>
                 <canvas
                   data-wave
-                  class="h-24 w-full cursor-pointer touch-none rounded bg-muted/40 sm:h-28"
+                  class="block h-24 w-full cursor-text touch-none rounded-b bg-muted/40 sm:h-28"
                 ></canvas>
-                <div
-                  data-handle="start"
-                  role="slider"
-                  aria-label="Start"
-                  tabindex="0"
-                  class="absolute inset-y-0 -ml-5 w-10 cursor-ew-resize touch-none"
-                >
-                  <div class="mx-auto h-full w-0.5 bg-primary"></div>
-                </div>
-                <div
-                  data-handle="end"
-                  role="slider"
-                  aria-label="End"
-                  tabindex="0"
-                  class="absolute inset-y-0 -ml-5 w-10 cursor-ew-resize touch-none"
-                >
-                  <div class="mx-auto h-full w-0.5 bg-primary"></div>
-                </div>
               </div>
 
               <div class="space-y-2">
@@ -778,34 +790,72 @@ defmodule FanfarrWeb.ItemLive.Show do
                     </button>
                   </div>
                 </div>
-              </div>
 
-              <div class="flex flex-wrap items-center gap-2">
-                <button
-                  data-play
-                  class="inline-flex h-11 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
-                >
-                  <.icon name="lucide-play" class="size-3.5" />
-                  <span data-play-label>Play selection</span>
-                </button>
-                <%!-- The one control here no generic trimmer has, and the most
-                useful: Plex loops themes, so the join from the out point back
-                to the in point is heard every time round and is the thing you
-                will get wrong. --%>
-                <button
-                  data-loop
-                  aria-pressed="true"
-                  class="inline-flex h-11 items-center gap-1.5 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary sm:h-9"
-                  title="Play the end, then the start, so the loop's seam can be heard"
-                >
-                  <.icon name="lucide-repeat" class="size-3.5" /> Loop the join
-                </button>
+                <%!-- An action, and it sits with the numbers it rewrites. In
+                the transport row, between two flags, it looked like a third
+                one. --%>
                 <button
                   data-reset
                   class="inline-flex min-h-11 items-center gap-1.5 text-xs text-muted-foreground hover:underline sm:min-h-0"
                 >
-                  <.icon name="lucide-rotate-ccw" class="size-3.5" /> Whole track
+                  <.icon name="lucide-rotate-ccw" class="size-3.5" /> Select the whole track
                 </button>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <%!-- Audacity's transport order, and the first button is the
+                one this most needed. "Loop the join" deliberately started
+                playback three seconds before the out point, so while it was on
+                -- which was always, it defaulted to on -- there was no way
+                left to simply hear the selection from its beginning. --%>
+                <button
+                  data-restart
+                  title="Play from the start of the selection (Home)"
+                  class="inline-flex h-11 items-center gap-1.5 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground sm:h-9"
+                >
+                  <.icon name="lucide-skip-back" class="size-3.5" /> From start
+                </button>
+                <button
+                  data-play
+                  title="Play or stop (Space)"
+                  class="inline-flex h-11 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
+                >
+                  <.icon name="lucide-play" class="size-3.5" data-icon="play" />
+                  <.icon name="lucide-square" class="hidden size-3.5" data-icon="stop" />
+                  <span data-play-label>Play</span>
+                </button>
+                <%!-- The seam a repeat makes. Plex plays themes round and
+                round, so the instant the audio jumps from the end point back
+                to the start point is heard on every pass, and it is the thing
+                a trim gets wrong. This drops the playhead a few seconds short
+                of the end and lets it wrap, so that instant is what you hear.
+
+                It is an action, not a mode. As a toggle called "Loop the join"
+                it was two settings wearing one label -- whether playback
+                repeats, and where it starts -- which is why neither was
+                clear. --%>
+                <button
+                  data-seam
+                  title="Play the last seconds before the end point and wrap to the start point, so the seam a repeat makes can be heard"
+                  class="inline-flex h-11 items-center gap-1.5 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground sm:h-9"
+                >
+                  <.icon name="lucide-repeat" class="size-3.5" /> Hear the loop
+                </button>
+
+                <%!-- A flag, so it is drawn as one. As a bordered button it
+                carried its state in a faint tint that read as "hovered". --%>
+                <label class="inline-flex min-h-11 items-center gap-2 text-xs sm:ml-auto sm:min-h-0">
+                  <span class="text-muted-foreground">Repeat</span>
+                  <button
+                    data-loop
+                    role="switch"
+                    aria-checked="true"
+                    aria-label="Repeat the selection"
+                    class="group inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-input transition-colors aria-checked:bg-primary"
+                  >
+                    <span class="pointer-events-none block size-5 rounded-full bg-background shadow-lg transition-transform group-aria-checked:translate-x-5"></span>
+                  </button>
+                </label>
               </div>
 
               <details class="text-xs text-muted-foreground">
@@ -981,9 +1031,8 @@ defmodule FanfarrWeb.ItemLive.Show do
               wire() {
                 const el = this.el
 
-                // One pointer handler for both handles and for clicking the
-                // waveform, because they are the same gesture at different
-                // precisions.
+                // The ruler grips. Coarse by design and safe to be: nothing
+                // sits behind them.
                 for (const edge of ["start", "end"]) {
                   const handle = el.querySelector(`[data-handle="${edge}"]`)
 
@@ -1005,7 +1054,6 @@ defmodule FanfarrWeb.ItemLive.Show do
                     // hundreds of events and the server only needs where it
                     // ended up.
                     this.pushState()
-                    if (this.state.loop) this.playSelection()
                   }
 
                   handle.addEventListener("pointerup", release)
@@ -1018,13 +1066,84 @@ defmodule FanfarrWeb.ItemLive.Show do
                   })
                 }
 
-                // Clicking the waveform moves the playhead, which is what
-                // every audio editor does and what the bracket keys need.
+                // The waveform itself, with Audacity's three gestures on one
+                // surface: press and drag out a selection, press and release
+                // without moving to put the playhead there, or press within a
+                // few pixels of an edge to drag that edge. Shift-click extends
+                // the nearer edge to the click, as it does there too.
+                //
+                // Which one you get is decided at pointerdown by proximity, so
+                // the grab zone can be small enough to leave the rest of the
+                // surface clickable -- the whole point of moving the generous
+                // target up into the ruler.
                 this.canvas.addEventListener("pointerdown", (event) => {
+                  if (event.button > 0) return
+                  event.preventDefault()
+                  this.canvas.setPointerCapture(event.pointerId)
+
                   const at = this.timeAt(event.clientX)
-                  this.audio.currentTime = at / 1000
-                  this.paint()
+                  const {start, end} = this.bounds()
+
+                  if (event.shiftKey && this.state.duration) {
+                    const edge = Math.abs(at - start) <= Math.abs(at - end) ? "start" : "end"
+                    // moved, so releasing without a drag keeps the extend
+                    // rather than falling through to a seek.
+                    this.gesture = {kind: "edge", edge, moved: true}
+                    this.set(edge, at, {silent: true})
+                    return
+                  }
+
+                  const edge = this.edgeNear(event.clientX, this.grabPx(event))
+                  this.gesture = edge
+                    ? {kind: "edge", edge, anchor: at, moved: false}
+                    : {kind: "pending", anchor: at, x: event.clientX}
                 })
+
+                this.canvas.addEventListener("pointermove", (event) => {
+                  if (!this.gesture) {
+                    this.canvas.style.cursor =
+                      this.edgeNear(event.clientX, this.grabPx(event)) ? "ew-resize" : "text"
+                    return
+                  }
+
+                  // A press only becomes a drag once it has actually moved.
+                  // Without the slop a click with a twitch in it selects four
+                  // milliseconds of audio instead of moving the playhead.
+                  if (this.gesture.kind === "pending") {
+                    if (Math.abs(event.clientX - this.gesture.x) < 4) return
+                    this.gesture = {kind: "range", anchor: this.gesture.anchor}
+                  }
+
+                  if (this.gesture.kind === "range") {
+                    this.setRange(this.gesture.anchor, this.timeAt(event.clientX), {silent: true})
+                  } else {
+                    this.gesture.moved = true
+                    this.set(this.gesture.edge, this.timeAt(event.clientX), {silent: true})
+                  }
+                })
+
+                const settle = () => {
+                  const gesture = this.gesture
+                  if (!gesture) return
+                  this.gesture = null
+
+                  // Any press that never moved is a seek -- including one
+                  // that landed inside an edge's grab zone and so was being
+                  // treated as a drag of that edge. Without this the six
+                  // pixels either side of each edge would still be the one
+                  // place the playhead could not be put, which is the whole
+                  // complaint, just smaller. Measured: a click 3px from the
+                  // left of an untrimmed track left the playhead where it was.
+                  if (gesture.kind === "pending" || !gesture.moved) {
+                    this.seek(gesture.anchor)
+                    return
+                  }
+
+                  this.pushState()
+                }
+
+                this.canvas.addEventListener("pointerup", settle)
+                this.canvas.addEventListener("pointercancel", settle)
 
                 el.querySelectorAll("[data-nudge]").forEach((button) => {
                   button.addEventListener("click", () => {
@@ -1056,10 +1175,16 @@ defmodule FanfarrWeb.ItemLive.Show do
                   this.playSelection()
                 })
 
+                el.querySelector("[data-restart]").addEventListener("click", () => {
+                  this.playFrom(this.bounds().start)
+                })
+
+                el.querySelector("[data-seam]").addEventListener("click", () => this.playSeam())
+
                 const loop = el.querySelector("[data-loop]")
                 loop.addEventListener("click", () => {
                   this.state.loop = !this.state.loop
-                  loop.setAttribute("aria-pressed", String(this.state.loop))
+                  loop.setAttribute("aria-checked", String(this.state.loop))
                 })
 
                 el.querySelector("[data-reset]").addEventListener("click", () => {
@@ -1069,13 +1194,32 @@ defmodule FanfarrWeb.ItemLive.Show do
                   this.pushState()
                 })
 
-                // The classic in/out idiom, and free: the playhead is already
-                // where you were listening.
+                // Audacity's keys. The bracket pair is free -- the playhead is
+                // already where you were listening -- and Space and Home are
+                // the two every editor has.
+                //
+                // BUTTON and SUMMARY are excluded along with the text fields
+                // because Space activates a focused one, and swallowing that
+                // would break every control in this panel for anyone driving
+                // it from the keyboard.
                 this.onKey = (event) => {
-                  if (event.target.tagName === "INPUT") return
+                  const tag = event.target.tagName
+                  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON" || tag === "SUMMARY") return
+
                   const at = Math.round(this.audio.currentTime * 1000)
-                  if (event.key === "[") { this.set("start", at) }
-                  if (event.key === "]") { this.set("end", at) }
+                  if (event.key === "[") { this.set("start", at); return }
+                  if (event.key === "]") { this.set("end", at); return }
+
+                  if (event.key === " ") {
+                    event.preventDefault()
+                    if (this.audio.paused) this.playSelection(); else this.stop()
+                    return
+                  }
+
+                  if (event.key === "Home") {
+                    event.preventDefault()
+                    this.playFrom(this.bounds().start)
+                  }
                 }
                 window.addEventListener("keydown", this.onKey)
 
@@ -1088,9 +1232,8 @@ defmodule FanfarrWeb.ItemLive.Show do
                   }
                 })
 
-                this.audio.addEventListener("timeupdate", () => this.tick())
-                this.audio.addEventListener("play", () => this.paintPlaying(true))
-                this.audio.addEventListener("pause", () => this.paintPlaying(false))
+                this.audio.addEventListener("play", () => { this.paintPlaying(true); this.follow() })
+                this.audio.addEventListener("pause", () => { this.paintPlaying(false); this.paint() })
 
                 this.repaint = () => this.paint()
                 window.addEventListener("resize", this.repaint)
@@ -1098,34 +1241,71 @@ defmodule FanfarrWeb.ItemLive.Show do
 
               // --- playback --------------------------------------------------
 
+              // From the playhead when it is already inside the selection,
+              // from the in point otherwise. That is Audacity's rule, and it
+              // is what makes clicking the waveform and pressing Space mean
+              // "listen from here".
               playSelection() {
                 const {start, end} = this.bounds()
-                // Loop mode starts near the out point so the join is the first
-                // thing heard, rather than making you sit through the track to
-                // reach the only part in question.
-                const from = this.state.loop ? Math.max(start, end - 3000) : start
-                this.audio.currentTime = from / 1000
+                const at = this.audio.currentTime * 1000
+                this.playFrom(at > start + 50 && at < end - 50 ? at : start)
+              },
+
+              playFrom(ms) {
+                const {start, end} = this.bounds()
+                this.wrapOnce = false
+                this.audio.currentTime = Math.min(Math.max(ms, start), Math.max(start, end - 50)) / 1000
                 this.audio.play().catch(() => this.paintPlaying(false))
+              },
+
+              // Three seconds is long enough to hear the phrase running into
+              // the join without making you wait for it. wrapOnce is set after
+              // playFrom has cleared it, so the seam is audible even with
+              // Repeat off -- otherwise the one control whose entire purpose
+              // is the wrap would stop at it.
+              playSeam() {
+                const {start, end} = this.bounds()
+                this.playFrom(Math.max(start, end - 3000))
+                this.wrapOnce = true
+              },
+
+              seek(ms) {
+                const duration = this.state.duration || 0
+                this.audio.currentTime = Math.min(Math.max(ms, 0), duration) / 1000
+                this.paint()
               },
 
               stop() {
                 this.audio.pause()
               },
 
-              tick() {
-                const {start, end} = this.bounds()
-                const at = this.audio.currentTime * 1000
-
-                if (at >= end) {
-                  if (this.state.loop) {
-                    this.audio.currentTime = start / 1000
-                  } else {
-                    this.audio.pause()
-                    this.audio.currentTime = start / 1000
-                  }
+              // The out point used to be enforced from timeupdate, which fires
+              // about four times a second -- so a loop overshot its end point
+              // by up to 250ms, and on a tight trim that overshoot is the
+              // whole of the bit being trimmed off. A frame callback checks it
+              // every 16ms and draws a playhead that moves instead of hopping.
+              follow() {
+                cancelAnimationFrame(this.frame)
+                const step = () => {
+                  if (this.audio.paused) return
+                  this.boundary()
+                  this.paint()
+                  this.frame = requestAnimationFrame(step)
                 }
+                this.frame = requestAnimationFrame(step)
+              },
 
-                this.paint()
+              boundary() {
+                const {start, end} = this.bounds()
+                if (this.audio.currentTime * 1000 < end) return
+
+                if (this.state.loop || this.wrapOnce) {
+                  this.wrapOnce = false
+                  this.audio.currentTime = start / 1000
+                } else {
+                  this.audio.pause()
+                  this.audio.currentTime = start / 1000
+                }
               },
 
               // --- state -----------------------------------------------------
@@ -1155,6 +1335,56 @@ defmodule FanfarrWeb.ItemLive.Show do
 
                 this.paint()
                 if (!opts.silent) this.pushState()
+              },
+
+              // Dragging out a fresh selection sets both edges at once, so it
+              // cannot go through set/2 -- which exists to stop one edge
+              // crossing the other and would fight an anchor being dragged
+              // past its own start point.
+              setRange(a, b, opts = {}) {
+                const duration = this.state.duration || 0
+                let lo = Math.max(0, Math.min(Math.round(Math.min(a, b)), duration))
+                let hi = Math.max(0, Math.min(Math.round(Math.max(a, b)), duration))
+
+                // The same half-second floor the edges have: a shorter
+                // selection renders to something indistinguishable from
+                // silence, and that only becomes audible once it is written.
+                if (hi - lo < 500) {
+                  hi = Math.min(duration, lo + 500)
+                  lo = Math.max(0, hi - 500)
+                }
+
+                this.state.start = lo
+                this.state.end = hi
+
+                this.paint()
+                if (!opts.silent) this.pushState()
+              },
+
+              // Small on purpose. This surface's first job is seeking, and
+              // every pixel spent on an edge is a pixel the playhead cannot
+              // reach -- which is exactly what went wrong when the grab zone
+              // was 20px either side and spanned the full height. Coarse
+              // pointers get a little more, and the ruler grip above is the
+              // real target for both.
+              grabPx(event) {
+                return event.pointerType === "mouse" ? 6 : 10
+              },
+
+              edgeNear(clientX, limit) {
+                const duration = this.state.duration || 0
+                if (!duration) return null
+
+                const box = this.canvas.getBoundingClientRect()
+                const x = clientX - box.left
+                const {start, end} = this.bounds()
+                const at = (ms) => (ms / duration) * box.width
+
+                const toStart = Math.abs(at(start) - x)
+                const toEnd = Math.abs(at(end) - x)
+                if (Math.min(toStart, toEnd) > limit) return null
+
+                return toStart <= toEnd ? "start" : "end"
               },
 
               nudge(edge, step) {
@@ -1189,7 +1419,14 @@ defmodule FanfarrWeb.ItemLive.Show do
 
               paintPlaying(playing) {
                 const label = this.el.querySelector("[data-play-label]")
-                if (label) label.textContent = playing ? "Stop" : "Play selection"
+                if (label) label.textContent = playing ? "Stop" : "Play"
+
+                const swap = (name, hidden) => {
+                  const icon = this.el.querySelector(`[data-icon="${name}"]`)
+                  if (icon) icon.classList.toggle("hidden", hidden)
+                }
+                swap("play", playing)
+                swap("stop", !playing)
               },
 
               paint() {
@@ -1230,23 +1467,92 @@ defmodule FanfarrWeb.ItemLive.Show do
                   ctx.fillRect(x, mid - height / 2, 1, height)
                 }
 
-                // The playhead, but only while there is something to follow.
-                if (!this.audio.paused && duration) {
+                // The selection as a lit region with the rest veiled, rather
+                // than only a change of bar colour. A narrow selection in a
+                // busy waveform is otherwise genuinely hard to find, and the
+                // edges need to read as edges now that they are no longer
+                // 40px-wide objects lying on the track.
+                if (duration) {
+                  const sx = (start / duration) * box.width
+                  const ex = (end / duration) * box.width
+
+                  ctx.fillStyle = "rgba(127,127,127,0.18)"
+                  ctx.fillRect(0, 0, sx, box.height)
+                  ctx.fillRect(ex, 0, box.width - ex, box.height)
+
+                  ctx.fillStyle = styles.getPropertyValue("--color-primary") || "#7c93f7"
+                  ctx.fillRect(sx - 0.5, 0, 1, box.height)
+                  ctx.fillRect(ex - 0.5, 0, 1, box.height)
+                }
+
+                // Drawn whether or not anything is playing. It used to appear
+                // only during playback, so clicking to place it did nothing
+                // visible and there was no way to tell where Space or "]"
+                // would act from.
+                if (duration) {
                   const x = (this.audio.currentTime * 1000 / duration) * box.width
                   ctx.fillStyle = styles.getPropertyValue("--color-foreground") || "#fff"
                   ctx.fillRect(x, 0, 1, box.height)
                 }
 
+                this.paintRuler()
                 this.position(start, end, box.width)
                 this.labels(start, end)
+              },
+
+              // Audacity's timeline, and the reason the strip is tall enough
+              // to hold a grip in the first place: without numbers on it, it
+              // is a bar of empty chrome asking to be given back to the
+              // waveform.
+              paintRuler() {
+                const canvas = this.el.querySelector("[data-ruler]")
+                if (!canvas) return
+
+                const box = canvas.getBoundingClientRect()
+                if (box.width === 0) return
+
+                const dpr = window.devicePixelRatio || 1
+                canvas.width = Math.round(box.width * dpr)
+                canvas.height = Math.round(box.height * dpr)
+
+                const ctx = canvas.getContext("2d")
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+                ctx.clearRect(0, 0, box.width, box.height)
+
+                const duration = this.state.duration || 0
+                if (!duration) return
+
+                // The first interval that puts its labels at least 64px apart,
+                // so they never collide -- at any width, on any length of
+                // track, without a breakpoint deciding it.
+                const steps = [1000, 5000, 10000, 15000, 30000, 60000, 120000, 300000, 600000]
+                const step =
+                  steps.find((ms) => (ms / duration) * box.width >= 64) || steps[steps.length - 1]
+
+                ctx.fillStyle = "rgba(127,127,127,0.85)"
+                ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace"
+                ctx.textBaseline = "middle"
+
+                for (let at = 0; at <= duration; at += step) {
+                  const x = (at / duration) * box.width
+                  ctx.fillRect(x, box.height - 4, 1, 4)
+
+                  const label = this.clock(at).replace(/\.\d$/, "")
+                  if (x + ctx.measureText(label).width + 4 < box.width) {
+                    ctx.fillText(label, x + 3, box.height / 2 - 1)
+                  }
+                }
               },
 
               position(start, end, width) {
                 const duration = this.state.duration || 1
                 const place = (edge, at) => {
                   const handle = this.el.querySelector(`[data-handle="${edge}"]`)
+                  if (!handle) return
                   handle.style.left = `${(at / duration) * width}px`
                   handle.setAttribute("aria-valuenow", String(Math.round(at)))
+                  handle.setAttribute("aria-valuemax", String(Math.round(duration)))
+                  handle.setAttribute("aria-valuetext", this.clock(at))
                 }
                 place("start", start)
                 place("end", end)
@@ -1293,6 +1599,7 @@ defmodule FanfarrWeb.ItemLive.Show do
               },
 
               destroyed() {
+                cancelAnimationFrame(this.frame)
                 window.removeEventListener("keydown", this.onKey)
                 window.removeEventListener("resize", this.repaint)
                 if (this.unsubscribe) this.unsubscribe()

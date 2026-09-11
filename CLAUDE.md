@@ -210,6 +210,27 @@ stream (YouTube is lossy already; WAV would be bigger and no better), keyed on
 a hash of the URL, kinds `:source` and `:render`, age limit plus an LRU byte
 cap. Populated on the edit path only -- a bulk apply must never fill it.
 
+**The trim editor is modelled on Audacity**, which settles most of its
+questions. A ruler strip carries the two edge grips, so they are not overlays
+lying across the waveform -- as overlays they were 40px wide and full height,
+which made every click within 20px of an edge grab a handle, and since an
+untrimmed selection parks the edges at 0 and the duration, the ends of a track
+could not be reached at all. On the waveform itself the gesture is decided by
+proximity at pointerdown: within 6px of an edge (10 for a coarse pointer)
+drags that edge, a press that moves drags out a new selection, and a press
+that does not move seeks -- *including* one inside a grab zone, so there is no
+dead zone anywhere. Shift-click extends the nearer edge. Space plays or stops,
+Home plays from the selection start, `[` and `]` set in and out at the
+playhead.
+
+Repeat is a flag and is drawn as a switch; "Hear the loop" and "Select the
+whole track" are actions and are drawn as buttons. These were previously one
+toggle called "Loop the join", which meant both "repeat" and "start playback
+three seconds before the out point" -- so with it on, which was the default,
+there was no way to hear the selection from its beginning. The out point is
+enforced from `requestAnimationFrame`, not `timeupdate`: that fires ~4x a
+second, so a loop overshot by up to 250ms.
+
 **Loudness:** downloads are normalised to -14 LUFS by default via ffmpeg
 `loudnorm` two-pass (`theme_loudness_lufs` to change it). Measure any file with
 `Fanfarr.Themes.Normalizer.measure/1` to calibrate against themes already in
