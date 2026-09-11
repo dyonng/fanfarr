@@ -100,6 +100,12 @@ detection, yt-dlp download and search, EXDEV-safe writer, ApplyTheme worker
 (local theme.mp3, **shows and movies both** -- verified on the reference
 server, see below), poster cache, health monitor.
 
+**Never bump the version by hand.** `docker.yml` bumps the patch in `mix.exs`
+and commits it as `chore: vX.Y.Z` on every push to main, before the build, so
+the image is tagged with the version it reports. A manual bump races that job
+and only adds a commit to rebase over -- so the version a change ships as is
+the bot's next one, not whatever is in `mix.exs` when it is pushed.
+
 **Plex JSON gotcha:** `/themes` returns `<Track>` in XML but a `"Metadata"`
 array in JSON, and `selected` is a boolean there, not `"1"`. Plex does honour
 `Accept: application/json`. Set `config :fanfarr, req_options: [plug: ...]` to
