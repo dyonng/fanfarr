@@ -58,9 +58,14 @@ FROM ${RUNNER_IMAGE} AS runner
 #   play -- Apple TV, for instance, cannot play Opus.
 # gosu: drops from root to the requested PUID/PGID in the entrypoint.
 # libstdc++6/libgcc-s1: runtime libraries for the compiled exqlite NIF.
+# tzdata: the zone database TZ is resolved against. debian:*-slim does not
+#   ship it, and glibc answers a TZ it cannot resolve by using UTC and saying
+#   nothing -- so without this, TZ=America/Toronto in the compose file is a
+#   silent four-hour error on every timestamp in the dashboard. Fanfarr logs
+#   the zone it resolved at boot so that failure is visible if it ever recurs.
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends \
-     ca-certificates locales libstdc++6 libgcc-s1 openssl ffmpeg gosu curl \
+     ca-certificates locales libstdc++6 libgcc-s1 openssl ffmpeg gosu curl tzdata \
   && rm -rf /var/lib/apt/lists/*
 
 # yt-dlp ships a self-contained binary, so it is installed directly rather than

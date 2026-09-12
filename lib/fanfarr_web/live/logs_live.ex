@@ -196,7 +196,7 @@ defmodule FanfarrWeb.LogsLive.Index do
 
     prefix =
       [
-        {:time, Calendar.strftime(entry.at, "%H:%M:%S")},
+        {:time, Fanfarr.Clock.time(entry.at)},
         {nil, "  "},
         {{:level, bucket(entry.level)}, level}
       ] ++

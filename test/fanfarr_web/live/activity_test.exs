@@ -60,22 +60,25 @@ defmodule FanfarrWeb.ActivityLiveTest do
       assert render(live_view(conn)) =~ "×2"
     end
 
-    test "times are marked up for the browser to localise", %{conn: conn, item: item} do
-      # The server has no idea what zone the reader is in -- an appliance on a
-      # LAN is opened from whatever machine is to hand -- so it renders UTC
-      # and says so, and the hook rewrites it. Both halves are asserted here
-      # because the fallback is what shows with no JavaScript.
+    test "times are the server's, rendered without JavaScript", %{conn: conn, item: item} do
+      # The appliance's own zone, from TZ, not the reader's browser: one
+      # server answers one way, so a phone and a desktop agree. The relative
+      # reading is what the page is asked for and it comes out of the server,
+      # so the table is correct in a browser with no JavaScript at all.
       enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
 
       html = render(live_view(conn))
 
-      # Asserted as separate attributes: LiveView injects phx-r as the first
-      # one, so this never renders as the literal "<time datetime=".
+      assert html =~ "just now"
+      assert html =~ "times in #{Fanfarr.Clock.zone()}"
+
+      # The machine-readable instant stays on the element regardless.
       assert html =~ "<time"
       assert html =~ "datetime="
-      assert html =~ "data-local"
-      assert html =~ "UTC"
-      assert html =~ ~s(phx-hook="FanfarrWeb.ActivityLive.Index.LocalTime")
+
+      # No hook, and no per-cell zone label: it is stated once in the header.
+      refute html =~ "LocalTime"
+      refute html =~ "data-local"
     end
 
     test "the recent theme failures section is gone", %{conn: conn} do

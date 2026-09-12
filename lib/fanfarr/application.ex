@@ -7,6 +7,11 @@ defmodule Fanfarr.Application do
 
   @impl true
   def start(_type, _args) do
+    # Before anything else logs a timestamp. It is one line, and it is the only
+    # way a TZ that did not resolve announces itself -- glibc uses UTC for a
+    # zone it cannot find without a word.
+    Fanfarr.Clock.log_zone()
+
     children = [
       FanfarrWeb.Telemetry,
       # Backs the vendored SaladUI components: they resolve Tailwind class

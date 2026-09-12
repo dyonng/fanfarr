@@ -263,13 +263,23 @@ the page the limit is about. Nothing unfinished is ever deleted. Oban's own
 backstop; at its old one day it actively deleted rows the setting promised to
 keep.
 
-**Timestamps are localised in the browser, not the server.** An appliance on a
-LAN is opened from whatever machine is to hand, so the server has no idea what
-zone or locale the reader is in -- it renders UTC and says "UTC", and the
-`LocalTime` colocated hook rewrites every `<time data-local>` through `Intl`
-into "20 minutes ago" with the absolute time on hover. It reformats in
-`updated()` as well as `mounted()`, because the table repaints every three
-seconds and LiveView restores the server's text on every patch.
+**Every timestamp shown is the appliance's local time** -- `Fanfarr.Clock`,
+`TZ` from the compose file, rendered server-side. One server answers one way,
+so a phone, a laptop and a TV browser agree; browser-side localisation was
+tried first and meant a laptop that travelled disagreed with the box in the
+basement about when a sync ran.
+
+No timezone library: `:calendar.universal_time_to_local_time/1` goes through
+the C library, so it is the same conversion `date` does and DST is free
+(measured UTC-4 in September, UTC-5 in January for America/Toronto). Two
+things follow. **The BEAM reads `TZ` once, at VM start** -- neither
+`System.put_env/2` nor `:os.putenv/2` moves it afterwards, so changing the
+zone needs a container restart, and `clock_test.exs` runs its zone cases in a
+subprocess. And **the zoneinfo files have to be in the image**: `debian:*-slim`
+omits them and glibc answers an unresolvable `TZ` with UTC and no error, so the
+Dockerfile installs `tzdata` and `Clock.log_zone/0` logs the resolved zone at
+boot, where a zone that did not take reads as `UTC` beside a `TZ` that says
+otherwise.
 
 **Debugging:** the System page has a redacted log view and diagnostics tools
 (environment, item trace, yt-dlp video check, raw Plex probe, and a one-click

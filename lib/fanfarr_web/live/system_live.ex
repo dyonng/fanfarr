@@ -150,7 +150,7 @@ defmodule FanfarrWeb.SystemLive.Index do
         <Layouts.page_header title="System">
           <:subtitle>
             <span :if={@snapshot}>
-              Checked {Calendar.strftime(@snapshot.at, "%Y-%m-%d %H:%M:%S UTC")} · re-checked every 10 minutes
+              Checked {Fanfarr.Clock.precise(@snapshot.at)} {Fanfarr.Clock.offset(@snapshot.at)} · re-checked every 10 minutes
             </span>
             <span :if={!@snapshot}>Running the first checks…</span>
           </:subtitle>

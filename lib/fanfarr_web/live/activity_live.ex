@@ -7,6 +7,8 @@ defmodule FanfarrWeb.ActivityLive.Index do
   """
   use FanfarrWeb, :live_view
 
+  alias Fanfarr.Clock
+
   @refresh_ms 3_000
 
   @impl true
@@ -131,6 +133,10 @@ defmodule FanfarrWeb.ActivityLive.Index do
                 <.link navigate={~p"/settings"} class="underline hover:no-underline">
                   {Fanfarr.Jobs.history_limit()} finished
                 </.link>
+                <%!-- Said once here rather than on a hundred rows. Every time
+                on this page is the server's, so stating it per cell would be
+                the same word repeated down the column. --%>
+                · times in {Fanfarr.Clock.zone()}
               </span>
             </p>
           </div>
@@ -139,17 +145,7 @@ defmodule FanfarrWeb.ActivityLive.Index do
             No jobs yet. A library sync or theme refresh will appear here.
           </div>
 
-          <%!-- Every timestamp in here is rendered as UTC and rewritten by the
-          hook into the reader's own zone and locale. The server has no idea
-          what either is -- an appliance on a LAN is opened from whatever
-          machine is to hand -- so "14:32" from the server is 14:32 somewhere
-          else, which is worse than no time at all. --%>
-          <div
-            :if={@jobs != []}
-            id="queue-times"
-            phx-hook=".LocalTime"
-            class="overflow-x-auto"
-          >
+          <div :if={@jobs != []} class="overflow-x-auto">
             <%!-- No width floor below sm. Eight columns do not fit a phone,
             and the two that carry the least there -- when it started and how
             long it took, both implied by "Queued" and the state badge -- stand
@@ -268,67 +264,22 @@ defmodule FanfarrWeb.ActivityLive.Index do
           </div>
         </section>
       </div>
-
-      <script :type={Phoenix.LiveView.ColocatedHook} name=".LocalTime">
-        export default {
-          mounted() { this.format() },
-          // The table repaints every three seconds, and LiveView restores the
-          // server's text on every patch. Reformatting here is what keeps the
-          // local reading from flicking back to UTC each time.
-          updated() { this.format() },
-
-          format() {
-            // Resolved once per pass, not per cell: a table of fifty rows has
-            // a hundred of these, and constructing a formatter is the
-            // expensive part of using one.
-            const absolute = new Intl.DateTimeFormat(undefined, {
-              dateStyle: "medium",
-              timeStyle: "short",
-            })
-            const relative = new Intl.RelativeTimeFormat(undefined, {numeric: "auto"})
-            const now = Date.now()
-
-            this.el.querySelectorAll("time[data-local]").forEach((node) => {
-              const at = Date.parse(node.getAttribute("datetime"))
-              if (isNaN(at)) return
-
-              // Recent work is read as "how long ago", which is the question
-              // actually being asked of this page; anything older is a date,
-              // because "9 days ago" stops being useful the moment you want
-              // to line it up against something else.
-              node.textContent = this.ago(relative, absolute, at, now)
-              node.title = absolute.format(at)
-            })
-          },
-
-          ago(relative, absolute, at, now) {
-            const seconds = Math.round((at - now) / 1000)
-            const magnitude = Math.abs(seconds)
-
-            if (magnitude < 45) return "just now"
-            if (magnitude < 3600) return relative.format(Math.round(seconds / 60), "minute")
-            if (magnitude < 86400) return relative.format(Math.round(seconds / 3600), "hour")
-            if (magnitude < 604800) return relative.format(Math.round(seconds / 86400), "day")
-            return absolute.format(at)
-          },
-        }
-      </script>
     </Layouts.app>
     """
   end
 
   attr :at, :any, required: true
 
-  # A <time> the hook can find, carrying an ISO-8601 instant and a UTC reading
-  # of it. The text is what shows if the hook never runs -- no JavaScript, or
-  # the split second before it does -- so it says "UTC" out loud rather than
-  # printing a bare clock time that means nothing without a zone.
+  # Rendered in the server's zone, with the exact local time on hover. The
+  # relative reading is the one being asked for -- "is this recent?" -- and it
+  # stays fresh without any JavaScript because the page already repaints every
+  # few seconds.
   defp at(%{at: nil} = assigns), do: ~H|<span class="text-muted-foreground">—</span>|
 
   defp at(assigns) do
     ~H"""
-    <time datetime={DateTime.to_iso8601(@at)} data-local>
-      {Calendar.strftime(@at, "%Y-%m-%d %H:%M UTC")}
+    <time datetime={DateTime.to_iso8601(@at)} title={"#{Clock.precise(@at)} #{Clock.offset(@at)}"}>
+      {Clock.ago(@at)}
     </time>
     """
   end

@@ -1851,7 +1851,9 @@ defmodule FanfarrWeb.ItemLive.Show do
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Checked</dt>
-                <dd>{Calendar.strftime(@themerr.fetched_at, "%Y-%m-%d %H:%M")}</dd>
+                <dd title={Fanfarr.Clock.precise(@themerr.fetched_at)}>
+                  {Fanfarr.Clock.ago(@themerr.fetched_at)}
+                </dd>
               </div>
             </dl>
 
@@ -2210,7 +2212,11 @@ defmodule FanfarrWeb.ItemLive.Show do
               <tbody>
                 <tr :for={entry <- @history} class="border-b border-border/60 last:border-0">
                   <td class="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                    {Calendar.strftime(entry.attempted_at, "%Y-%m-%d %H:%M")}
+                    <span title={
+                      "#{Fanfarr.Clock.precise(entry.attempted_at)} #{Fanfarr.Clock.offset(entry.attempted_at)}"
+                    }>
+                      {Fanfarr.Clock.ago(entry.attempted_at)}
+                    </span>
                   </td>
                   <td class="px-2 py-2">
                     <span class={[
