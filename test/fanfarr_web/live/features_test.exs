@@ -107,6 +107,55 @@ defmodule FanfarrWeb.FeaturesTest do
       assert Fanfarr.Library.get_media_item!(item.id).manual_theme_url =~ "abc12345678"
     end
 
+    test "the player's subtree is LiveView's to leave alone", %{conn: conn, item: item} do
+      # The preview used to stop mid-video and go black. `new YT.Player(el)`
+      # does not fill the element it is handed, it *replaces* it with an
+      # iframe -- so the next patch to this region found an iframe where its
+      # tree said `<div data-player>` and put the div back, killing the video
+      # and leaving the black box it was drawn in.
+      #
+      # Reproduced in a browser by opening a player and patching the page: the
+      # iframe turned back into an empty div. Only the attribute can be
+      # asserted here, but the attribute is the entire fix.
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+
+      render_click(view, "preview_video", %{"id" => "abc12345678"})
+
+      assert has_element?(
+               view,
+               ~s([id="yt-abc12345678"][phx-update="ignore"][phx-hook="FanfarrWeb.ItemLive.Show.YouTubePreview"])
+             )
+
+      # The id carries the video, so picking a different one is a different
+      # element and still rebuilds the player rather than being ignored into
+      # showing the previous video.
+      render_click(view, "preview_video", %{"id" => "zzz98765432"})
+
+      assert has_element?(view, ~s([id="yt-zzz98765432"][phx-update="ignore"]))
+      refute has_element?(view, ~s([id="yt-abc12345678"]))
+    end
+
+    test "a video YouTube will not embed says so instead of going black",
+         %{conn: conn, item: item} do
+      # The other way a preview goes black, and the one that is not a bug: a
+      # lot of official music videos -- most of what a theme search turns up --
+      # have embedding switched off, and YouTube answers that with a black
+      # player and no text of its own inside an embed. The hook fills this in
+      # on onError, so the markup it needs has to be here.
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+
+      render_click(view, "preview_video", %{"id" => "abc12345678"})
+
+      assert has_element?(view, "[data-unavailable]")
+      assert has_element?(view, "[data-unavailable-message]")
+
+      # The way out when it cannot be played here.
+      assert has_element?(
+               view,
+               ~s([data-watch-url="https://www.youtube.com/watch?v=abc12345678"])
+             )
+    end
+
     test "a pasted URL must be YouTube", %{conn: conn, item: item} do
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
 

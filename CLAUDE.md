@@ -281,6 +281,16 @@ Dockerfile installs `tzdata` and `Clock.log_zone/0` logs the resolved zone at
 boot, where a zone that did not take reads as `UTC` beside a `TZ` that says
 otherwise.
 
+**`phx-update="ignore"` on anything a hook mutates.** Three subtrees now need
+it and each one broke the same way before it had it: the audio player (the
+volume slider snapped back on every patch), the trim editor, and the YouTube
+preview -- where `new YT.Player(el)` *replaces* the element it is given with an
+iframe, so the next patch found an iframe where LiveView's tree said `<div>`
+and put the div back, stopping the video and leaving a black box. The rule: if
+JavaScript writes into a subtree after render, LiveView must be told not to
+touch it, and the element's `id` is what still lets a genuine change rebuild
+it.
+
 **Debugging:** the System page has a redacted log view and diagnostics tools
 (environment, item trace, yt-dlp video check, raw Plex probe, and a one-click
 bug-report bundle), plus a full-page, colour-coded log console at `/logs`.

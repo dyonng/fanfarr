@@ -1991,14 +1991,54 @@ defmodule FanfarrWeb.ItemLive.Show do
               embed. A cross-origin iframe takes no instruction, so a bare embed
               has no volume control of its own and cannot be matched against the
               theme player -- which is the comparison this page exists to make. --%>
+              <%!-- phx-update="ignore" is the whole of why this used to go
+              black mid-video.
+
+              `new YT.Player(el, ...)` does not fill the element it is given --
+              it *replaces* it with an iframe. LiveView rendered a
+              `<div data-player>` there and knows nothing about that swap, so
+              the next patch to this region -- a second search, the ThemerrDB
+              lookup returning, a flash appearing, the apply poll ticking --
+              found an iframe where its tree said div and put the div back. The
+              video stopped and the black box it was drawn in stayed, with
+              nothing in the console to say why. Reproduced by patching the
+              page with a player open and watching the iframe turn back into an
+              empty div.
+
+              The id still carries the video, so picking a different one is a
+              different element and does rebuild the player. Only the subtree
+              is ignored -- which is right, because everything in it after the
+              first render belongs to YouTube and to the hook. --%>
               <div
                 id={"yt-#{@previewing}"}
                 phx-hook=".YouTubePreview"
+                phx-update="ignore"
                 data-video-id={@previewing}
+                data-watch-url={"https://www.youtube.com/watch?v=#{@previewing}"}
                 class="max-w-2xl space-y-2"
               >
-                <div class="aspect-video w-full overflow-hidden rounded-md border border-border bg-black">
+                <div class="relative aspect-video w-full overflow-hidden rounded-md border border-border bg-black">
                   <div data-player class="size-full"></div>
+                  <%!-- The other way a preview goes black, and the one that is
+                  not a bug: plenty of official music videos have embedding
+                  turned off, and a few are region-locked or gone. YouTube
+                  answers all of those with a black player, so without this the
+                  two failures look identical. --%>
+                  <div
+                    data-unavailable
+                    class="absolute inset-0 hidden flex-col items-center justify-center gap-2 bg-black p-4 text-center"
+                  >
+                    <p data-unavailable-message class="text-sm text-muted-foreground"></p>
+                    <a
+                      data-watch
+                      href="#"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-foreground hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <.icon name="lucide-external-link" class="size-3.5" /> Watch on YouTube
+                    </a>
+                  </div>
                 </div>
 
                 <div class="flex items-center gap-2">
@@ -2072,10 +2112,38 @@ defmodule FanfarrWeb.ItemLive.Show do
                         host: "https://www.youtube-nocookie.com",
                         playerVars: {autoplay: 1, rel: 0},
                         events: {
-                          onReady: () => this.applyVolume(store.level(), store.muted())
+                          onReady: () => this.applyVolume(store.level(), store.muted()),
+                          onError: (event) => this.unavailable(event.data)
                         }
                       })
                     })
+
+                    // YouTube answers every one of these with a black player
+                    // and no text of its own inside an embed, so the reason has
+                    // to be said here. 101 and 150 are the same thing reported
+                    // twice and are the common case by far: a lot of official
+                    // music videos -- which is most of what a theme search
+                    // turns up -- are set to block embedding.
+                    this.unavailable = (code) => {
+                      const reasons = {
+                        2: "YouTube rejected that video id.",
+                        5: "This video cannot be played in an embedded player.",
+                        100: "That video has been removed, or it is private.",
+                        101: "The owner does not allow this video to be played outside YouTube.",
+                        150: "The owner does not allow this video to be played outside YouTube.",
+                      }
+
+                      const panel = el.querySelector("[data-unavailable]")
+                      const message = el.querySelector("[data-unavailable-message]")
+                      const watch = el.querySelector("[data-watch]")
+
+                      if (!panel) return
+                      message.textContent =
+                        reasons[code] || "YouTube could not play this video here."
+                      watch.href = el.dataset.watchUrl
+                      panel.classList.remove("hidden")
+                      panel.classList.add("flex")
+                    }
 
                     this.applyVolume = (level, isMuted) => {
                       slider.value = level
