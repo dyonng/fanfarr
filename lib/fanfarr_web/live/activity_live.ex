@@ -13,7 +13,18 @@ defmodule FanfarrWeb.ActivityLive.Index do
   def mount(_params, _session, socket) do
     if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_ms)
 
-    {:ok, socket |> load() |> assign(:page_title, "Activity")}
+    {:ok, socket |> assign(:page, 1) |> assign(:page_title, "Activity")}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    page =
+      case Integer.parse(params["page"] || "1") do
+        {n, ""} when n > 0 -> n
+        _ -> 1
+      end
+
+    {:noreply, socket |> assign(:page, page) |> load()}
   end
 
   @impl true
@@ -42,12 +53,16 @@ defmodule FanfarrWeb.ActivityLive.Index do
   end
 
   defp load(socket) do
+    history = Fanfarr.Jobs.history(socket.assigns.page)
+
     socket
-    |> assign(:jobs, Fanfarr.Jobs.recent())
+    |> assign(:jobs, history.entries)
+    |> assign(:page, history.page)
+    |> assign(:pages, history.pages)
+    |> assign(:total, history.total)
     |> assign(:summary, Fanfarr.Jobs.summary())
     |> assign(:bulk_theme_work_pending, Fanfarr.Jobs.bulk_theme_work_pending?())
     |> assign(:eta, Fanfarr.Jobs.eta_seconds())
-    |> assign(:failures, Fanfarr.Themes.list_theme_failures!() |> Enum.take(20))
   end
 
   # Nothing at all when there is no estimate, rather than a placeholder: the
@@ -108,73 +123,132 @@ defmodule FanfarrWeb.ActivityLive.Index do
         </Layouts.page_header>
 
         <section class="rounded-lg border border-border bg-card">
-          <h2 class="border-b border-border px-4 py-3 text-sm font-semibold text-card-foreground">
-            Queue
-          </h2>
-          <%!-- Running and waiting work sorts first however old it is. Ordered
-          purely by id, a job still going gets buried under whatever finished
-          while it ran, which is the opposite of what this page is for. --%>
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+            <h2 class="text-sm font-semibold text-card-foreground">Queue</h2>
+            <p class="text-xs text-muted-foreground">
+              <span :if={@total > 0}>
+                {@total} {if @total == 1, do: "entry", else: "entries"} · keeping the newest
+                <.link navigate={~p"/settings"} class="underline hover:no-underline">
+                  {Fanfarr.Jobs.history_limit()} finished
+                </.link>
+              </span>
+            </p>
+          </div>
+
           <div :if={@jobs == []} class="px-4 py-6 text-sm text-muted-foreground">
             No jobs yet. A library sync or theme refresh will appear here.
           </div>
-          <%!-- Scrolls inside itself rather than pushing the page sideways.
-          Without this the row wrapped into "attempt 1/3 · sync" over three
-          lines on a phone, and the page carried the overflow. --%>
-          <div :if={@jobs != []} class="overflow-x-auto">
-            <table class="w-full min-w-[34rem] text-sm">
+
+          <%!-- Every timestamp in here is rendered as UTC and rewritten by the
+          hook into the reader's own zone and locale. The server has no idea
+          what either is -- an appliance on a LAN is opened from whatever
+          machine is to hand -- so "14:32" from the server is 14:32 somewhere
+          else, which is worse than no time at all. --%>
+          <div
+            :if={@jobs != []}
+            id="queue-times"
+            phx-hook=".LocalTime"
+            class="overflow-x-auto"
+          >
+            <%!-- No width floor below sm. Eight columns do not fit a phone,
+            and the two that carry the least there -- when it started and how
+            long it took, both implied by "Queued" and the state badge -- stand
+            down rather than being pushed behind a scroll. What is left still
+            scrolls inside this box, which is the deal for tables here; the
+            page itself does not move. --%>
+            <table class="w-full text-sm sm:min-w-[48rem]">
+              <thead>
+                <tr class="border-b border-border text-left text-xs font-medium text-muted-foreground">
+                  <th scope="col" class="px-4 py-2">Action</th>
+                  <th scope="col" class="px-3 py-2">Item</th>
+                  <th scope="col" class="px-2 py-2">State</th>
+                  <th scope="col" class="px-2 py-2">Queued</th>
+                  <th scope="col" class="hidden px-2 py-2 sm:table-cell">Started</th>
+                  <th scope="col" class="hidden px-2 py-2 sm:table-cell">Took</th>
+                  <th scope="col" class="px-2 py-2">Details</th>
+                  <th scope="col" class="px-4 py-2 text-right">
+                    <span class="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
               <tbody>
-                <tr :for={job <- @jobs} class="border-b border-border/60 last:border-0">
-                  <td class="px-4 py-2">
-                    <p class="text-sm">{job.label}</p>
-                    <p class="font-mono text-xs text-muted-foreground">
-                      {Fanfarr.Jobs.short_worker(job.worker)}
-                    </p>
-                  </td>
+                <tr
+                  :for={job <- @jobs}
+                  id={"job-#{job.id}"}
+                  class="border-b border-border/60 last:border-0"
+                >
+                  <%!-- The label only. It used to print the worker module
+                  under it as well, so every apply row read "Apply theme"
+                  and then "ApplyTheme" -- the same fact twice, once in
+                  English and once in Elixir. --%>
+                  <td class="px-4 py-2">{job.label}</td>
+
                   <td class="px-3 py-2">
                     <.link
                       :if={job.item_id && job.item_title}
                       navigate={~p"/library/#{job.item_id}"}
-                      class="text-sm hover:underline"
+                      class="hover:underline"
                     >
                       {job.item_title}
                     </.link>
                     <span
                       :if={job.item_id && is_nil(job.item_title)}
-                      class="text-sm text-muted-foreground"
+                      class="text-muted-foreground"
                       title="The item this job was queued for no longer exists"
                     >
                       removed item
                     </span>
                     <span :if={is_nil(job.item_id)} class="text-xs text-muted-foreground">—</span>
                   </td>
-                  <td class="px-2 py-2">
-                    <span class={[
-                      "rounded-full px-2 py-0.5 text-xs font-medium",
-                      job.state == "completed" &&
-                        "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-                      job.state == "executing" && "bg-primary/15 text-primary",
-                      job.state in ["retryable", "discarded"] && "bg-destructive/15 text-destructive",
-                      job.state in ["available", "scheduled"] && "bg-muted text-muted-foreground",
-                      job.state == "cancelled" && "bg-muted text-muted-foreground"
-                    ]}>
+
+                  <td class="px-2 py-2 whitespace-nowrap">
+                    <span
+                      class={[
+                        "rounded-full px-2 py-0.5 text-xs font-medium",
+                        job.state == "completed" &&
+                          "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                        job.state == "executing" && "bg-primary/15 text-primary",
+                        job.state in ["retryable", "discarded"] &&
+                          "bg-destructive/15 text-destructive",
+                        job.state in ["available", "scheduled", "cancelled"] &&
+                          "bg-muted text-muted-foreground"
+                      ]}
+                      title={"#{job.queue} queue · attempt #{job.attempt} of #{job.max_attempts}"}
+                    >
                       {job.state}
                     </span>
+                    <%!-- The attempt count had a column of its own reading
+                    "attempt 1/3" on every row, which is the answer nobody is
+                    asking. It is only interesting once it is not 1, so that
+                    is when it shows. --%>
+                    <span :if={job.attempt > 1} class="ml-1 text-xs text-muted-foreground">
+                      ×{job.attempt}
+                    </span>
                   </td>
-                  <td class="px-2 py-2 text-xs text-muted-foreground">
-                    attempt {job.attempt}/{job.max_attempts} · {job.queue}
+
+                  <td class="px-2 py-2 text-xs whitespace-nowrap text-muted-foreground">
+                    <.at at={job.inserted_at} />
                   </td>
+                  <td class="hidden px-2 py-2 text-xs whitespace-nowrap text-muted-foreground sm:table-cell">
+                    <.at at={job.attempted_at} />
+                  </td>
+                  <td class="hidden px-2 py-2 text-xs whitespace-nowrap tabular-nums text-muted-foreground sm:table-cell">
+                    {took(job)}
+                  </td>
+
                   <td class="px-2 py-2 text-xs text-destructive">
                     <details :if={job.errors != []}>
                       <summary class="cursor-pointer">last error</summary>
                       <pre class="mt-1 max-w-xl overflow-x-auto whitespace-pre-wrap text-xs">{last_error(job)}</pre>
                     </details>
                   </td>
+
                   <td class="px-4 py-2 text-right">
                     <button
                       :if={job.state in ["retryable", "discarded", "cancelled"]}
                       phx-click="retry"
                       phx-value-id={job.id}
-                      class="inline-flex min-h-10 items-center rounded-md border border-border px-2 py-1 text-xs sm:min-h-0 hover:bg-accent hover:text-accent-foreground"
+                      class="inline-flex min-h-10 items-center rounded-md border border-border px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground sm:min-h-0"
                     >
                       Retry
                     </button>
@@ -183,37 +257,108 @@ defmodule FanfarrWeb.ActivityLive.Index do
               </tbody>
             </table>
           </div>
-        </section>
 
-        <section class="rounded-lg border border-border bg-card">
-          <h2 class="border-b border-border px-4 py-3 text-sm font-semibold text-card-foreground">
-            Recent theme failures
-          </h2>
-          <div :if={@failures == []} class="px-4 py-6 text-sm text-muted-foreground">
-            None. Failures land here with their actual error.
-          </div>
-          <div :if={@failures != []} class="overflow-x-auto">
-            <table class="w-full min-w-[34rem] text-sm">
-              <tbody>
-                <tr :for={f <- @failures} class="border-b border-border/60 last:border-0">
-                  <td class="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                    {Calendar.strftime(f.attempted_at, "%Y-%m-%d %H:%M")}
-                  </td>
-                  <td class="px-2 py-2">
-                    <.link navigate={~p"/library/#{f.media_item_id}"} class="text-sm hover:underline">
-                      view item
-                    </.link>
-                  </td>
-                  <td class="px-2 py-2 text-xs text-destructive">{f.error}</td>
-                </tr>
-              </tbody>
-            </table>
+          <div :if={@pages > 1} class="border-t border-border px-4 py-3">
+            <.pager
+              page={@page}
+              pages={@pages}
+              position="below the queue"
+              href={fn entry -> ~p"/activity?page=#{entry}" end}
+            />
           </div>
         </section>
       </div>
+
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".LocalTime">
+        export default {
+          mounted() { this.format() },
+          // The table repaints every three seconds, and LiveView restores the
+          // server's text on every patch. Reformatting here is what keeps the
+          // local reading from flicking back to UTC each time.
+          updated() { this.format() },
+
+          format() {
+            // Resolved once per pass, not per cell: a table of fifty rows has
+            // a hundred of these, and constructing a formatter is the
+            // expensive part of using one.
+            const absolute = new Intl.DateTimeFormat(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })
+            const relative = new Intl.RelativeTimeFormat(undefined, {numeric: "auto"})
+            const now = Date.now()
+
+            this.el.querySelectorAll("time[data-local]").forEach((node) => {
+              const at = Date.parse(node.getAttribute("datetime"))
+              if (isNaN(at)) return
+
+              // Recent work is read as "how long ago", which is the question
+              // actually being asked of this page; anything older is a date,
+              // because "9 days ago" stops being useful the moment you want
+              // to line it up against something else.
+              node.textContent = this.ago(relative, absolute, at, now)
+              node.title = absolute.format(at)
+            })
+          },
+
+          ago(relative, absolute, at, now) {
+            const seconds = Math.round((at - now) / 1000)
+            const magnitude = Math.abs(seconds)
+
+            if (magnitude < 45) return "just now"
+            if (magnitude < 3600) return relative.format(Math.round(seconds / 60), "minute")
+            if (magnitude < 86400) return relative.format(Math.round(seconds / 3600), "hour")
+            if (magnitude < 604800) return relative.format(Math.round(seconds / 86400), "day")
+            return absolute.format(at)
+          },
+        }
+      </script>
     </Layouts.app>
     """
   end
+
+  attr :at, :any, required: true
+
+  # A <time> the hook can find, carrying an ISO-8601 instant and a UTC reading
+  # of it. The text is what shows if the hook never runs -- no JavaScript, or
+  # the split second before it does -- so it says "UTC" out loud rather than
+  # printing a bare clock time that means nothing without a zone.
+  defp at(%{at: nil} = assigns), do: ~H|<span class="text-muted-foreground">—</span>|
+
+  defp at(assigns) do
+    ~H"""
+    <time datetime={DateTime.to_iso8601(@at)} data-local>
+      {Calendar.strftime(@at, "%Y-%m-%d %H:%M UTC")}
+    </time>
+    """
+  end
+
+  # How long the job took, or how long it has been going. Oban records the
+  # finish in a different column depending on how the job ended, so all three
+  # are read; a job that has started and not finished is measured against now,
+  # which is what makes a stuck download visible as a number that keeps
+  # climbing rather than a badge that never changes.
+  defp took(%{attempted_at: nil}), do: "—"
+
+  defp took(%{attempted_at: started} = job) do
+    case finished_at(job) do
+      nil -> duration(DateTime.diff(DateTime.utc_now(), started)) <> "…"
+      done -> duration(DateTime.diff(done, started))
+    end
+  end
+
+  defp finished_at(job) do
+    job.completed_at || job.cancelled_at || job.discarded_at
+  end
+
+  defp duration(seconds) when seconds < 0, do: "—"
+  defp duration(seconds) when seconds < 60, do: "#{seconds}s"
+
+  defp duration(seconds) when seconds < 3600 do
+    "#{div(seconds, 60)}m #{rem(seconds, 60)}s"
+  end
+
+  defp duration(seconds), do: "#{div(seconds, 3600)}h #{div(rem(seconds, 3600), 60)}m"
 
   defp last_error(%{errors: []}), do: ""
 

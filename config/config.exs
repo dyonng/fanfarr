@@ -31,7 +31,13 @@ config :fanfarr, Oban,
   # address. See `Fanfarr.Jobs.concurrency/1`.
   queues: [default: 10, sync: 3, themerrdb: 2, apply: 2],
   lifeline: [rescue_after: {2, :hours}],
-  pruner: [max_age: {1, :day}],
+  # A distant backstop, not the policy. How much history to keep is a count the
+  # operator sets on Settings and `Fanfarr.Jobs.prune_history!/0` enforces on
+  # the scheduler heartbeat -- Oban's pruner is by age and cannot express a
+  # count. At a day it actively fought that setting: a quiet install doing a
+  # handful of jobs a day would have had "keep 1000 entries" show almost
+  # nothing, because everything older than yesterday had already gone.
+  pruner: [max_age: {365, :day}],
   repo: Fanfarr.Repo,
   plugins: [
     {Oban.Plugins.Cron,

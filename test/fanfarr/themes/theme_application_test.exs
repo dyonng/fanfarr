@@ -102,15 +102,4 @@ defmodule Fanfarr.Themes.ThemeApplicationTest do
     skipped = record_outcome(item, %{status: :skipped})
     assert skipped.status == :skipped
   end
-
-  test "failures can be listed for the activity view", %{item: item} do
-    record_outcome(item, %{status: :succeeded})
-    record_outcome(item, %{status: :skipped})
-    record_outcome(item, %{status: :failed, error: "yt-dlp exited 1"})
-
-    failures = ThemeApplication |> Ash.Query.for_read(:failures) |> Ash.read!()
-
-    assert [only] = failures
-    assert only.error == "yt-dlp exited 1"
-  end
 end

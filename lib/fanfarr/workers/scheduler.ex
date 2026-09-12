@@ -29,6 +29,12 @@ defmodule Fanfarr.Workers.Scheduler do
     # filled and then left alone.
     Fanfarr.Themes.SourceCache.sweep()
 
+    # Same reasoning: how much history the Activity page keeps is a setting,
+    # but *when* it is enforced is not something to decide about. Oban's own
+    # pruner is by age and cannot express a count, so this is the only thing
+    # bounding the job table.
+    Fanfarr.Jobs.prune_history!()
+
     :ok
   end
 end

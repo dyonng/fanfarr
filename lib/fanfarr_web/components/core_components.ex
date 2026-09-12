@@ -613,4 +613,96 @@ defmodule FanfarrWeb.CoreComponents do
   def translate_errors(errors, field) when is_list(errors) do
     for {^field, {msg, opts}} <- errors, do: translate_error({msg, opts})
   end
+
+  @window 2
+
+  attr :page, :integer, required: true
+  attr :pages, :integer, required: true
+
+  # Only ever the accessible name. Two <nav>s with one label read as two
+  # landmarks called the same thing, and "skip to Pagination" then has to
+  # guess which.
+  attr :position, :string, required: true
+
+  # A function of a page number to the path for that page, so a caller keeps
+  # whatever else its URL carries -- the library's filters and sort, which the
+  # pager has no business knowing about.
+  attr :href, :any, required: true
+
+  @doc """
+  Previous / numbers / Next, for any paged list.
+
+  Lived in `LibraryLive.Index` until the Activity queue needed the same thing,
+  which is the point at which a second copy would have started drifting.
+  """
+  def pager(assigns) do
+    ~H"""
+    <div :if={@pages > 1} class="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+      <nav
+        class="flex flex-wrap items-center justify-center gap-1"
+        aria-label={"Pagination, #{@position}"}
+      >
+        <.link
+          :if={@page > 1}
+          patch={@href.(@page - 1)}
+          class="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground sm:min-h-0"
+        >
+          Previous
+        </.link>
+
+        <%= for entry <- page_numbers(@page, @pages) do %>
+          <span :if={entry == :gap} class="px-1.5 text-muted-foreground">…</span>
+          <.link
+            :if={entry != :gap}
+            patch={@href.(entry)}
+            aria-current={entry == @page && "page"}
+            class={[
+              "inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border px-2.5 py-1.5 text-center tabular-nums sm:min-h-0 sm:min-w-9",
+              entry == @page && "border-primary bg-primary font-medium text-primary-foreground",
+              entry != @page && "border-border hover:bg-accent hover:text-accent-foreground"
+            ]}
+          >
+            {entry}
+          </.link>
+        <% end %>
+
+        <.link
+          :if={@page < @pages}
+          patch={@href.(@page + 1)}
+          class="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground sm:min-h-0"
+        >
+          Next
+        </.link>
+      </nav>
+      <span>Page {@page} of {@pages}</span>
+    </div>
+    """
+  end
+
+  @doc """
+  The page numbers to draw, with `:gap` where a stretch is left out.
+
+  First and last are always reachable, with a window around the current page.
+  A library of a few thousand titles is 60-odd pages, and a button per page
+  would wrap into a wall of numbers harder to use than the two arrows it
+  replaced.
+  """
+  @spec page_numbers(pos_integer(), pos_integer()) :: [pos_integer() | :gap]
+  def page_numbers(page, pages) do
+    window =
+      (page - @window)..(page + @window)
+      |> Enum.filter(&(&1 >= 1 and &1 <= pages))
+
+    [1, pages]
+    |> Enum.concat(window)
+    |> Enum.filter(&(&1 >= 1 and &1 <= pages))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> insert_gaps()
+  end
+
+  defp insert_gaps([a, b | rest]) when b - a == 2, do: [a, a + 1 | insert_gaps([b | rest])]
+  defp insert_gaps([a, b | rest]) when b - a > 2, do: [a, :gap | insert_gaps([b | rest])]
+  defp insert_gaps([a | rest]), do: [a | insert_gaps(rest)]
+  defp insert_gaps([]), do: []
 end

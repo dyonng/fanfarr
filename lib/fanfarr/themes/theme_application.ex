@@ -95,11 +95,6 @@ defmodule Fanfarr.Themes.ThemeApplication do
       filter expr(media_item_id == ^arg(:media_item_id))
       prepare build(sort: [inserted_at: :desc])
     end
-
-    read :failures do
-      filter expr(status == :failed)
-      prepare build(sort: [inserted_at: :desc])
-    end
   end
 
   attributes do

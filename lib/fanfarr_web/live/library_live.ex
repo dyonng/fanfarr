@@ -15,7 +15,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
   @page_size 50
 
   # How many pages to show either side of the current one.
-  @window 2
 
   @impl true
   def mount(_params, _session, socket) do
@@ -607,9 +606,6 @@ defmodule FanfarrWeb.LibraryLive.Index do
   attr :page, :integer, required: true
   attr :pages, :integer, required: true
   attr :filters, :map, required: true
-  # Only ever the accessible name. Two <nav>s with one label read as two
-  # landmarks called the same thing, and "skip to Pagination" then has to
-  # guess which.
   attr :position, :string, required: true
 
   # Rendered above and below the table both. A library filtered to one status
@@ -618,73 +614,23 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # of thing that makes a list feel long.
   defp pagination(assigns) do
     ~H"""
-    <div :if={@pages > 1} class="flex flex-col items-center gap-2 text-sm text-muted-foreground">
-      <nav
-        class="flex flex-wrap items-center justify-center gap-1"
-        aria-label={"Pagination, #{@position}"}
-      >
-        <.link
-          :if={@page > 1}
-          patch={~p"/library?#{filter_params(@filters, @page - 1)}"}
-          class="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground sm:min-h-0"
-        >
-          Previous
-        </.link>
-
-        <%= for entry <- page_numbers(@page, @pages) do %>
-          <span :if={entry == :gap} class="px-1.5 text-muted-foreground">…</span>
-          <.link
-            :if={entry != :gap}
-            patch={~p"/library?#{filter_params(@filters, entry)}"}
-            aria-current={entry == @page && "page"}
-            class={[
-              "inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border px-2.5 py-1.5 text-center tabular-nums sm:min-h-0 sm:min-w-9",
-              entry == @page && "border-primary bg-primary font-medium text-primary-foreground",
-              entry != @page && "border-border hover:bg-accent hover:text-accent-foreground"
-            ]}
-          >
-            {entry}
-          </.link>
-        <% end %>
-
-        <.link
-          :if={@page < @pages}
-          patch={~p"/library?#{filter_params(@filters, @page + 1)}"}
-          class="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground sm:min-h-0"
-        >
-          Next
-        </.link>
-      </nav>
-      <span>Page {@page} of {@pages}</span>
-    </div>
+    <.pager
+      page={@page}
+      pages={@pages}
+      position={@position}
+      href={fn entry -> ~p"/library?#{filter_params(@filters, entry)}" end}
+    />
     """
   end
 
   @doc false
-  # First and last are always reachable, with a window around the current page
-  # and `:gap` standing in for the stretches left out. A library of a few
-  # thousand titles is 60-odd pages, and a button per page would wrap into a
-  # wall of numbers that is harder to use than the two arrows it replaced.
-  def page_numbers(page, pages) do
-    window =
-      (page - @window)..(page + @window)
-      |> Enum.filter(&(&1 >= 1 and &1 <= pages))
-
-    [1, pages]
-    |> Enum.concat(window)
-    |> Enum.filter(&(&1 >= 1 and &1 <= pages))
-    |> Enum.uniq()
-    |> Enum.sort()
-    |> insert_gaps()
-  end
+  # Kept as a delegate because the numbering has its own test file and this is
+  # the name it knows. The logic moved to core_components with the markup when
+  # the Activity queue needed the same control.
+  defdelegate page_numbers(page, pages), to: FanfarrWeb.CoreComponents
 
   # A gap standing in for a single page is wider than the page it hides, so
   # the number goes in instead.
-  defp insert_gaps([a, b | rest]) when b - a == 2, do: [a, a + 1 | insert_gaps([b | rest])]
-  defp insert_gaps([a, b | rest]) when b - a > 2, do: [a, :gap | insert_gaps([b | rest])]
-  defp insert_gaps([a | rest]), do: [a | insert_gaps(rest)]
-  defp insert_gaps([]), do: []
-
   # The studio column is truncated, so the tooltip carries the full name --
   # and the collections, which have nowhere else to show on a row and are
   # exactly what someone squinting at "Walt Disney Pictures" wants to see.

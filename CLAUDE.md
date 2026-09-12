@@ -252,6 +252,25 @@ second, so a loop overshot by up to 250ms.
 `Fanfarr.Themes.Normalizer.measure/1` to calibrate against themes already in
 the library rather than guessing.
 
+**Activity retention is a count, not an age.** `Fanfarr.Jobs.prune_history!/0`
+runs on the scheduler heartbeat and keeps the newest N finished jobs, N being
+the `activity_history` setting (default 1000). Two rules, because the job table
+holds two populations: the rows Activity lists get N, and the scheduler
+heartbeats -- invisible unless they fail, 288 a day -- get a separate hard cap,
+or they would be most of the table within a week while contributing nothing to
+the page the limit is about. Nothing unfinished is ever deleted. Oban's own
+`pruner` is by age and cannot express this, so it sits at 365 days as a distant
+backstop; at its old one day it actively deleted rows the setting promised to
+keep.
+
+**Timestamps are localised in the browser, not the server.** An appliance on a
+LAN is opened from whatever machine is to hand, so the server has no idea what
+zone or locale the reader is in -- it renders UTC and says "UTC", and the
+`LocalTime` colocated hook rewrites every `<time data-local>` through `Intl`
+into "20 minutes ago" with the absolute time on hover. It reformats in
+`updated()` as well as `mounted()`, because the table repaints every three
+seconds and LiveView restores the server's text on every patch.
+
 **Debugging:** the System page has a redacted log view and diagnostics tools
 (environment, item trace, yt-dlp video check, raw Plex probe, and a one-click
 bug-report bundle), plus a full-page, colour-coded log console at `/logs`.

@@ -38,6 +38,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:apply_concurrency_range, Fanfarr.Jobs.apply_concurrency_range())
     |> assign(:log_retention, Fanfarr.Log.Store.retention())
     |> assign(:log_retention_range, Fanfarr.Log.Store.retention_range())
+    |> assign(:job_history, Fanfarr.Jobs.history_limit())
+    |> assign(:job_history_range, Fanfarr.Jobs.history_range())
     |> assign(:schedules, schedules())
   end
 
@@ -163,6 +165,19 @@ defmodule FanfarrWeb.SettingsLive.Index do
     case Fanfarr.Jobs.put_apply_concurrency(value) do
       :ok ->
         {:noreply, socket |> load() |> put_flash(:info, "Applied to the queue immediately")}
+
+      {:error, :invalid} ->
+        {:noreply,
+         put_flash(socket, :error, "Enter a number between #{range.first} and #{range.last}")}
+    end
+  end
+
+  def handle_event("save_job_history", %{"job_history_entries" => value}, socket) do
+    range = Fanfarr.Jobs.history_range()
+
+    case Fanfarr.Jobs.put_history_limit(value) do
+      :ok ->
+        {:noreply, socket |> load() |> put_flash(:info, "Activity history saved")}
 
       {:error, :invalid} ->
         {:noreply,
@@ -734,6 +749,35 @@ defmodule FanfarrWeb.SettingsLive.Index do
                 id="log-retention"
                 name="log_retention_entries"
                 value={@log_retention}
+                class="mt-2 h-9 w-24 rounded-md border border-input bg-background px-3 font-mono text-sm"
+              />
+            </div>
+            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              Save
+            </button>
+          </form>
+
+          <%!-- Beside the log retention, because they are the same decision
+          about two records and someone tightening one usually means both. Two
+          numbers rather than one: the log is lines of text and this is rows of
+          finished work, and they grow at rates that have nothing to do with
+          each other. --%>
+          <form id="job-history-form" phx-submit="save_job_history" class="mt-4 flex items-end gap-2">
+            <div class="flex-1">
+              <label class="text-xs font-medium text-muted-foreground" for="job-history">
+                Activity entries to keep
+              </label>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                Finished jobs listed on Activity, {@job_history_range.first}–{@job_history_range.last}.
+                The oldest are dropped past this. Work still queued or running is never dropped,
+                and each item keeps its own theme history regardless.
+              </p>
+              <input
+                type="text"
+                inputmode="numeric"
+                id="job-history"
+                name="job_history_entries"
+                value={@job_history}
                 class="mt-2 h-9 w-24 rounded-md border border-input bg-background px-3 font-mono text-sm"
               />
             </div>

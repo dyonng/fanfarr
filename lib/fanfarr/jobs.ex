@@ -34,6 +34,10 @@ defmodule Fanfarr.Jobs do
 
   @failed_states ~w(retryable discarded cancelled)
 
+  # Work that is over, however it ended. The only rows retention may delete:
+  # everything else is still owed.
+  @finished ~w(completed discarded cancelled)
+
   # The one queue whose width is the operator's to choose, and the bounds it
   # is held to. One because zero would be a queue that silently never runs;
   # ten because past that the limit is YouTube's patience and the drive's,
@@ -41,10 +45,51 @@ defmodule Fanfarr.Jobs do
   @apply_concurrency_setting "apply_concurrency"
   @apply_concurrency_range 1..10
 
+  # How many finished jobs the Activity page keeps. Counted over exactly the
+  # rows that page lists, so the number means what it says -- scope it to the
+  # whole table instead and the invisible heartbeats below would eat most of
+  # the budget, leaving a "1000 entries" setting showing a few hundred.
+  #
+  # 100 because a page of 50 wants at least two; 100_000 because beyond that
+  # the honest answer is that this is a dashboard, not an audit log, and the
+  # application log on each item is the durable record.
+  @history_setting "activity_history"
+  @history_range 100..100_000
+  @default_history 1000
+
+  # Heartbeat rows are pruned separately and hard. They are invisible unless
+  # they fail, 288 of them land every day, and none is worth keeping once the
+  # tick after it has come and gone -- a handful is enough to prove the
+  # scheduler is alive.
+  @internal_history 200
+
+  # One page of the Activity queue.
+  @history_page_size 50
+
   # Enough completions to average out one slow download without reaching so far
   # back that a since-changed setting (a proxy, a loudness target) is still
   # weighing on the estimate.
   @duration_sample 50
+
+  # attempted_at and the three finish columns are what turn a state badge into
+  # "queued 4 minutes ago, took 12s". Oban writes a different one depending on
+  # how a job ended, so all three are read and `finished_at/1` picks.
+  @fields [
+    :id,
+    :worker,
+    :state,
+    :queue,
+    :args,
+    :attempt,
+    :max_attempts,
+    :errors,
+    :inserted_at,
+    :scheduled_at,
+    :attempted_at,
+    :completed_at,
+    :cancelled_at,
+    :discarded_at
+  ]
 
   @type summary :: %{running: non_neg_integer(), queued: non_neg_integer()}
 
@@ -203,6 +248,98 @@ defmodule Fanfarr.Jobs do
         Fanfarr.Settings.put_setting!(@apply_concurrency_setting, Integer.to_string(limit))
         scale_apply_queue(limit)
         :ok
+    end
+  end
+
+  @doc """
+  How many finished jobs the Activity page keeps.
+
+  Resolved like every other setting and clamped, so a hand-edited value cannot
+  ask this to hold a million rows in SQLite.
+  """
+  @spec history_limit() :: pos_integer()
+  def history_limit do
+    case Fanfarr.Config.get(@history_setting) do
+      nil -> @default_history
+      value -> parse_history(value) || @default_history
+    end
+  end
+
+  @doc "The bounds the history is held to, and its default, for the form."
+  @spec history_range() :: Range.t()
+  def history_range, do: @history_range
+
+  @spec default_history() :: pos_integer()
+  def default_history, do: @default_history
+
+  @doc "Stores how many finished jobs to keep, and applies it immediately."
+  @spec put_history_limit(String.t()) :: :ok | {:error, :invalid}
+  def put_history_limit(value) do
+    case parse_history(to_string(value)) do
+      nil ->
+        {:error, :invalid}
+
+      limit ->
+        Fanfarr.Settings.put_setting!(@history_setting, Integer.to_string(limit))
+        # Applied now rather than at the next heartbeat: lowering it is
+        # usually someone reacting to a page that has become unwieldy, and
+        # waiting five minutes to see it take effect reads as not having
+        # worked.
+        prune_history!()
+        :ok
+    end
+  end
+
+  defp parse_history(value) do
+    case Integer.parse(String.trim(value)) do
+      {limit, ""} -> if limit in @history_range, do: limit, else: nil
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Deletes finished jobs beyond what the operator asked to keep.
+
+  Two rules, because the table holds two populations. The rows Activity lists
+  are capped at `history_limit/0`. The scheduler heartbeats -- invisible
+  unless they fail, 288 a day -- are capped separately and much harder, or
+  they would be most of the table within a week while contributing nothing to
+  the page the limit is about.
+
+  Only finished work is ever deleted. Anything executing, available, scheduled
+  or retryable is still owed, and pruning it would lose work rather than
+  history.
+
+  Returns the number of rows deleted.
+  """
+  @spec prune_history!() :: non_neg_integer()
+  def prune_history!(limit \\ nil) do
+    keep = limit || history_limit()
+
+    trim(from(j in visible(), where: j.state in ^@finished), keep) +
+      trim(
+        from(j in Oban.Job, where: j.worker in ^@internal_workers and j.state in ^@finished),
+        @internal_history
+      )
+  end
+
+  # SQLite has no DELETE ... ORDER BY LIMIT, so the cut-off is read first and
+  # the delete is a plain range. `offset: keep` lands on the newest row that
+  # is *not* being kept, so everything at or below its id goes; when the scope
+  # holds fewer rows than the limit there is no such row and nothing to do.
+  defp trim(scope, keep) do
+    cutoff =
+      Fanfarr.Repo.one(
+        from j in scope, order_by: [desc: j.id], offset: ^keep, limit: 1, select: j.id
+      )
+
+    case cutoff do
+      nil ->
+        0
+
+      id ->
+        {deleted, _} = Fanfarr.Repo.delete_all(from(j in scope, where: j.id <= ^id))
+        deleted
     end
   end
 
@@ -371,28 +508,59 @@ defmodule Fanfarr.Jobs do
   """
   @spec recent(non_neg_integer()) :: [map()]
   def recent(limit \\ 40) do
-    jobs =
-      Fanfarr.Repo.all(
-        from j in Oban.Job,
-          where: j.worker not in ^@internal_workers or j.state in ^@failed_states,
-          order_by: [desc: j.id],
-          limit: ^limit,
-          select: [
-            :id,
-            :worker,
-            :state,
-            :queue,
-            :args,
-            :attempt,
-            :max_attempts,
-            :errors,
-            :inserted_at
-          ]
-      )
-
-    jobs
+    Fanfarr.Repo.all(
+      from(j in visible(), order_by: [desc: j.id], limit: ^limit, select: ^@fields)
+    )
     |> decorate()
     |> Enum.sort_by(&{&1.state not in @active, -&1.id})
+  end
+
+  @doc """
+  One page of the queue, newest first, with what is still running pulled to
+  the top of page one.
+
+  Anything unfinished sorts ahead of everything finished however old it is,
+  because a job still going is the thing this page exists to show and ordering
+  purely by id buries it under whatever completed while it ran. That ordering
+  is done in SQL rather than over the loaded rows: sorting a page after
+  slicing it only sorts within that page, so a long-running job would slide
+  further back with every completion until it fell off page one entirely.
+  """
+  @spec history(pos_integer()) :: %{
+          entries: [map()],
+          page: pos_integer(),
+          pages: pos_integer(),
+          total: non_neg_integer(),
+          page_size: pos_integer()
+        }
+  def history(page \\ 1) do
+    total = Fanfarr.Repo.aggregate(visible(), :count)
+    pages = max(ceil(total / @history_page_size), 1)
+    page = page |> max(1) |> min(pages)
+
+    entries =
+      Fanfarr.Repo.all(
+        from j in visible(),
+          order_by: [
+            asc: fragment("case when ? then 0 else 1 end", j.state in ^@active),
+            desc: j.id
+          ],
+          limit: ^@history_page_size,
+          offset: ^((page - 1) * @history_page_size),
+          select: ^@fields
+      )
+      |> decorate()
+
+    %{entries: entries, page: page, pages: pages, total: total, page_size: @history_page_size}
+  end
+
+  @doc "Rows per page of the Activity queue."
+  @spec history_page_size() :: pos_integer()
+  def history_page_size, do: @history_page_size
+
+  # The rows the Activity page lists, and the set every count here is over.
+  defp visible do
+    from j in Oban.Job, where: j.worker not in ^@internal_workers or j.state in ^@failed_states
   end
 
   @doc """
@@ -413,6 +581,9 @@ defmodule Fanfarr.Jobs do
 
       {"SyncSection", _args} ->
         "Sync a library section from Plex"
+
+      {"SyncLibrary", _args} ->
+        "Sync the library list from Plex"
 
       {"RefreshThemerr", _args} ->
         "Refresh ThemerrDB entries"

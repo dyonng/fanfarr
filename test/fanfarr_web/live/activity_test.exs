@@ -31,6 +31,105 @@ defmodule FanfarrWeb.ActivityLiveTest do
     job
   end
 
+  describe "the queue table" do
+    test "the columns are headed, and the action is named once", %{conn: conn, item: item} do
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
+
+      {:ok, view, _html} = live(conn, "/activity")
+
+      for header <- ~w(Action Item State Queued Started Took Details) do
+        assert has_element?(view, "th", header)
+      end
+
+      # It used to print the label and then the worker module under it, so
+      # every apply row read "Apply theme" and then "ApplyTheme" -- the same
+      # fact twice, once in English and once in Elixir.
+      html = render(view)
+      assert html =~ "Apply theme"
+      refute html =~ "ApplyTheme"
+    end
+
+    test "the attempt count shows only once it is not the first", %{conn: conn, item: item} do
+      # It had a column to itself reading "attempt 1/3" on every row, which is
+      # the answer to a question nobody asked.
+      job = enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
+
+      refute render(live_view(conn)) =~ "×2"
+
+      Fanfarr.Repo.update_all(from(j in Oban.Job, where: j.id == ^job.id), set: [attempt: 2])
+      assert render(live_view(conn)) =~ "×2"
+    end
+
+    test "times are marked up for the browser to localise", %{conn: conn, item: item} do
+      # The server has no idea what zone the reader is in -- an appliance on a
+      # LAN is opened from whatever machine is to hand -- so it renders UTC
+      # and says so, and the hook rewrites it. Both halves are asserted here
+      # because the fallback is what shows with no JavaScript.
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
+
+      html = render(live_view(conn))
+
+      # Asserted as separate attributes: LiveView injects phx-r as the first
+      # one, so this never renders as the literal "<time datetime=".
+      assert html =~ "<time"
+      assert html =~ "datetime="
+      assert html =~ "data-local"
+      assert html =~ "UTC"
+      assert html =~ ~s(phx-hook="FanfarrWeb.ActivityLive.Index.LocalTime")
+    end
+
+    test "the recent theme failures section is gone", %{conn: conn} do
+      refute render(live_view(conn)) =~ "Recent theme failures"
+    end
+  end
+
+  describe "paging" do
+    test "a long queue pages rather than being cut off", %{conn: conn, item: item} do
+      for _ <- 1..(Fanfarr.Jobs.history_page_size() + 5) do
+        enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
+      end
+
+      {:ok, view, _html} = live(conn, "/activity")
+
+      assert has_element?(view, ~s(nav[aria-label*="Pagination"]))
+      assert render(view) =~ "Page 1 of 2"
+
+      # The page is in the URL, so it survives a refresh and can be linked.
+      {:ok, second, _html} = live(conn, "/activity?page=2")
+      assert render(second) =~ "Page 2 of 2"
+      assert length(rows(second)) == 5
+    end
+
+    test "one page of jobs shows no pager at all", %{conn: conn, item: item} do
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
+
+      refute has_element?(live_view(conn), ~s(nav[aria-label*="Pagination"]))
+    end
+
+    test "a page number past the end lands on the last one", %{conn: conn, item: item} do
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
+
+      assert length(rows(live_view(conn, "/activity?page=99"))) == 1
+    end
+
+    test "a page number that is not a number is not an error", %{conn: conn, item: item} do
+      enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
+
+      assert length(rows(live_view(conn, "/activity?page=drop%20table"))) == 1
+    end
+  end
+
+  defp live_view(conn, path \\ "/activity") do
+    {:ok, view, _html} = live(conn, path)
+    view
+  end
+
+  # Counted off the row ids rather than parsed: Floki is not a dependency here,
+  # and every row already carries its job id as a marker.
+  defp rows(view) do
+    Regex.scan(~r/id="job-\d+"/, render(view))
+  end
+
   test "an estimate appears once there is history to base one on", %{conn: conn, item: item} do
     done =
       enqueue(Fanfarr.Workers.ApplyTheme, %{media_item_id: item.id}, "completed")
