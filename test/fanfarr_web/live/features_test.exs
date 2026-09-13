@@ -107,6 +107,48 @@ defmodule FanfarrWeb.FeaturesTest do
       assert Fanfarr.Library.get_media_item!(item.id).manual_theme_url =~ "abc12345678"
     end
 
+    test "blocked results are hidden, and the page says how many", %{conn: conn, item: item} do
+      # Silently returning a shorter list is indistinguishable from YouTube
+      # having less, so the count is said out loud and points at the setting
+      # that did it.
+      Fanfarr.Themes.Blacklist.put("We Are")
+
+      expect(Fanfarr.ThemeDownloaderMock, :search, fn _q, _limit ->
+        {:ok,
+         [
+           %{
+             id: "abc12345678",
+             url: "https://www.youtube.com/watch?v=abc12345678",
+             title: "One Piece OP 1 - We Are!",
+             channel: "Toei",
+             duration: 92,
+             thumbnail: nil,
+             view_count: 10
+           },
+           %{
+             id: "keep12345678",
+             url: "https://www.youtube.com/watch?v=keep12345678",
+             title: "One Piece OP 2 - Believe",
+             channel: "Toei",
+             duration: 90,
+             thumbnail: nil,
+             view_count: 10
+           }
+         ]}
+      end)
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+
+      view |> element("form#theme-search") |> render_submit(%{"q" => "one piece"})
+      html = render_async(view)
+
+      assert html =~ "Believe", "the result that does not match must survive"
+
+      refute html =~ "We Are!"
+      assert html =~ "hidden by your"
+      assert html =~ "search blocklist"
+    end
+
     test "the player's subtree is LiveView's to leave alone", %{conn: conn, item: item} do
       # The preview used to stop mid-video and go black. `new YT.Player(el)`
       # does not fill the element it is handed, it *replaces* it with an

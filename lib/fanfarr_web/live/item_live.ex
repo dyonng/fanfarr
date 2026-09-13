@@ -38,6 +38,7 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:search_error, nil)
       |> assign(:searching, false)
       |> assign(:previewing, nil)
+      |> assign(:search_hidden, 0)
       |> assign(:refreshing, false)
       |> assign(:looking_up, false)
       |> assign(:poll_scheduled, false)
@@ -201,6 +202,7 @@ defmodule FanfarrWeb.ItemLive.Show do
        |> assign(:search_query, q)
        |> assign(:searching, true)
        |> assign(:search_error, nil)
+       |> assign(:search_hidden, 0)
        |> start_async(:search, fn -> Downloader.impl().search(q, @search_limit) end)}
     end
   end
@@ -403,7 +405,16 @@ defmodule FanfarrWeb.ItemLive.Show do
   end
 
   def handle_async(:search, {:ok, {:ok, hits}}, socket) do
-    {:noreply, socket |> assign(:searching, false) |> assign(:search_results, hits)}
+    # Filtered here rather than in the downloader, so the count of what went
+    # is available to say out loud. A result list that quietly comes back
+    # shorter than YouTube returned is how a filter turns into a bug report.
+    {kept, hidden} = Fanfarr.Themes.Blacklist.split(hits)
+
+    {:noreply,
+     socket
+     |> assign(:searching, false)
+     |> assign(:search_results, kept)
+     |> assign(:search_hidden, length(hidden))}
   end
 
   def handle_async(:search, {:ok, {:error, reason}}, socket) do
@@ -2240,10 +2251,24 @@ defmodule FanfarrWeb.ItemLive.Show do
               </li>
             </ul>
             <p
-              :if={@search_results == [] and is_nil(@search_error)}
+              :if={@search_results == [] and is_nil(@search_error) and @search_hidden == 0}
               class="text-sm text-muted-foreground"
             >
               No results.
+            </p>
+
+            <%!-- Said out loud, and it links to the list that did it. A filter
+            that quietly shortens the results is indistinguishable from YouTube
+            having nothing, and "the search is broken" is the bug report that
+            follows. --%>
+            <p :if={@search_hidden > 0} class="text-xs text-muted-foreground">
+              {@search_hidden} {if @search_hidden == 1, do: "result", else: "results"} hidden by your
+              <.link navigate={~p"/settings"} class="underline hover:no-underline">
+                search blocklist
+              </.link>
+              <span :if={@search_results == []}>
+                — everything YouTube returned matched it.
+              </span>
             </p>
 
             <form

@@ -299,6 +299,16 @@ listing field foresees that, and probing each result with `--simulate` would be
 25 more requests into the same rate limit that causes it, so it would make the
 problem worse and still be stale by the time someone clicks.
 
+There is a **search blocklist** for the rest: `search_blacklist`, one regex per
+line, matched case-insensitively against each hit's title and channel, edited
+on Settings and applied in `Themes.Blacklist.split/1`. The default is `vevo`,
+and it is worth knowing it catches less than its name suggests -- a flat
+listing reports the artist, not the channel, so Taylor Swift's official upload
+arrives as `channel: "Taylor Swift"` with no VEVO in it anywhere. Measured over
+ten results: `vevo` matched one, adding `\(Official.*Video\)` took it to nine.
+The hidden count is reported to the page on purpose; a filter that silently
+shortens results is indistinguishable from YouTube having less.
+
 What a flat listing *can* answer is `live_status`, which is accurate there and
 is filtered (`YtDlp.live?/1`): `is_live` and `is_upcoming` are hidden, because a
 stream has no end to download and a premiere has no audio yet. `was_live` stays

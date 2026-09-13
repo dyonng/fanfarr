@@ -40,6 +40,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:log_retention_range, Fanfarr.Log.Store.retention_range())
     |> assign(:job_history, Fanfarr.Jobs.history_limit())
     |> assign(:job_history_range, Fanfarr.Jobs.history_range())
+    |> assign(:search_blacklist, Fanfarr.Themes.Blacklist.text())
+    |> assign(:blacklist_limits, Fanfarr.Themes.Blacklist.limits())
     |> assign(:schedules, schedules())
   end
 
@@ -169,6 +171,18 @@ defmodule FanfarrWeb.SettingsLive.Index do
       {:error, :invalid} ->
         {:noreply,
          put_flash(socket, :error, "Enter a number between #{range.first} and #{range.last}")}
+    end
+  end
+
+  def handle_event("save_search_blacklist", %{"search_blacklist" => value}, socket) do
+    case Fanfarr.Themes.Blacklist.put(value) do
+      :ok ->
+        {:noreply, socket |> load() |> put_flash(:info, "Search blocklist saved")}
+
+      # The offending line is quoted back rather than "invalid regex": the box
+      # holds twenty of them and a bare complaint says nothing about which.
+      {:error, message} ->
+        {:noreply, socket |> assign(:search_blacklist, value) |> put_flash(:error, message)}
     end
   end
 
@@ -675,6 +689,43 @@ defmodule FanfarrWeb.SettingsLive.Index do
               Save
             </button>
           </form>
+          <%!-- With the downloader, because that is what these are about:
+          patterns for results that are not worth offering because they will
+          not download. --%>
+          <form id="search-blacklist-form" phx-submit="save_search_blacklist" class="mt-4">
+            <label class="text-xs font-medium text-muted-foreground" for="search-blacklist">
+              Search blocklist
+            </label>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              One regular expression per line, matched case-insensitively against each result's
+              title and channel. Anything that matches is hidden from YouTube search results, and
+              the page says how many went.
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              <span class="font-medium">What <code class="font-mono">vevo</code> catches:</span>
+              less than you might expect. A search listing reports the artist, not the channel —
+              Taylor Swift's official upload comes back as "Taylor Swift" with no VEVO anywhere
+              in it. Measured over ten results for "official music video vevo", one matched. To
+              catch the rest, add a pattern on the title, such as <code class="font-mono">\(Official.*Video\)</code>.
+            </p>
+            <textarea
+              id="search-blacklist"
+              name="search_blacklist"
+              rows="4"
+              spellcheck="false"
+              placeholder="vevo"
+              class="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+            >{@search_blacklist}</textarea>
+            <div class="mt-2 flex items-center gap-2">
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Save
+              </button>
+              <span class="text-xs text-muted-foreground">
+                Up to {@blacklist_limits.patterns} patterns, {@blacklist_limits.length} characters each.
+              </span>
+            </div>
+          </form>
+
           <form
             id="ytdlp-proxy-form"
             phx-submit="save_ytdlp_proxy"
