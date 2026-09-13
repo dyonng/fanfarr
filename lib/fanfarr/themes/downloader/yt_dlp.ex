@@ -67,12 +67,36 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
       ]
 
       case run([@binary | proxy_args() ++ args], @search_timeout_ms) do
-        {:ok, output} -> {:ok, parse_search(output)}
+        {:ok, output} -> {:ok, output |> parse_search() |> Enum.reject(&live?/1)}
         {:error, :enoent} -> {:error, :not_installed}
         {:error, reason} -> {:error, reason}
       end
     end
   end
+
+  @doc """
+  Whether a hit is a stream rather than a recording.
+
+  The only class of search result that can be ruled out before trying it. A
+  stream in progress has no end and no duration, so "download it and cut a
+  theme from it" is not a thing that finishes; an announced premiere has no
+  audio at all yet. Both are worth hiding, because picking one is a mistake
+  with no useful failure -- the job just runs until something stops it.
+
+  `was_live` is deliberately not included: a finished stream is an ordinary
+  recording with an ordinary duration, and plenty of theme uploads are exactly
+  that.
+
+  This is *not* a way to predict the failure people actually hit. "Sign in to
+  confirm you're not a bot" is YouTube rating the request, not the video --
+  measured against one video on one machine: OK, then four failures in a row,
+  with nothing about the video having changed. Nothing in a listing can
+  foresee that, and asking yt-dlp per result would be 25 extra requests into
+  the same rate limit that causes it.
+  """
+  @spec live?(map()) :: boolean()
+  def live?(%{live_status: status}), do: status in ["is_live", "is_upcoming"]
+  def live?(_), do: false
 
   # One JSON object per line. A line that fails to parse is dropped rather than
   # failing the whole search: yt-dlp occasionally prints a warning on stdout.
@@ -91,7 +115,12 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
               channel: v["channel"] || v["uploader"],
               duration: number(v["duration"]),
               thumbnail: best_thumbnail(v),
-              view_count: number(v["view_count"])
+              view_count: number(v["view_count"]),
+              # Present in a flat listing and accurate there, which is what
+              # makes it the one thing worth filtering on. `availability` is
+              # in the same JSON but is always null without a full extract, so
+              # members-only and paid videos cannot be told apart here.
+              live_status: v["live_status"]
             }
           ]
 
@@ -123,8 +152,10 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
       case run([@binary | proxy_args() ++ args], @search_timeout_ms) do
         {:ok, output} ->
           case parse_search(output) do
-            [%{title: title} = hit | _] ->
-              {:ok, %{title: title, duration: hit.duration, uploader: hit.channel}}
+            [hit | _] ->
+              if live?(hit),
+                do: {:error, :live_stream},
+                else: {:ok, %{title: hit.title, duration: hit.duration, uploader: hit.channel}}
 
             [] ->
               {:error, :unavailable}

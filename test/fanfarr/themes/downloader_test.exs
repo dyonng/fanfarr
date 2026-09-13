@@ -117,6 +117,23 @@ defmodule Fanfarr.Themes.DownloaderTest do
       assert second.duration == nil
     end
 
+    test "live_status comes through, because it is the one filterable field" do
+      # Shapes taken from a real `--flat-playlist` search, not invented. Note
+      # `availability` is in that JSON and is always null without a full
+      # extract, which is why members-only and paid videos cannot be told
+      # apart from a listing.
+      output =
+        ~s({"id":"abc12345678","title":"Recording","duration":111,"live_status":null,"availability":null}
+{"id":"live12345678","title":"24/7 radio","duration":null,"live_status":"is_live","availability":null}
+{"id":"past12345678","title":"Stream VOD","duration":28375,"live_status":"was_live"}
+)
+
+      assert [recording, live, vod] = YtDlp.parse_search(output)
+      assert recording.live_status == nil
+      assert live.live_status == "is_live"
+      assert vod.live_status == "was_live"
+    end
+
     test "a warning line on stdout does not lose the results around it" do
       output = "WARNING: something\n" <> ~s({"id":"abc12345678","title":"x"}) <> "\n"
       assert [%{id: "abc12345678"}] = YtDlp.parse_search(output)
@@ -125,6 +142,24 @@ defmodule Fanfarr.Themes.DownloaderTest do
 
   test "search with a blank query is empty without running anything" do
     assert {:ok, []} = YtDlp.search("   ", 5)
+  end
+
+  describe "YtDlp.live?/1" do
+    test "a stream in progress and an announced premiere are both out" do
+      # Neither can become a theme. A stream has no end, so "download it and
+      # cut a theme from it" is not a thing that finishes, and a premiere has
+      # no audio at all yet.
+      assert YtDlp.live?(%{live_status: "is_live"})
+      assert YtDlp.live?(%{live_status: "is_upcoming"})
+    end
+
+    test "a finished stream is an ordinary recording and stays" do
+      # was_live has a real duration and plenty of theme uploads are exactly
+      # that, so filtering it would hide working results.
+      refute YtDlp.live?(%{live_status: "was_live"})
+      refute YtDlp.live?(%{live_status: nil})
+      refute YtDlp.live?(%{})
+    end
   end
 
   test "without the binary, search and version say so rather than crashing" do

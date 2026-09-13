@@ -291,6 +291,22 @@ JavaScript writes into a subtree after render, LiveView must be told not to
 touch it, and the element's `id` is what still lets a genuine change rebuild
 it.
 
+**Search results cannot be pre-filtered for "will this download".** Measured,
+not assumed: the failure people actually hit is `Sign in to confirm you're not
+a bot`, and it is YouTube rating the *request*, not the video -- the same video
+probed five times in a row on one machine went OK, FAIL, FAIL, FAIL, FAIL. No
+listing field foresees that, and probing each result with `--simulate` would be
+25 more requests into the same rate limit that causes it, so it would make the
+problem worse and still be stale by the time someone clicks.
+
+What a flat listing *can* answer is `live_status`, which is accurate there and
+is filtered (`YtDlp.live?/1`): `is_live` and `is_upcoming` are hidden, because a
+stream has no end to download and a premiere has no audio yet. `was_live` stays
+-- a finished stream is an ordinary recording. `availability` is in the same
+JSON but is always null without a full extract, so members-only and paid videos
+cannot be told apart from a listing. The real remedy for bot checks is the
+yt-dlp proxy setting, not filtering.
+
 **Debugging:** the System page has a redacted log view and diagnostics tools
 (environment, item trace, yt-dlp video check, raw Plex probe, and a one-click
 bug-report bundle), plus a full-page, colour-coded log console at `/logs`.

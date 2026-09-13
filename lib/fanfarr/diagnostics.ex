@@ -436,6 +436,10 @@ defmodule Fanfarr.Diagnostics do
   defp explain(:unavailable), do: "The video is private, removed, or does not exist."
   defp explain(:age_restricted), do: "Age-restricted: YouTube requires a signed-in account."
   defp explain(:geo_blocked), do: "Blocked in this server's region."
+
+  defp explain(:live_stream),
+    do: "A stream, not a recording: it has no end to download and no duration to trim."
+
   defp explain(:timeout), do: "YouTube did not answer in time."
   defp explain({:exit, _code, output}), do: "yt-dlp failed: #{output}"
   defp explain(other), do: inspect(other)
