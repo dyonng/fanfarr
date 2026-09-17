@@ -7,6 +7,7 @@ defmodule Fanfarr.DiagnosticsTest do
 
   alias Fanfarr.Diagnostics
   alias Fanfarr.Diagnostics.Redactor
+  alias Fanfarr.HostOnlyPath
 
   setup do
     Redactor.forget_all()
@@ -60,13 +61,15 @@ defmodule Fanfarr.DiagnosticsTest do
 
     test "a host path bridged by a root folder reads as ready, not broken", %{section: s} do
       # The reported case: Plex says a host path the container cannot see, and
-      # a root folder holds the show under a different mount name.
+      # a root folder holds the show under a different mount name. The absence
+      # is half of what is asserted below, so the path comes from HostOnlyPath
+      # rather than the report -- see that module for why.
       root = Path.join(System.tmp_dir!(), "fanfarr-diag-#{:erlang.unique_integer([:positive])}")
       File.mkdir_p!(Path.join(root, "tv2/One Pace"))
       on_exit(fn -> File.rm_rf(root) end)
       Fanfarr.Library.create_root_folder!(%{path: Path.join(root, "tv2"), kind: :show})
 
-      item = item(s, %{title: "One Pace", plex_path: "/media/red-10-redemption/TV/One Pace"})
+      item = item(s, %{title: "One Pace", plex_path: HostOnlyPath.hidden("One Pace")})
 
       text = Diagnostics.item_report(item.id)
 
@@ -136,7 +139,7 @@ defmodule Fanfarr.DiagnosticsTest do
     end
 
     test "an item no root folder holds says what to do about it", %{section: s} do
-      item = item(s, %{title: "Nowhere", plex_path: "/media/red-10-redemption/TV/Nowhere"})
+      item = item(s, %{title: "Nowhere", plex_path: HostOnlyPath.hidden("Nowhere")})
 
       text = Diagnostics.item_report(item.id)
 

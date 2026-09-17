@@ -27,9 +27,19 @@ defmodule FanfarrWeb.LogsLiveTest do
     # returns HTML that has been through Floki, which drops the
     # whitespace-only nodes between the column spans -- so the alignment this
     # is about is invisible from there even when it is correct in a browser.
+
+    # The instant every fixture entry is logged at. The time it reads as comes
+    # from Clock rather than being written into the assertions as "02:14:07":
+    # the BEAM reads TZ once, at start (Fanfarr.ClockTest explains why), so a
+    # UTC instant renders as whatever wall clock this machine is in, and the
+    # literal only holds where that is UTC -- CI and the image, not a laptop.
+    # ClockTest is where the conversion itself is pinned, zone by zone.
+    @at ~U[2026-09-04 02:14:07Z]
+    defp at, do: Fanfarr.Clock.time(@at)
+
     defp line(message, opts \\ []) do
       %{
-        at: ~U[2026-09-04 02:14:07Z],
+        at: @at,
         level: Keyword.get(opts, :level, :error),
         message: message,
         where: Keyword.get(opts, :where, "Fanfarr.Thing.do_it/1")
@@ -48,7 +58,7 @@ defmodule FanfarrWeb.LogsLiveTest do
       row = text(line("something went wrong"))
 
       refute row =~ "\n"
-      assert row == "02:14:07  error  something went wrong"
+      assert row == "#{at()}  error  something went wrong"
     end
 
     test "the level is padded so messages line up" do
@@ -73,7 +83,7 @@ defmodule FanfarrWeb.LogsLiveTest do
       assert html =~ ~s(<span class="text-violet-600 dark:text-violet-400">:ok</span>)
 
       # And the line still reads exactly as it was logged.
-      assert text(html) == "02:14:07  error  wrote /tv1/Show/theme.mp3 in 12ms: :ok"
+      assert text(html) == "#{at()}  error  wrote /tv1/Show/theme.mp3 in 12ms: :ok"
     end
 
     test "ordinary words are left alone whatever they start with" do
@@ -83,7 +93,7 @@ defmodule FanfarrWeb.LogsLiveTest do
       html = line("GET /logs", level: :info)
 
       refute html =~ "text-blue-600"
-      assert text(html) == "02:14:07  info   GET /logs"
+      assert text(html) == "#{at()}  info   GET /logs"
     end
 
     test "markup in a log line is escaped rather than rendered" do

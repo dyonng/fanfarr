@@ -9,6 +9,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
   import Mox
 
+  alias Fanfarr.HostOnlyPath
   alias Fanfarr.Themes
   alias Fanfarr.Workers.ApplyTheme
 
@@ -741,10 +742,15 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
   describe "a host path the container cannot see" do
     # The reported case. Plex runs on the host and says
-    # /media/red-10-redemption/TV/One Pace. That path does not exist in the
-    # container, which mounts the same drives as /tv1../tv5. Root folders are
-    # the whole mechanism for this, and an earlier version rejected the item
+    # /media/red-10-redemption/TV/One Pace; the container mounts the same
+    # drives as /tv1../tv5, so that path is not there. Root folders are the
+    # whole mechanism for this, and an earlier version rejected the item
     # before consulting them.
+    #
+    # The reported path is built by HostOnlyPath rather than written out here.
+    # The literal is a real directory on a machine that runs the media stack,
+    # and the absence is the premise of every test below, so it has to be a
+    # path that cannot exist -- see that module.
     setup ctx do
       drives = for n <- 1..5, do: Path.join(ctx.root, "tv#{n}")
       Enum.each(drives, &File.mkdir_p!/1)
@@ -756,11 +762,9 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
 
     test "resolves through the root folders and writes there", ctx do
-      item =
-        item(ctx, %{
-          title: "One Pace",
-          plex_path: "/media/red-10-redemption/TV/One Pace"
-        })
+      plex_path = HostOnlyPath.hidden("One Pace")
+
+      item = item(ctx, %{title: "One Pace", plex_path: plex_path})
 
       item =
         Fanfarr.Library.set_manual_theme!(item, %{
@@ -768,8 +772,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
           manual_theme_title: "ANGEL & DEVIL"
         })
 
-      refute File.dir?("/media/red-10-redemption/TV/One Pace"),
-             "the premise: the reported path is not visible here"
+      refute File.dir?(plex_path), "the premise: the reported path is not visible here"
 
       expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir ->
         assert url == "https://www.youtube.com/watch?v=VHxeuLf_eRs"
@@ -789,7 +792,8 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
 
     test "the resolved destination is recorded, not the reported path", ctx do
-      item = item(ctx, %{title: "One Pace", plex_path: "/media/red-10-redemption/TV/One Pace"})
+      plex_path = HostOnlyPath.hidden("One Pace")
+      item = item(ctx, %{title: "One Pace", plex_path: plex_path})
       Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/abc12345678"})
 
       stub_download()
@@ -801,10 +805,11 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
 
     test "a show no root folder holds says so, naming the path", ctx do
-      item = item(ctx, %{title: "Nowhere", plex_path: "/media/red-10-redemption/TV/Nowhere"})
+      plex_path = HostOnlyPath.hidden("Nowhere")
+      item = item(ctx, %{title: "Nowhere", plex_path: plex_path})
       Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/abc12345678"})
 
-      assert {:cancel, {:no_matching_root, "/media/red-10-redemption/TV/Nowhere"}} = run(item)
+      assert {:cancel, {:no_matching_root, ^plex_path}} = run(item)
 
       [outcome | _] = history(item)
       assert outcome.status == :skipped
@@ -812,7 +817,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       # The history row is where this is read, so it is a sentence naming the
       # path rather than an inspected tuple.
       assert outcome.error =~ "No root folder holds"
-      assert outcome.error =~ "/media/red-10-redemption/TV/Nowhere"
+      assert outcome.error =~ plex_path
     end
   end
 
@@ -914,11 +919,11 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
     test "with no root folders, a path the container cannot see is named", ctx do
       themerr_hit()
-      item = item(ctx, %{plex_path: "/media/red-10-redemption/TV/One Pace"})
+      plex_path = HostOnlyPath.hidden("One Pace")
+      item = item(ctx, %{plex_path: plex_path})
 
       # Nothing configured to bridge host paths to container mounts.
-      assert {:cancel, {:destination_missing, "/media/red-10-redemption/TV/One Pace"}} =
-               run(item)
+      assert {:cancel, {:destination_missing, ^plex_path}} = run(item)
     end
   end
 end
