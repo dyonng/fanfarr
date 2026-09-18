@@ -171,6 +171,23 @@ defmodule Fanfarr.Themes.SourceCache do
     :ok
   end
 
+  @doc """
+  What the directory is holding, against the cap it is held under.
+
+  The same listing `sweep/0` evicts against, so the number the dashboard shows
+  is the number the cap is enforced on rather than a second opinion about it.
+  """
+  @spec usage() :: %{entries: non_neg_integer(), bytes: non_neg_integer(), cap: non_neg_integer()}
+  def usage do
+    entries = entries()
+
+    %{
+      entries: length(entries),
+      bytes: Enum.reduce(entries, 0, &(&2 + &1.size)),
+      cap: max_bytes()
+    }
+  end
+
   # Grouped into entries before anything is counted, because an entry is the
   # audio *and* its peaks and they are deleted together. Counting them as two
   # rows and deleting them as one made the eviction loop over-subtract, so a

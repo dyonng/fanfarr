@@ -142,4 +142,33 @@ defmodule Fanfarr.Themes.SourceCacheTest do
       assert File.stat!(entry.path, time: :posix).mtime > old
     end
   end
+
+  describe "reported usage" do
+    test "usage reports what is held, grouped and counted the way eviction counts it" do
+      sources = SourceCache.dir()
+      File.mkdir_p!(sources)
+
+      # Two entries: an audio file and its peaks share a base and are one
+      # entry, which is the grouping the cap is enforced on. If these numbers
+      # came from a second opinion the dashboard could disagree with the
+      # eviction that actually happens.
+      audio = Path.join(sources, "abc.source")
+      peaks = Path.join(sources, "abc.source.peaks.json")
+      other = Path.join(sources, "def.render")
+      File.write!(audio, :binary.copy(<<0>>, 2048))
+      File.write!(peaks, ~s({"peaks":[]}))
+      File.write!(other, :binary.copy(<<0>>, 1024))
+
+      held = File.stat!(audio).size + File.stat!(peaks).size + File.stat!(other).size
+      Application.put_env(:fanfarr, :source_cache_max_bytes, 4096)
+
+      assert %{entries: 2, bytes: ^held, cap: 4096} = SourceCache.usage()
+    end
+
+    test "an empty directory reports nothing held against the default cap" do
+      cap = 2 * 1024 * 1024 * 1024
+
+      assert %{entries: 0, bytes: 0, cap: ^cap} = SourceCache.usage()
+    end
+  end
 end

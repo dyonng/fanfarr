@@ -675,7 +675,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                 {@item.local_theme_path}
               </p>
               <p :if={@written} class="mt-1 text-xs text-muted-foreground">
-                <span :if={@written.bytes}>{format_bytes(@written.bytes)}</span>
+                <span :if={@written.bytes}>{bytes(@written.bytes)}</span>
                 <span :if={@written.bytes && @written.codec}> · </span>
                 <span :if={@written.codec}>{@written.codec}</span>
               </p>
@@ -2346,12 +2346,6 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   defp apply_title(%{theme_locked: true}), do: "This item's theme is locked in Plex"
   defp apply_title(_), do: "Download the theme and write theme.mp3 next to the media"
-
-  defp format_bytes(bytes) when bytes >= 1_048_576,
-    do: "#{Float.round(bytes / 1_048_576, 1)} MB"
-
-  defp format_bytes(bytes) when bytes >= 1024, do: "#{div(bytes, 1024)} KB"
-  defp format_bytes(bytes), do: "#{bytes} B"
 
   defp duration(seconds) when is_number(seconds) do
     total = trunc(seconds)

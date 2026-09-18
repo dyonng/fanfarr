@@ -274,4 +274,144 @@ defmodule FanfarrWeb.OverviewTest do
       assert link =~ "data-phx-link"
     end
   end
+
+  describe "storage" do
+    # The trim cache is read from disk, and the default directory is shared
+    # with every other run of the suite. A fresh one per test makes the number
+    # asserted here the number the dashboard reports.
+    setup do
+      cache =
+        Path.join(
+          System.tmp_dir!(),
+          "fanfarr-overview-cache-#{System.unique_integer([:positive])}"
+        )
+
+      Application.put_env(:fanfarr, :cache_dir, cache)
+
+      on_exit(fn ->
+        File.rm_rf(cache)
+        Application.delete_env(:fanfarr, :cache_dir)
+      end)
+
+      %{cache: cache}
+    end
+
+    # An apply that got as far as writing a file, which is where a recorded
+    # size comes from.
+    defp wrote(item, bytes, status \\ :succeeded) do
+      Fanfarr.Themes.record_theme_outcome!(%{
+        media_item_id: item.id,
+        source: :themerrdb,
+        method: :local_file,
+        destination_path: "/tv/#{item.title}/theme.mp3",
+        status: status,
+        bytes: bytes
+      })
+    end
+
+    # The value rendered beside a label, so an assertion about "2" cannot be
+    # satisfied by a 2 from anywhere else on the page.
+    defp row(html, label) do
+      [_, value] = Regex.run(~r/>#{label}<\/dt>\s*<dd[^>]*>\s*(.*?)\s*<\/dd>/s, html)
+      String.trim(value)
+    end
+
+    # Where a heading lands in the document. Matched on the markup and not the
+    # bare word: the layout's own JavaScript contains "localStorage", which a
+    # search for "Storage" would find in the head, before the page body.
+    defp heading_at(html, title) do
+      {at, _} = :binary.match(html, ~s(>#{title}</h2>))
+      at
+    end
+
+    test "it sits between needs attention and right now", %{conn: conn} do
+      item(section(), %{title: "One Piece"})
+
+      {:ok, _view, html} = live(conn, "/")
+
+      attention = heading_at(html, "Needs attention")
+      storage = heading_at(html, "Storage")
+      now = heading_at(html, "Right now")
+
+      assert attention < storage
+      assert storage < now
+    end
+
+    test "it totals what Fanfarr wrote, and only what it wrote", %{conn: conn} do
+      tv = section()
+      wrote(item(tv, %{title: "Applied"}), 1_500_000)
+      wrote(item(tv, %{title: "Also applied"}), 2_500_000)
+
+      # Covered, but not by us: stock audio on Plex's own disk, and a file
+      # that was already there. Neither is storage Fanfarr used.
+      item(tv, %{title: "Stock", plex_theme_origin: :plex_agent})
+
+      {:ok, _view, html} = live(conn, "/")
+
+      assert row(html, "Written") == "3.8 MB"
+      assert row(html, "Titles") == "2"
+      assert row(html, "Average") == "1.9 MB"
+      assert row(html, "Biggest") == "2.4 MB"
+    end
+
+    test "a re-apply counts once, at the size of the newest file", %{conn: conn} do
+      tv = section()
+      applied = item(tv, %{title: "Applied"})
+
+      wrote(applied, 1_500_000)
+      wrote(applied, 2_500_000)
+
+      {:ok, _view, html} = live(conn, "/")
+
+      assert row(html, "Written") == "2.4 MB"
+      assert row(html, "Titles") == "1"
+    end
+
+    test "a removal stops counting, and a failure does not", %{conn: conn} do
+      tv = section()
+      removed = item(tv, %{title: "Removed"})
+      failed = item(tv, %{title: "Failed"})
+
+      wrote(removed, 1_500_000)
+      wrote(removed, nil, :removed)
+      wrote(failed, 1_500_000)
+      wrote(failed, nil, :failed)
+
+      {:ok, _view, html} = live(conn, "/")
+
+      # The removed one is gone. The failed one's earlier file is still on
+      # disk -- Writer stages to a temp name and renames, so a failure leaves
+      # the previous theme where it was rather than half-replacing it.
+      assert row(html, "Written") == "1.4 MB"
+      assert row(html, "Titles") == "1"
+    end
+
+    test "the trim cache is shown against the cap that bounds it",
+         %{conn: conn, cache: cache} do
+      item(section(), %{title: "One Piece"})
+
+      sources = Path.join(cache, "sources")
+      File.mkdir_p!(sources)
+      File.write!(Path.join(sources, "abc.source"), :binary.copy(<<0>>, 2_000_000))
+      File.write!(Path.join(sources, "abc.source.peaks.json"), ~s({"peaks":[]}))
+
+      {:ok, _view, html} = live(conn, "/")
+
+      # The audio and its peaks are one entry, so the pair is counted whole.
+      assert row(html, "Trim cache") == "1.9 MB of 2.0 GB"
+    end
+
+    test "an install that has written nothing says so rather than showing zeroes",
+         %{conn: conn} do
+      item(section(), %{title: "Nothing yet"})
+
+      {:ok, _view, html} = live(conn, "/")
+
+      assert row(html, "Written") == "0 B"
+
+      # The rows that describe the shape of a footprint mean nothing at zero.
+      refute html =~ ~r/>Titles<\/dt>/
+      refute html =~ ~r/>Average<\/dt>/
+    end
+  end
 end

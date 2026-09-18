@@ -145,7 +145,7 @@ defmodule FanfarrWeb.OverviewLive.Index do
             </div>
           </section>
 
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-4">
             <%!-- The one panel that asks for something. "130 missing" is not a
             task -- most of those have no source anywhere. "47 ThemerrDB can
             answer" is. --%>
@@ -190,6 +190,65 @@ defmodule FanfarrWeb.OverviewLive.Index do
               >
                 <.icon name="lucide-music" class="size-4" /> Apply all {@overview.ready}
               </button>
+            </section>
+
+            <%!-- What Fanfarr's own writes occupy, which nothing else on the
+            page answered. Read from the log rather than by walking the drives:
+            the drives are not all mounted in the container, and a number that
+            means the same thing on the dashboard as it does on an item page is
+            worth more than one measured twice. --%>
+            <section class="rounded-lg border border-border bg-card p-4">
+              <h2 class="text-sm font-semibold text-card-foreground">Storage</h2>
+              <p class="mt-1 text-xs text-muted-foreground">
+                Theme files Fanfarr wrote into your libraries.
+              </p>
+
+              <dl class="mt-3 space-y-2 text-sm">
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="text-muted-foreground">Written</dt>
+                  <dd class="text-right tabular-nums">{bytes(@overview.storage.bytes)}</dd>
+                </div>
+                <%!-- Nothing written yet, so the three rows that describe the
+                shape of it would all read zero. --%>
+                <div
+                  :if={@overview.storage.themes > 0}
+                  class="flex items-baseline justify-between gap-4"
+                >
+                  <dt class="text-muted-foreground">Titles</dt>
+                  <dd class="text-right tabular-nums">{@overview.storage.themes}</dd>
+                </div>
+                <div
+                  :if={@overview.storage.themes > 0}
+                  class="flex items-baseline justify-between gap-4"
+                >
+                  <dt class="text-muted-foreground">Average</dt>
+                  <dd class="text-right tabular-nums">{bytes(@overview.storage.average)}</dd>
+                </div>
+                <div
+                  :if={@overview.storage.themes > 0}
+                  class="flex items-baseline justify-between gap-4"
+                >
+                  <dt class="text-muted-foreground">Biggest</dt>
+                  <dd class="text-right tabular-nums">{bytes(@overview.storage.largest)}</dd>
+                </div>
+                <%!-- The trim cache, against the cap that bounds it. It is the
+                one part of this footprint an operator can get back, so it is
+                worth showing next to the part they cannot. --%>
+                <div class="flex items-baseline justify-between gap-4">
+                  <dt class="min-w-0 truncate text-muted-foreground">Trim cache</dt>
+                  <dd class="text-right tabular-nums">
+                    {bytes(@overview.storage.cache.bytes)} of {bytes(@overview.storage.cache.cap)}
+                  </dd>
+                </div>
+              </dl>
+
+              <.link
+                :if={@overview.storage.themes > 0}
+                navigate={~p"/library?#{%{"status" => "fanfarr_applied"}}"}
+                class="mt-4 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                Open Library <.icon name="lucide-arrow-right" class="size-3" />
+              </.link>
             </section>
 
             <section class="rounded-lg border border-border bg-card p-4">
