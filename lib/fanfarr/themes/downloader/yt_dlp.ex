@@ -173,6 +173,53 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
     end
   end
 
+  @impl true
+  def heatmap(url) do
+    with :ok <- validate_url(url) do
+      # Metadata only -- --skip-download means this never touches the media, so
+      # it costs a page fetch rather than a download, and the same timeout as
+      # a search is the right order of magnitude for that.
+      args = ["--skip-download", "--no-playlist", "--no-warnings", "--print", "%(heatmap)j", url]
+
+      case run([@binary | proxy_args() ++ args], @search_timeout_ms) do
+        {:ok, output} ->
+          case parse_heatmap(output) do
+            {:ok, markers} -> {:ok, markers}
+            :error -> {:error, :no_heatmap}
+          end
+
+        {:error, :enoent} ->
+          {:error, :not_installed}
+
+        {:error, {:exit, _code, output}} ->
+          {:error, classify_failure(output)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc false
+  # Public only so the suite can pin the shapes a live yt-dlp emits: `NA` when
+  # the video has no graph, the JSON array of buckets when it does, and a
+  # downloader too old to know the field at all.
+  def parse_heatmap(output) do
+    case output |> String.split("\n", trim: true) |> List.first() do
+      nil ->
+        :error
+
+      "NA" ->
+        :error
+
+      json ->
+        case Jason.decode(json) do
+          {:ok, markers} when is_list(markers) and markers != [] -> {:ok, markers}
+          _ -> :error
+        end
+    end
+  end
+
   # yt-dlp reports why it could not fetch a video on stderr; the distinctions
   # that matter to an operator are "gone", "needs an account" and "blocked".
   #

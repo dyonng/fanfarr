@@ -149,6 +149,20 @@ defmodule Fanfarr.Themes.Downloader do
               {:ok, %{title: String.t(), duration: number() | nil, uploader: String.t() | nil}}
               | {:error, error()}
 
+  @doc """
+  The video's "most replayed" graph, or `{:error, :no_heatmap}`.
+
+  A hundred buckets across the timeline, each carrying the share of viewers
+  who were watching there -- the closest thing to a machine-readable answer to
+  "which part do people actually want", asked of the people who watched it.
+
+  Absent on uploads without enough views, and some videos never carry it at
+  all: measured across one real library it was present on about three themes
+  in five. So a miss is ordinary, not a failure, and `AutoCrop` has the audio
+  itself to fall back on.
+  """
+  @callback heatmap(url :: String.t()) :: {:ok, [map()]} | {:error, error() | :no_heatmap}
+
   @doc "The configured implementation. Tests set :theme_downloader to the mock."
   def impl, do: Application.get_env(:fanfarr, :theme_downloader, Fanfarr.Themes.Downloader.YtDlp)
 end

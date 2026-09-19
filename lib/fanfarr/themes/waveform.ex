@@ -21,8 +21,7 @@ defmodule Fanfarr.Themes.Waveform do
   average does.
   """
 
-  @binary "ffmpeg"
-  @timeout_ms 60_000
+  alias Fanfarr.Themes.Pcm
 
   # Enough to see a bar line on a phone-width canvas, few enough to stay a
   # small JSON body. At 390px this is roughly three samples per pixel.
@@ -39,7 +38,7 @@ defmodule Fanfarr.Themes.Waveform do
   """
   @spec write(Path.t(), Path.t()) :: {:ok, %{peaks: non_neg_integer()}} | {:error, term()}
   def write(source, target) do
-    with {:ok, pcm} <- decode(source) do
+    with {:ok, pcm} <- Pcm.decode(source) do
       peaks = peaks(pcm, @buckets)
 
       body =
@@ -55,43 +54,9 @@ defmodule Fanfarr.Themes.Waveform do
     end
   end
 
-  # To stdout, so nothing has to be cleaned up if this fails part way.
-  defp decode(source) do
-    args = [
-      "-hide_banner",
-      "-nostats",
-      "-loglevel",
-      "error",
-      "-i",
-      source,
-      "-ac",
-      "1",
-      "-ar",
-      "#{@rate}",
-      "-f",
-      "s16le",
-      "-"
-    ]
-
-    task =
-      Task.async(fn ->
-        try do
-          # Not stderr_to_stdout: this reads the PCM off stdout, and mixing
-          # ffmpeg's chatter into it would corrupt the samples.
-          System.cmd(@binary, args, stderr_to_stdout: false)
-        rescue
-          e in ErlangError -> {:spawn_failed, e.original}
-        end
-      end)
-
-    case Task.yield(task, @timeout_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:spawn_failed, reason}} -> {:error, reason}
-      {:ok, {pcm, 0}} when byte_size(pcm) > 0 -> {:ok, pcm}
-      {:ok, {_pcm, 0}} -> {:error, :no_audio}
-      {:ok, {_out, code}} -> {:error, {:exit, code}}
-      nil -> {:error, :timeout}
-    end
-  end
+  # The decode itself is `Fanfarr.Themes.Pcm`: the auto-crop analysis wants the
+  # same cheap reduction of whatever container arrived, and two copies of the
+  # ffmpeg arguments would drift apart.
 
   @doc """
   The loudest absolute sample in each of `buckets` equal slices of `pcm`.
