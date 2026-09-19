@@ -14,6 +14,7 @@ defmodule Fanfarr.Library.MediaItem do
     domain: Fanfarr.Library,
     data_layer: AshSqlite.DataLayer
 
+  alias Fanfarr.Library.MediaItem.ThemeSize
   alias Fanfarr.Library.MediaItem.ThemeStatus
 
   sqlite do
@@ -391,6 +392,15 @@ defmodule Fanfarr.Library.MediaItem do
 
       description """
       One of :missing, :failed, :local_file, :fanfarr_applied or :plex_supplied.
+      """
+    end
+
+    calculate :theme_size, :integer, ThemeSize do
+      public? true
+
+      description """
+      Bytes the theme Fanfarr wrote for this item occupies, or 0 when it wrote
+      none. The same definition the dashboard totals.
       """
     end
   end

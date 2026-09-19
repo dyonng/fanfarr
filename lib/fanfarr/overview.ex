@@ -22,11 +22,10 @@ defmodule Fanfarr.Overview do
 
   ## Cost
 
-  Four queries plus the batched `theme_status` calculation, for the whole
-  library: sections, items, one ThemerrDB lookup keyed on the external ids of
-  the items that are missing a theme, and one read of the application log for
-  the sizes it has written. A few thousand rows in a homelab, and the page is a
-  page load rather than a poll.
+  Five queries, for the whole library: sections, items, one ThemerrDB lookup
+  keyed on the external ids of the items that are missing a theme, and one
+  read of the application log for each of the two calculations. A few thousand
+  rows in a homelab, and the page is a page load rather than a poll.
   """
 
   require Ash.Query
@@ -64,7 +63,7 @@ defmodule Fanfarr.Overview do
   """
   def load do
     sections = Library.list_sections!() |> Map.new(&{&1.id, &1})
-    items = Library.list_media_items!(load: [:theme_status])
+    items = Library.list_media_items!(load: [:theme_status, :theme_size])
 
     by_status = Enum.frequencies_by(items, & &1.theme_status)
     missing = Enum.filter(items, &(&1.theme_status == :missing))
@@ -100,22 +99,12 @@ defmodule Fanfarr.Overview do
   # titles are themed: a Plex-supplied theme is stock audio sitting on Plex's
   # own disk, and a local_file is one we did not put there.
   #
-  # Deliberately not `SUM(bytes)` over the log. Rows are append-only, so a
-  # re-apply would be counted twice, and a removal is a row carrying no size at
-  # all. What is on disk is the newest row per item -- except that the newest
-  # row does not decide it on its own: a failed attempt leaves the previous
-  # file exactly where it was (`Themes.Writer` stages to a temp name and
-  # renames, so nothing is half-written and nothing is replaced until the new
-  # bytes are ready), while a removal means it is gone. So a successful size is
-  # carried forward through a failure, and zeroed by a removal.
+  # The per-item number is `theme_size`, the same calculation the library table
+  # lists row by row, so this total and those rows cannot disagree -- including
+  # the rule that makes both right, which is argued in
+  # `Fanfarr.Library.MediaItem.ThemeSize`.
   defp storage(items) do
-    sizes =
-      items
-      |> Enum.map(& &1.id)
-      |> written_bytes()
-      |> Map.values()
-      |> Enum.filter(&(&1 > 0))
-
+    sizes = items |> Enum.map(& &1.theme_size) |> Enum.filter(&(&1 > 0))
     total = Enum.sum(sizes)
 
     %{
@@ -126,27 +115,6 @@ defmodule Fanfarr.Overview do
       cache: Fanfarr.Themes.SourceCache.usage()
     }
   end
-
-  # One query for the whole library, the way `ThemeStatus` does it: ascending
-  # order so a later row overwrites an earlier one.
-  defp written_bytes([]), do: %{}
-
-  defp written_bytes(item_ids) do
-    Fanfarr.Themes.ThemeApplication
-    |> Ash.Query.filter(media_item_id in ^item_ids)
-    |> Ash.Query.select([:media_item_id, :status, :bytes, :inserted_at])
-    |> Ash.Query.sort(inserted_at: :asc)
-    |> Ash.read!(authorize?: false)
-    |> Enum.reduce(%{}, fn row, acc ->
-      Map.update(acc, row.media_item_id, size_after(0, row), &size_after(&1, row))
-    end)
-  end
-
-  defp size_after(_previous, %{status: :succeeded, bytes: bytes}) when is_integer(bytes),
-    do: bytes
-
-  defp size_after(_previous, %{status: :removed}), do: 0
-  defp size_after(previous, _row), do: previous
 
   # Per section, because "396 of 742" is one number and "TV is behind, films
   # are done" is the actual shape of the work. Sections with nothing in them

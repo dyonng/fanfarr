@@ -194,7 +194,7 @@ defmodule FanfarrWeb.DashboardTest do
 
       hidden = ~s(th[class*="md:table-cell"])
 
-      for column <- ~w(Year Type Critics Audience Studio) do
+      for column <- ~w(Year Type Critics Audience Studio Size) do
         assert has_element?(view, hidden, column), "#{column} should be hidden below md"
       end
 
@@ -266,6 +266,35 @@ defmodule FanfarrWeb.DashboardTest do
       assert html =~ "Missing"
       assert html =~ "Plex"
       assert html =~ "1 without a theme"
+    end
+
+    test "the size column reports what Fanfarr wrote, and dashes the rest",
+         %{conn: conn, item: item} do
+      wrote(item.(%{title: "Written"}), 1_500_000)
+
+      {:ok, view, _html} = live(conn, "/library")
+
+      assert has_element?(view, ~s(td[class*="md:table-cell"]), "1.4 MB")
+
+      # The setup fixtures are one Plex-supplied theme and one title with
+      # nothing. Neither is storage Fanfarr wrote, and "0 B" would claim a
+      # file exists and is empty.
+      assert render(view) =~ "—"
+    end
+
+    test "sorting by size puts the biggest theme first and the unwritten last",
+         %{conn: conn, item: item} do
+      wrote(item.(%{title: "Small"}), 500_000)
+      wrote(item.(%{title: "Big"}), 5_000_000)
+
+      {:ok, _view, html} = live(conn, "/library?sort=-size")
+      assert order(html) |> Enum.take(2) == ["Big", "Small"]
+
+      # A title we never wrote for is not a zero-byte theme: it sorts last in
+      # both directions rather than filling the top of an ascending sort.
+      {:ok, _view, html} = live(conn, "/library?sort=size")
+      assert order(html) |> Enum.take(2) == ["Small", "Big"]
+      assert order(html) |> Enum.drop(2) |> Enum.sort() == ["Fleabag", "One Piece"]
     end
 
     test "the status filter narrows the table", %{conn: conn} do
@@ -341,9 +370,21 @@ defmodule FanfarrWeb.DashboardTest do
 
     # The order titles appear in the rendered table.
     defp order(html) do
-      Regex.scan(~r/(One Piece|Fleabag|Unrated Thing)/, html)
+      Regex.scan(~r/(One Piece|Fleabag|Unrated Thing|Big|Small)/, html)
       |> Enum.map(&List.last/1)
       |> Enum.uniq()
+    end
+
+    # A theme Fanfarr wrote, which is where a size comes from.
+    defp wrote(item, bytes) do
+      Fanfarr.Themes.record_theme_outcome!(%{
+        media_item_id: item.id,
+        source: :themerrdb,
+        method: :local_file,
+        destination_path: "/tv/#{item.title}/theme.mp3",
+        status: :succeeded,
+        bytes: bytes
+      })
     end
 
     test "scores from different services are shown on the same scale", %{

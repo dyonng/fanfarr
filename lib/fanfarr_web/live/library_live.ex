@@ -127,7 +127,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp load_items(%{assigns: %{filters: filters}} = socket) do
     query =
       MediaItem
-      |> Ash.Query.load(:theme_status)
+      |> Ash.Query.load([:theme_status, :theme_size])
       |> Ash.Query.sort(title: :asc)
 
     query =
@@ -267,7 +267,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # Enum.sort_by/3 is stable and the query arrives ordered by title, so equal
   # keys stay alphabetical instead of shuffling between renders.
 
-  @sortable ~w(title year kind critic audience studio status)
+  @sortable ~w(title year kind critic audience studio status size)
 
   defp sort(items, nil), do: items
 
@@ -293,6 +293,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # unrated rather than first under an invisible empty string.
   defp key(item, "studio"), do: item.studio && String.downcase(item.studio)
   defp key(item, "status"), do: status_rank(item.theme_status)
+  # Nil rather than 0 for a title we never wrote a theme for, so it sorts last
+  # with the unrated rather than as the smallest size on the page.
+  defp key(item, "size"), do: (item.theme_size > 0 && item.theme_size) || nil
 
   # The order the operator works down: what needs attention first, what is
   # finished last. Alphabetical would put :failed between :fanfarr_applied and
@@ -300,10 +303,11 @@ defmodule FanfarrWeb.LibraryLive.Index do
   @status_order [:failed, :missing, :plex_supplied, :local_file, :fanfarr_applied]
   defp status_rank(status), do: Enum.find_index(@status_order, &(&1 == status)) || 99
 
-  # A missing score is not a low score. Sorting nils as if they were zero puts
-  # every unrated item at the top of an ascending sort, which buries the thing
-  # being looked for; they sort last in both directions instead.
-  defp comparator(column, direction) when column in ~w(critic audience year studio) do
+  # A missing score is not a low score, and a theme we never wrote is not a
+  # zero-byte theme. Sorting either as if it were zero puts them at the top of
+  # an ascending sort, which buries the thing being looked for; they sort last
+  # in both directions instead.
+  defp comparator(column, direction) when column in ~w(critic audience year studio size) do
     fn a, b ->
       cond do
         # Two unrated items are equal, and a stable sort keeps equal elements
@@ -320,6 +324,16 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
   defp comparator(_column, :asc), do: &<=/2
   defp comparator(_column, :desc), do: &>=/2
+
+  # Nothing written by Fanfarr reads as a dash rather than "0 B", which is a
+  # claim that a theme file exists and is empty.
+  defp theme_size(0), do: "—"
+  defp theme_size(size), do: bytes(size)
+
+  # Spelled out on hover, because a dash is only self-explanatory next to the
+  # heading, and a row read on its own does not have one.
+  defp theme_size_title(0), do: "Fanfarr has not written a theme for this item"
+  defp theme_size_title(size), do: "Written by Fanfarr · #{bytes(size)}"
 
   @impl true
   def render(assigns) do
@@ -520,6 +534,19 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 <.column_header sort={@filters.sort} column="status" params={@filters}>
                   Theme
                 </.column_header>
+                <%!-- What Fanfarr's own write occupies, which is the only part of
+                this table an operator can reclaim. Dashes for everything it
+                did not write, so the column answers "how much of this did I
+                spend" rather than "how big is what Plex has". --%>
+                <.column_header
+                  sort={@filters.sort}
+                  column="size"
+                  params={@filters}
+                  title="Disk space the theme Fanfarr wrote takes, if it wrote one"
+                  class="hidden text-right md:table-cell"
+                >
+                  Size
+                </.column_header>
               </tr>
             </thead>
             <tbody>
@@ -592,6 +619,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   {item.studio}
                 </td>
                 <td class="px-3 py-2"><.status_badge status={item.theme_status} /></td>
+                <td
+                  class="hidden px-3 py-2 text-right tabular-nums text-muted-foreground md:table-cell"
+                  title={theme_size_title(item.theme_size)}
+                >
+                  {theme_size(item.theme_size)}
+                </td>
               </tr>
             </tbody>
           </table>
