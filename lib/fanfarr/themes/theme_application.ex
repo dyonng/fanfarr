@@ -84,6 +84,7 @@ defmodule Fanfarr.Themes.ThemeApplication do
         :error,
         :codec,
         :bytes,
+        :duration_ms,
         :loudness_lufs
       ]
 
@@ -155,6 +156,11 @@ defmodule Fanfarr.Themes.ThemeApplication do
     end
 
     attribute :bytes, :integer, public?: true
+
+    # The length of the file that was written, not of the video it came from.
+    # A trimmed theme is shorter than its source, and what is worth recording
+    # is how long the thing Plex will play actually is.
+    attribute :duration_ms, :integer, public?: true
 
     attribute :loudness_lufs, :float do
       public? true

@@ -385,7 +385,18 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
         case File.cp(cached, working) do
           :ok ->
-            {:ok, %{path: working, bytes: File.stat!(working).size, codec: nil, duration: nil}}
+            {:ok,
+             %{
+               path: working,
+               bytes: File.stat!(working).size,
+               codec: nil,
+               duration: nil,
+               # The cached peaks carry the length of the stream they were
+               # rendered from, which is what this file is until a cut
+               # shortens it -- and the trim-then-apply flow, the whole reason
+               # the cache exists, is exactly the one that never downloads.
+               duration_ms: cached_duration(cached)
+             }}
 
           {:error, _reason} ->
             Themes.Downloader.impl().download(url, tmp)
@@ -563,11 +574,32 @@ defmodule Fanfarr.Workers.ApplyTheme do
       error: reason && explain(reason),
       codec: download[:codec],
       bytes: download[:bytes],
+      duration_ms: duration_ms(download),
       loudness_lufs: download[:loudness_lufs]
     })
 
     # After the row exists, so a subscriber that reloads sees the outcome.
     broadcast(item)
+  end
+
+  # The cutter reports milliseconds for the file it produced; the downloader
+  # reports seconds for the video it fetched; the cache reports neither and is
+  # asked separately. Whichever is present, it is the length of the file that
+  # gets written -- a cut is the only thing that changes that between download
+  # and write, and a cut overwrites this key.
+  defp duration_ms(%{duration_ms: ms}) when is_integer(ms), do: ms
+  defp duration_ms(%{duration: seconds}) when is_number(seconds), do: round(seconds * 1000)
+  defp duration_ms(_result), do: nil
+
+  # The peaks file beside the cached source, as the editor reads it.
+  defp cached_duration(%{peaks: peaks}) do
+    with {:ok, body} <- File.read(peaks),
+         {:ok, %{"duration_ms" => ms}} <- Jason.decode(body),
+         true <- is_integer(ms) do
+      ms
+    else
+      _ -> nil
+    end
   end
 
   defp broadcast(item) do

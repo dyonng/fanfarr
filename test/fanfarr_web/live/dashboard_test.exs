@@ -194,7 +194,7 @@ defmodule FanfarrWeb.DashboardTest do
 
       hidden = ~s(th[class*="md:table-cell"])
 
-      for column <- ~w(Year Type Critics Audience Studio Size) do
+      for column <- ~w(Year Type Critics Audience Studio Size Length) do
         assert has_element?(view, hidden, column), "#{column} should be hidden below md"
       end
 
@@ -375,15 +375,16 @@ defmodule FanfarrWeb.DashboardTest do
       |> Enum.uniq()
     end
 
-    # A theme Fanfarr wrote, which is where a size comes from.
-    defp wrote(item, bytes) do
+    # A theme Fanfarr wrote, which is where a size and a length come from.
+    defp wrote(item, bytes, opts \\ []) do
       Fanfarr.Themes.record_theme_outcome!(%{
         media_item_id: item.id,
         source: :themerrdb,
         method: :local_file,
         destination_path: "/tv/#{item.title}/theme.mp3",
         status: :succeeded,
-        bytes: bytes
+        bytes: bytes,
+        duration_ms: Keyword.get(opts, :duration_ms)
       })
     end
 

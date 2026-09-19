@@ -1,11 +1,12 @@
 defmodule FanfarrWeb.Format do
   @moduledoc """
-  Byte counts, in the units a person reads them in.
+  The numbers a person reads: byte counts and track lengths.
 
-  One definition because the number now appears in two places -- the size of a
-  written theme on an item page, and the totals on the dashboard -- and two
-  pages disagreeing about whether 1.5 GB is "1.5 GB" or "1536 MB" is the kind
-  of thing that makes an operator distrust both.
+  One definition each, because they appear in more than one place -- a theme's
+  size on an item page, the totals on the dashboard, and the size and length of
+  every row in the library -- and two pages disagreeing about whether 1.5 GB is
+  "1.5 GB" or "1536 MB" is the kind of thing that makes an operator distrust
+  both.
 
   Binary units (1024), named the way the rest of the world names them: the
   "2 GB" trim cache cap is 2 * 1024^3, because that is what the config says.
@@ -28,4 +29,22 @@ defmodule FanfarrWeb.Format do
   def bytes(n) when n >= @mb, do: "#{Float.round(n / @mb, 1)} MB"
   def bytes(n) when n >= @kb, do: "#{div(n, @kb)} KB"
   def bytes(n), do: "#{n} B"
+
+  @doc """
+  A length in milliseconds as `m:ss`, e.g. `"2:42"`.
+
+  Truncated rather than rounded: a file that reports 2:42.9 holds 2:42 of
+  audio, and rounding up would claim a second it does not have. The
+  downloader's ceiling keeps themes well under an hour, so there is no hours
+  field to format and "15:00" is unambiguous. A caller with no length passes a
+  dash of its own -- nil here means unknown, and that is not the same as 0:00.
+  """
+  @spec duration_ms(non_neg_integer()) :: String.t()
+  def duration_ms(ms) when is_integer(ms) and ms >= 0 do
+    total = div(ms, 1000)
+    minutes = div(total, 60)
+    seconds = total |> rem(60) |> Integer.to_string() |> String.pad_leading(2, "0")
+
+    "#{minutes}:#{seconds}"
+  end
 end

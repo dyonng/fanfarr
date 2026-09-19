@@ -14,6 +14,7 @@ defmodule Fanfarr.Library.MediaItem do
     domain: Fanfarr.Library,
     data_layer: AshSqlite.DataLayer
 
+  alias Fanfarr.Library.MediaItem.ThemeDuration
   alias Fanfarr.Library.MediaItem.ThemeSize
   alias Fanfarr.Library.MediaItem.ThemeStatus
 
@@ -401,6 +402,17 @@ defmodule Fanfarr.Library.MediaItem do
       description """
       Bytes the theme Fanfarr wrote for this item occupies, or 0 when it wrote
       none. The same definition the dashboard totals.
+      """
+    end
+
+    calculate :theme_duration, :integer, ThemeDuration do
+      public? true
+
+      description """
+      How long the theme Fanfarr wrote plays, in milliseconds, or nil when
+      nothing has measured it. Nullable on purpose: an unknown length is not a
+      length of zero, and rows applied before the log recorded one stay nil
+      until something measures them.
       """
     end
   end

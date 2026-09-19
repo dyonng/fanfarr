@@ -159,6 +159,9 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       assert outcome.status == :succeeded
       assert outcome.codec == "mp3"
       assert outcome.bytes == 9
+      # The downloader reports seconds and the log stores milliseconds, so the
+      # column can format it without knowing where it came from.
+      assert outcome.duration_ms == 88_000
 
       # The library now knows, so the dashboard stops listing it as missing.
       reloaded = Fanfarr.Library.get_media_item!(item.id)

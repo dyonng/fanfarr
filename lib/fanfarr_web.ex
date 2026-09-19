@@ -98,8 +98,8 @@ defmodule FanfarrWeb do
       import Phoenix.HTML
       # Core UI components
       import FanfarrWeb.CoreComponents
-      # Byte counts, defined once so the item page and the dashboard agree
-      import FanfarrWeb.Format, only: [bytes: 1]
+      # Sizes and lengths, defined once so every page that shows one agrees
+      import FanfarrWeb.Format, only: [bytes: 1, duration_ms: 1]
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

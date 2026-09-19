@@ -127,7 +127,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp load_items(%{assigns: %{filters: filters}} = socket) do
     query =
       MediaItem
-      |> Ash.Query.load([:theme_status, :theme_size])
+      |> Ash.Query.load([:theme_status, :theme_size, :theme_duration])
       |> Ash.Query.sort(title: :asc)
 
     query =
@@ -267,7 +267,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # Enum.sort_by/3 is stable and the query arrives ordered by title, so equal
   # keys stay alphabetical instead of shuffling between renders.
 
-  @sortable ~w(title year kind critic audience studio status size)
+  @sortable ~w(title year kind critic audience studio status size length)
 
   defp sort(items, nil), do: items
 
@@ -297,6 +297,10 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # with the unrated rather than as the smallest size on the page.
   defp key(item, "size"), do: (item.theme_size > 0 && item.theme_size) || nil
 
+  # Already nil when nothing measured it, which is the case the comparator
+  # below sorts last.
+  defp key(item, "length"), do: item.theme_duration
+
   # The order the operator works down: what needs attention first, what is
   # finished last. Alphabetical would put :failed between :fanfarr_applied and
   # :local_file, which is no order at all.
@@ -307,7 +311,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # zero-byte theme. Sorting either as if it were zero puts them at the top of
   # an ascending sort, which buries the thing being looked for; they sort last
   # in both directions instead.
-  defp comparator(column, direction) when column in ~w(critic audience year studio size) do
+  defp comparator(column, direction) when column in ~w(critic audience year studio size length) do
     fn a, b ->
       cond do
         # Two unrated items are equal, and a stable sort keeps equal elements
@@ -334,6 +338,20 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # heading, and a row read on its own does not have one.
   defp theme_size_title(0), do: "Fanfarr has not written a theme for this item"
   defp theme_size_title(size), do: "Written by Fanfarr · #{bytes(size)}"
+
+  # Unknown rather than zero: a row with no recorded length is not a theme that
+  # plays for no time. Qualified rather than going through the imported helper
+  # the rest of this module uses, because this is the one number on a row that
+  # must never be mistaken for the size beside it.
+  defp theme_length(nil), do: "—"
+  defp theme_length(ms), do: FanfarrWeb.Format.duration_ms(ms)
+
+  defp theme_length_title(nil),
+    do:
+      "No recorded length: either Fanfarr wrote no theme here, or it was applied before the length was logged"
+
+  defp theme_length_title(ms),
+    do: "The written theme plays for #{FanfarrWeb.Format.duration_ms(ms)}"
 
   @impl true
   def render(assigns) do
@@ -547,6 +565,19 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 >
                   Size
                 </.column_header>
+                <%!-- The length of the file that was written, which is not the
+                length of the video it came from: a trimmed theme is shorter.
+                It is the second half of "what is this costing me", and the
+                half that explains a size that looks large for one track. --%>
+                <.column_header
+                  sort={@filters.sort}
+                  column="length"
+                  params={@filters}
+                  title="How long the theme Fanfarr wrote plays, if it wrote one"
+                  class="hidden text-right md:table-cell"
+                >
+                  Length
+                </.column_header>
               </tr>
             </thead>
             <tbody>
@@ -624,6 +655,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   title={theme_size_title(item.theme_size)}
                 >
                   {theme_size(item.theme_size)}
+                </td>
+                <td
+                  class="hidden px-3 py-2 text-right tabular-nums text-muted-foreground md:table-cell"
+                  title={theme_length_title(item.theme_duration)}
+                >
+                  {theme_length(item.theme_duration)}
                 </td>
               </tr>
             </tbody>

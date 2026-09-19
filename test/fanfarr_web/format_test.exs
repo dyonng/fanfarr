@@ -1,6 +1,6 @@
 defmodule FanfarrWeb.FormatTest do
   @moduledoc """
-  The units the dashboard and the item page report sizes in.
+  The units the dashboard, the library and the item page report in.
   """
   use ExUnit.Case, async: true
 
@@ -27,5 +27,21 @@ defmodule FanfarrWeb.FormatTest do
     # difference between 1.3 MB and 1.4 MB is the only digit that moves.
     assert Format.bytes(417_000) == "407 KB"
     assert Format.bytes(1_500_000) == "1.4 MB"
+  end
+
+  test "a length reads as m:ss, truncated rather than rounded" do
+    assert Format.duration_ms(0) == "0:00"
+    assert Format.duration_ms(9_000) == "0:09"
+    assert Format.duration_ms(59_999) == "0:59"
+    assert Format.duration_ms(60_000) == "1:00"
+    assert Format.duration_ms(162_000) == "2:42"
+
+    # 2:42.9 of audio is 2:42; rounding up would claim a second the file does
+    # not have.
+    assert Format.duration_ms(162_900) == "2:42"
+
+    # The downloader's ceiling is 15 minutes, so there is no hours field to
+    # format and this stays unambiguous.
+    assert Format.duration_ms(900_000) == "15:00"
   end
 end
