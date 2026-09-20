@@ -357,12 +357,29 @@ defmodule Fanfarr.Plex.HTTPClient do
       # studio there can be several. Absent unless includeCollections=1, and
       # absent anyway for a library nobody has organised.
       collections: tags(m["Collection"]),
-      added_at: unix(m["addedAt"])
+      added_at: unix(m["addedAt"]),
+      # Plex's `childCount` on a show is how many seasons it has. A film has
+      # none, and neither has a show Plex has not scanned, so this stays nil
+      # for both rather than claiming zero.
+      season_count: integer(m["childCount"])
     }
   end
 
   # Sent as JSON numbers, but a string costs nothing to accept and a malformed
   # rating is not worth failing a whole library sync over.
+  # Sent as JSON numbers like the ratings, and accepted as strings for the same
+  # reason: a count we cannot parse is not worth failing a library sync over.
+  defp integer(value) when is_integer(value), do: value
+
+  defp integer(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {count, ""} -> count
+      _ -> nil
+    end
+  end
+
+  defp integer(_value), do: nil
+
   defp number(value) when is_number(value), do: value / 1
 
   defp number(value) when is_binary(value) do

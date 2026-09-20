@@ -14,6 +14,34 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
   @page_size 50
 
+  # Every column the table can draw, in the order it draws them.
+  #
+  # A view preference, not part of the schema. The columns marked hidden are
+  # the ones that arrived later and are not shown unless asked for: a table is
+  # readable at a glance or it is not read, and eleven columns is not. The
+  # choice is saved as a setting (`library_columns`) and a `?cols=` parameter
+  # overrides it for one view without changing it.
+  #
+  # Declared here, above everything that reads them, because a module attribute
+  # is read where it is written down: below the code that uses it, Elixir warns
+  # that it is undefined and the assign is nil.
+  @columns [
+    %{key: "title", label: "Title"},
+    %{key: "year", label: "Year"},
+    %{key: "kind", label: "Type (show or movie)"},
+    %{key: "critic", label: "Critics"},
+    %{key: "audience", label: "Audience"},
+    %{key: "studio", label: "Studio"},
+    %{key: "status", label: "Theme"},
+    %{key: "size", label: "Size"},
+    %{key: "length", label: "Length"},
+    %{key: "added", label: "Date added to Plex", hidden: true},
+    %{key: "seasons", label: "Seasons", hidden: true}
+  ]
+
+  @column_keys Enum.map(@columns, & &1.key)
+  @default_columns @columns |> Enum.reject(&Map.get(&1, :hidden, false)) |> Enum.map(& &1.key)
+
   # How many pages to show either side of the current one.
 
   @impl true
@@ -23,6 +51,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
     {:ok,
      socket
      |> assign(:selected, MapSet.new())
+     |> assign(:show_columns, false)
+     |> assign(:columns, @columns)
+     |> assign(:visible_columns, @default_columns)
      |> assign(:page_title, "Library")}
   end
 
@@ -35,10 +66,18 @@ defmodule FanfarrWeb.LibraryLive.Index do
       collection: params["collection"],
       q: params["q"],
       sort: params["sort"],
-      page: max(String.to_integer(params["page"] || "1"), 1)
+      page: max(String.to_integer(params["page"] || "1"), 1),
+      # Kept exactly as it arrived. The resolved list is what the table draws,
+      # but the URL has to go on carrying what was asked for -- otherwise
+      # sorting a `?cols=` view would pin the set as a saved preference.
+      columns_param: params["cols"]
     }
 
-    {:noreply, socket |> assign(:filters, filters) |> load_items()}
+    {:noreply,
+     socket
+     |> assign(:filters, filters)
+     |> assign(:visible_columns, resolve_columns(filters))
+     |> load_items()}
   end
 
   @impl true
@@ -48,6 +87,36 @@ defmodule FanfarrWeb.LibraryLive.Index do
     overrides = Map.take(params, ["status", "kind", "studio", "collection", "q"])
 
     {:noreply, push_patch(socket, to: ~p"/library?#{query_params(socket, overrides)}")}
+  end
+
+  # --- which columns --------------------------------------------------------
+
+  def handle_event("edit_columns", _params, socket) do
+    {:noreply, assign(socket, :show_columns, true)}
+  end
+
+  def handle_event("close_columns", _params, socket) do
+    {:noreply, assign(socket, :show_columns, false)}
+  end
+
+  # A form with nothing ticked sends no parameter at all, so "nothing chosen"
+  # is an ordinary case rather than an edge one. Title is the floor: a table
+  # with no columns is not a view anyone can read, and the modal shows it
+  # ticked afterwards rather than silently disagreeing.
+  def handle_event("set_columns", params, socket) do
+    chosen = params |> Map.get("cols", []) |> List.wrap() |> Enum.filter(&(&1 in @column_keys))
+    chosen = if "title" in chosen, do: chosen, else: ["title" | chosen]
+
+    # The table's own order, whatever order the form sent them in.
+    chosen = Enum.filter(@column_keys, &(&1 in chosen))
+
+    Fanfarr.Settings.put_setting!("library_columns", Enum.join(chosen, ","))
+
+    # Saved, so the parameter comes out of the URL and the setting takes over.
+    {:noreply,
+     socket
+     |> assign(:show_columns, false)
+     |> push_patch(to: ~p"/library?#{query_params(socket, %{"cols" => nil})}")}
   end
 
   def handle_event("sync", _params, socket) do
@@ -249,7 +318,8 @@ defmodule FanfarrWeb.LibraryLive.Index do
       "studio" => filters.studio,
       "collection" => filters.collection,
       "q" => filters.q,
-      "sort" => filters.sort
+      "sort" => filters.sort,
+      "cols" => filters.columns_param
     }
     |> Map.merge(overrides)
     |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
@@ -267,7 +337,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # Enum.sort_by/3 is stable and the query arrives ordered by title, so equal
   # keys stay alphabetical instead of shuffling between renders.
 
-  @sortable ~w(title year kind critic audience studio status size length)
+  @sortable ~w(title year kind critic audience studio status size length added seasons)
 
   defp sort(items, nil), do: items
 
@@ -300,6 +370,8 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # Already nil when nothing measured it, which is the case the comparator
   # below sorts last.
   defp key(item, "length"), do: item.theme_duration
+  defp key(item, "added"), do: item.added_at
+  defp key(item, "seasons"), do: item.season_count
 
   # The order the operator works down: what needs attention first, what is
   # finished last. Alphabetical would put :failed between :fanfarr_applied and
@@ -307,11 +379,29 @@ defmodule FanfarrWeb.LibraryLive.Index do
   @status_order [:failed, :missing, :plex_supplied, :local_file, :fanfarr_applied]
   defp status_rank(status), do: Enum.find_index(@status_order, &(&1 == status)) || 99
 
-  # A missing score is not a low score, and a theme we never wrote is not a
-  # zero-byte theme. Sorting either as if it were zero puts them at the top of
-  # an ascending sort, which buries the thing being looked for; they sort last
-  # in both directions instead.
-  defp comparator(column, direction) when column in ~w(critic audience year studio size length) do
+  # A date is not a number to hand to <=: two DateTimes are maps, and comparing
+  # them as terms compares :day before :month and :year, so a library would
+  # sort by day of the month. `DateTime.compare/2` is the only order that means
+  # anything here.
+  defp comparator("added", direction) do
+    fn a, b ->
+      cond do
+        is_nil(a) and is_nil(b) -> true
+        is_nil(a) -> false
+        is_nil(b) -> true
+        direction == :asc -> DateTime.compare(a, b) != :gt
+        true -> DateTime.compare(a, b) != :lt
+      end
+    end
+  end
+
+  # A missing score is not a low score, a theme we never wrote is not a
+  # zero-byte theme, and a film has no season count rather than none of them.
+  # Sorting any of those as if they were zero puts them at the top of an
+  # ascending sort, which buries the thing being looked for; they sort last in
+  # both directions instead.
+  defp comparator(column, direction)
+       when column in ~w(critic audience year studio size length seasons) do
     fn a, b ->
       cond do
         # Two unrated items are equal, and a stable sort keeps equal elements
@@ -369,6 +459,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
           </:subtitle>
           <:actions>
             <button
+              phx-click="edit_columns"
+              class="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground sm:h-9"
+            >
+              <.icon name="lucide-table" class="size-4" /> Columns
+            </button>
+            <button
               phx-click="sync"
               class="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
             >
@@ -376,6 +472,51 @@ defmodule FanfarrWeb.LibraryLive.Index do
             </button>
           </:actions>
         </Layouts.page_header>
+
+        <%!-- Column picker. A plain overlay rather than the vendored dialog:
+        the buttons on this page are hand-rolled throughout, and this way the
+        whole thing is server-rendered -- nothing to load, and no hook that can
+        be missing on a page that otherwise works. --%>
+        <div :if={@show_columns} class="fixed inset-0 z-50" role="dialog" aria-modal="true">
+          <div class="absolute inset-0 bg-black/50" phx-click="close_columns"></div>
+
+          <div class="relative mx-auto mt-20 w-full max-w-md rounded-lg border border-border bg-card p-4 shadow-lg">
+            <h2 class="text-sm font-semibold text-card-foreground">Columns</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Saved for this library. A <code>?cols=</code>
+              in the URL overrides it for one view without changing this.
+            </p>
+
+            <form id="library-columns" phx-submit="set_columns" class="mt-3 space-y-2">
+              <label :for={column <- @columns} class="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="cols[]"
+                  value={column.key}
+                  checked={column.key in @visible_columns}
+                  class="size-4 rounded border-input"
+                />
+                {column.label}
+              </label>
+
+              <div class="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  phx-click="close_columns"
+                  class="inline-flex h-11 items-center rounded-md border border-border px-3 text-sm hover:bg-accent sm:h-9"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  class="inline-flex h-11 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
+                >
+                  Save columns
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
 
         <form id="library-filters" phx-change="filter" class="flex flex-wrap items-end gap-2">
           <input
@@ -494,7 +635,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   </label>
                 </th>
                 <th class="hidden w-10 px-1 py-2 sm:table-cell"></th>
-                <.column_header sort={@filters.sort} column="title" params={@filters}>
+                <.column_header
+                  :if={showing?(@visible_columns, "title")}
+                  sort={@filters.sort}
+                  column="title"
+                  params={@filters}
+                >
                   Title
                 </.column_header>
                 <%!-- On a phone this table is Title and Theme, and that is
@@ -508,6 +654,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 Nothing becomes unreachable: every hidden column's sort link is
                 still a URL, and the item page shows all of it. --%>
                 <.column_header
+                  :if={showing?(@visible_columns, "year")}
                   sort={@filters.sort}
                   column="year"
                   params={@filters}
@@ -516,6 +663,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   Year
                 </.column_header>
                 <.column_header
+                  :if={showing?(@visible_columns, "kind")}
                   sort={@filters.sort}
                   column="kind"
                   params={@filters}
@@ -524,6 +672,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   Type
                 </.column_header>
                 <.column_header
+                  :if={showing?(@visible_columns, "critic")}
                   sort={@filters.sort}
                   column="critic"
                   params={@filters}
@@ -533,6 +682,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   Critics
                 </.column_header>
                 <.column_header
+                  :if={showing?(@visible_columns, "audience")}
                   sort={@filters.sort}
                   column="audience"
                   params={@filters}
@@ -542,6 +692,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   Audience
                 </.column_header>
                 <.column_header
+                  :if={showing?(@visible_columns, "studio")}
                   sort={@filters.sort}
                   column="studio"
                   params={@filters}
@@ -549,7 +700,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 >
                   Studio
                 </.column_header>
-                <.column_header sort={@filters.sort} column="status" params={@filters}>
+                <.column_header
+                  :if={showing?(@visible_columns, "status")}
+                  sort={@filters.sort}
+                  column="status"
+                  params={@filters}
+                >
                   Theme
                 </.column_header>
                 <%!-- What Fanfarr's own write occupies, which is the only part of
@@ -557,6 +713,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 did not write, so the column answers "how much of this did I
                 spend" rather than "how big is what Plex has". --%>
                 <.column_header
+                  :if={showing?(@visible_columns, "size")}
                   sort={@filters.sort}
                   column="size"
                   params={@filters}
@@ -570,6 +727,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 It is the second half of "what is this costing me", and the
                 half that explains a size that looks large for one track. --%>
                 <.column_header
+                  :if={showing?(@visible_columns, "length")}
                   sort={@filters.sort}
                   column="length"
                   params={@filters}
@@ -577,6 +735,29 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   class="hidden text-right md:table-cell"
                 >
                   Length
+                </.column_header>
+                <%!-- Both of these arrive hidden: they are references, not
+                the working view, and a table nobody can scan is not a table.
+                lg rather than md because they are the two most optional. --%>
+                <.column_header
+                  :if={showing?(@visible_columns, "added")}
+                  sort={@filters.sort}
+                  column="added"
+                  params={@filters}
+                  title="When Plex first saw this title -- Plex's date, not ours"
+                  class="hidden lg:table-cell"
+                >
+                  Added
+                </.column_header>
+                <.column_header
+                  :if={showing?(@visible_columns, "seasons")}
+                  sort={@filters.sort}
+                  column="seasons"
+                  params={@filters}
+                  title="How many seasons Plex reports, for a show"
+                  class="hidden text-right lg:table-cell"
+                >
+                  Seasons
                 </.column_header>
               </tr>
             </thead>
@@ -611,7 +792,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                     class="h-12 w-8 rounded bg-muted object-cover"
                   />
                 </td>
-                <td class="px-3 py-2">
+                <td :if={showing?(@visible_columns, "title")} class="px-3 py-2">
                   <.link
                     navigate={~p"/library/#{item.id}?#{item_params(@filters)}"}
                     class="font-medium hover:underline"
@@ -626,16 +807,26 @@ defmodule FanfarrWeb.LibraryLive.Index do
                     picked
                   </span>
                 </td>
-                <td class="hidden px-3 py-2 text-muted-foreground md:table-cell">{item.year}</td>
-                <td class="hidden px-3 py-2 text-muted-foreground md:table-cell">
+                <td
+                  :if={showing?(@visible_columns, "year")}
+                  class="hidden px-3 py-2 text-muted-foreground md:table-cell"
+                >
+                  {item.year}
+                </td>
+                <td
+                  :if={showing?(@visible_columns, "kind")}
+                  class="hidden px-3 py-2 text-muted-foreground md:table-cell"
+                >
                   {if item.kind == :show, do: "Series", else: "Movie"}
                 </td>
                 <.score_cell
+                  :if={showing?(@visible_columns, "critic")}
                   score={item.critic_score}
                   source={item.critic_score_source}
                   class="hidden md:table-cell"
                 />
                 <.score_cell
+                  :if={showing?(@visible_columns, "audience")}
                   score={item.audience_score}
                   source={item.audience_score_source}
                   class="hidden md:table-cell"
@@ -644,23 +835,42 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 over a cold cache skips most of the selection for a reason
                 nothing on this page mentioned. --%>
                 <td
+                  :if={showing?(@visible_columns, "studio")}
                   class="hidden max-w-40 truncate px-3 py-2 text-muted-foreground md:table-cell"
                   title={studio_title(item)}
                 >
                   {item.studio}
                 </td>
-                <td class="px-3 py-2"><.status_badge status={item.theme_status} /></td>
+                <td :if={showing?(@visible_columns, "status")} class="px-3 py-2">
+                  <.status_badge status={item.theme_status} />
+                </td>
                 <td
+                  :if={showing?(@visible_columns, "size")}
                   class="hidden px-3 py-2 text-right tabular-nums text-muted-foreground md:table-cell"
                   title={theme_size_title(item.theme_size)}
                 >
                   {theme_size(item.theme_size)}
                 </td>
                 <td
+                  :if={showing?(@visible_columns, "length")}
                   class="hidden px-3 py-2 text-right tabular-nums text-muted-foreground md:table-cell"
                   title={theme_length_title(item.theme_duration)}
                 >
                   {theme_length(item.theme_duration)}
+                </td>
+                <td
+                  :if={showing?(@visible_columns, "added")}
+                  class="hidden px-3 py-2 text-muted-foreground lg:table-cell"
+                  title="When Plex first saw this title -- Plex's date, not ours"
+                >
+                  {added_on(item.added_at)}
+                </td>
+                <td
+                  :if={showing?(@visible_columns, "seasons")}
+                  class="hidden px-3 py-2 text-right tabular-nums text-muted-foreground lg:table-cell"
+                  title="How many seasons Plex reports, for a show"
+                >
+                  {seasons_shown(item.season_count)}
                 </td>
               </tr>
             </tbody>
@@ -728,6 +938,56 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp put_page(params, 1), do: params
   defp put_page(params, page), do: Map.put(params, "page", page)
 
+  # --- the column set -------------------------------------------------------
+
+  # The parameter wins when it is there, and the saved setting answers
+  # otherwise. Unknown keys are dropped rather than trusted: a hand-edited URL
+  # should show fewer columns, not raise.
+  defp resolve_columns(%{columns_param: param}) when is_binary(param) do
+    case split_columns(param) do
+      [] -> saved_columns()
+      keys -> keys
+    end
+  end
+
+  defp resolve_columns(_filters), do: saved_columns()
+
+  defp saved_columns do
+    Fanfarr.Settings.list_settings!()
+    |> Enum.find_value(fn setting ->
+      if setting.key == "library_columns", do: setting.value
+    end)
+    |> case do
+      value when is_binary(value) ->
+        case split_columns(value) do
+          [] -> @default_columns
+          keys -> keys
+        end
+
+      _ ->
+        @default_columns
+    end
+  end
+
+  defp split_columns(value) do
+    value
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(&(&1 in @column_keys))
+    |> Enum.uniq()
+  end
+
+  defp showing?(visible, key), do: key in visible
+
+  # Plex's date, not ours: a title we synced today may have been in the library
+  # for years, and dating it by first sight would be a different fact wearing
+  # the same name.
+  defp added_on(nil), do: "—"
+  defp added_on(at), do: Calendar.strftime(Fanfarr.Clock.local(at), "%-d %b %Y")
+
+  defp seasons_shown(nil), do: "—"
+  defp seasons_shown(count), do: count
+
   attr :sort, :string, default: nil
   attr :column, :string, required: true
   attr :params, :map, required: true
@@ -767,7 +1027,8 @@ defmodule FanfarrWeb.LibraryLive.Index do
       "studio" => filters.studio,
       "collection" => filters.collection,
       "q" => filters.q,
-      "sort" => sort
+      "sort" => sort,
+      "cols" => filters.columns_param
     }
     |> Enum.reject(fn {_k, v} -> v in [nil, "", "all"] end)
     |> Map.new()

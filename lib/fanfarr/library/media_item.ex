@@ -99,7 +99,8 @@ defmodule Fanfarr.Library.MediaItem do
         :plex_theme_origin,
         :plex_theme_agent,
         :theme_locked,
-        :added_at
+        :added_at,
+        :season_count
       ]
 
       change set_attribute(:last_synced_at, &DateTime.utc_now/0)
@@ -371,6 +372,11 @@ defmodule Fanfarr.Library.MediaItem do
 
     attribute :added_at, :utc_datetime_usec, public?: true
     attribute :last_synced_at, :utc_datetime_usec, public?: true
+
+    # Plex's `childCount` on a show: how many seasons it has. Nothing else here
+    # counts anything, so it is read from Plex rather than derived, and it is
+    # nil for a film and for a show Plex has not scanned.
+    attribute :season_count, :integer, public?: true
 
     timestamps()
   end

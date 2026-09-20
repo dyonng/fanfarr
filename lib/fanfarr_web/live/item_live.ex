@@ -1807,15 +1807,22 @@ defmodule FanfarrWeb.ItemLive.Show do
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">IDs</dt>
-                <dd class="text-right font-mono text-xs">
-                  {[
-                    @item.imdb_id && "imdb:#{@item.imdb_id}",
-                    @item.tmdb_id && "tmdb:#{@item.tmdb_id}",
-                    @item.tvdb_id && "tvdb:#{@item.tvdb_id}"
-                  ]
-                  |> Enum.reject(&is_nil/1)
-                  |> Enum.join("  ")
-                  |> then(&if(&1 == "", do: "—", else: &1))}
+                <%!-- Each id links to the site it came from. Built from the id
+                and the kind rather than a title, because TMDb and TheTVDB both
+                need a slug that only they can derive -- see SourceLinks. --%>
+                <dd class="flex flex-wrap justify-end gap-x-2 font-mono text-xs">
+                  <% links = Fanfarr.Library.SourceLinks.for_item(@item) %>
+                  <span :if={links == []}>—</span>
+                  <.link
+                    :for={link <- links}
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener"
+                    title="Open #{link.label} on its own site"
+                    class="text-primary hover:underline"
+                  >
+                    {link.label}
+                  </.link>
                 </dd>
               </div>
             </dl>

@@ -337,7 +337,7 @@ defmodule Fanfarr.Plex.HTTPClientTest do
       {"MediaContainer":{"Metadata":[
         {"ratingKey":45870,"title":"OSHI NO KO","year":2023,"type":"show",
          "guid":"plex://show/abc","theme":"/library/metadata/45870/theme/1788156492",
-         "addedAt":1704067200,
+         "addedAt":1704067200,"childCount":2,
          "Location":[{"path":"/media/merged-storage/TV/Oshi no Ko (2023)"}],
          "Guid":[{"id":"imdb://tt15343280"},{"id":"tmdb://203737"},{"id":"tvdb://421378"}]}
       ]}}
@@ -357,6 +357,26 @@ defmodule Fanfarr.Plex.HTTPClientTest do
       assert item.tmdb_id == "203737"
       assert item.tvdb_id == "421378"
       assert item.path == "/media/merged-storage/TV/Oshi no Ko (2023)"
+
+      # Plex reports a show's seasons as childCount, and it is the only place a
+      # season count exists -- nothing here counts episodes.
+      assert item.season_count == 2
+    end
+
+    test "a film has no season count rather than a count of none" do
+      body = ~S"""
+      {"MediaContainer":{"Metadata":[
+        {"ratingKey":94,"title":"A Bug's Life","year":1998,"type":"movie",
+         "addedAt":1704067200,
+         "Guid":[{"id":"imdb://tt0120623"},{"id":"tmdb://9487"},{"id":"tvdb://708"}]}
+      ]}}
+      """
+
+      stub(fn conn -> json(conn, body) end)
+
+      assert {:ok, [item]} = HTTPClient.items(@config, "1")
+      assert item.kind == :movie
+      assert item.season_count == nil
     end
 
     test "ratings and the service behind each are read from the listing" do
