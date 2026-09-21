@@ -395,7 +395,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
 
     Fanfarr.Library.record_root_folder_check!(folder, %{
       accessible: accessible,
-      writable: writable
+      writable: writable,
+      # Only meaningful for a mount that is there: df on a path that is gone
+      # fails, and the folder already says NOT ACCESSIBLE.
+      free_bytes: if(accessible, do: Fanfarr.Library.DiskSpace.free_bytes(folder.path))
     })
   end
 
@@ -634,7 +637,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
                   <span :if={rf.checked_at}>
                     · {if rf.accessible, do: "accessible", else: "NOT ACCESSIBLE"} · {if rf.writable,
                       do: "writable",
-                      else: "read-only"}
+                      else: "read-only"}{if rf.free_bytes,
+                      do: " · #{FanfarrWeb.Format.bytes(rf.free_bytes)} free"}
                   </span>
                 </p>
               </div>

@@ -20,6 +20,11 @@ defmodule FanfarrWeb.FormatTest do
     # most likely to be read next to.
     assert Format.bytes(1_073_741_824) == "1.0 GB"
     assert Format.bytes(2 * 1024 * 1024 * 1024) == "2.0 GB"
+    assert Format.bytes(1024 * 1024 * 1024 * 1024 - 1) == "1024.0 GB"
+
+    # Free space on a media drive, which is the number that has to go this far.
+    assert Format.bytes(1024 * 1024 * 1024 * 1024) == "1.0 TB"
+    assert Format.bytes(4 * 1024 * 1024 * 1024 * 1024) == "4.0 TB"
   end
 
   test "the fraction is kept from MB up, and dropped below it" do

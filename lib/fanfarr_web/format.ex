@@ -15,16 +15,21 @@ defmodule FanfarrWeb.Format do
   @kb 1024
   @mb 1024 * 1024
   @gb 1024 * 1024 * 1024
+  @tb 1024 * 1024 * 1024 * 1024
 
   @doc """
-  A byte count as a short string: `"912 B"`, `"417 KB"`, `"1.3 MB"`, `"2.0 GB"`.
+  A byte count as a short string: `"912 B"`, `"417 KB"`, `"1.3 MB"`, `"2.0 GB"`,
+  `"3.6 TB"`.
 
   One decimal from MB up, because that is where the digit that moves is worth
   seeing. KB stays whole: a theme is tens or hundreds of KB, and the fraction
   would be noise. GB is included because the numbers on the dashboard are
-  whole-install numbers and "1536.0 MB" is not what anyone calls that.
+  whole-install numbers and "1536.0 MB" is not what anyone calls that. TB is
+  included because free space on a media drive is counted in them, and
+  "3686.4 GB" is not what anyone calls that either.
   """
   @spec bytes(non_neg_integer()) :: String.t()
+  def bytes(n) when n >= @tb, do: "#{Float.round(n / @tb, 1)} TB"
   def bytes(n) when n >= @gb, do: "#{Float.round(n / @gb, 1)} GB"
   def bytes(n) when n >= @mb, do: "#{Float.round(n / @mb, 1)} MB"
   def bytes(n) when n >= @kb, do: "#{div(n, @kb)} KB"

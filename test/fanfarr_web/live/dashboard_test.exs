@@ -697,7 +697,14 @@ defmodule FanfarrWeb.DashboardTest do
       [rf] = Fanfarr.Library.list_root_folders!()
       assert rf.path == dir
       assert rf.accessible
-      assert render(view) =~ "accessible"
+      assert is_integer(rf.free_bytes)
+      assert rf.free_bytes > 0
+
+      # Both halves of the health check: the mount is there, and how much room
+      # is left on it.
+      html = render(view)
+      assert html =~ "accessible"
+      assert html =~ "free"
     end
 
     test "a root folder can be removed with no confirmation to click through", %{conn: conn} do
