@@ -1035,9 +1035,56 @@ defmodule FanfarrWeb.FeaturesTest do
 
       html = view |> form("#crop-form", %{"auto_crop_seconds" => "45"}) |> render_submit()
 
-      assert html =~ "Crop length saved"
+      assert html =~ "Crop settings saved"
       assert Fanfarr.Config.get("auto_crop_target_ms") == "45000"
       assert html =~ ~s(value="45")
+    end
+
+    test "the minimum and the graph toggle are saved with it", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      html =
+        view
+        |> form("#crop-form", %{
+          "auto_crop_seconds" => "90",
+          "auto_crop_min_seconds" => "135",
+          "auto_crop_graph" => "true"
+        })
+        |> render_submit()
+
+      assert html =~ "Crop settings saved"
+      assert Fanfarr.Config.get("auto_crop_target_ms") == "90000"
+      assert Fanfarr.Config.get("auto_crop_min_ms") == "135000"
+      assert Fanfarr.Config.get("auto_crop_graph") == "true"
+      assert Fanfarr.Themes.AutoCrop.min_ms() == 135_000
+    end
+
+    test "an explicit no turns the graph off, and nothing else does", %{conn: conn} do
+      # The reader's rule, pinned directly: only a setting that says so turns
+      # it off, so an unset or half-typed value keeps the better signal.
+      Fanfarr.Settings.put_setting!("auto_crop_graph", "false")
+      refute Fanfarr.Themes.AutoCrop.use_graph?()
+
+      Fanfarr.Settings.put_setting!("auto_crop_graph", "whatever")
+      assert Fanfarr.Themes.AutoCrop.use_graph?()
+
+      # And the field reflects it, because the default is on. Matched without
+      # the apostrophe, which the rendered HTML escapes.
+      {:ok, _view, html} = live(conn, "/settings")
+      assert html =~ "viewership graph first"
+    end
+
+    test "a minimum that is not a number is refused", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      html =
+        view
+        |> form("#crop-form", %{"auto_crop_seconds" => "90", "auto_crop_min_seconds" => "soon"})
+        |> render_submit()
+
+      assert html =~ "whole number of seconds"
+      # Nothing was stored, so the fields still show the old values.
+      refute Fanfarr.Config.get("auto_crop_min_ms")
     end
 
     test "a value that is not a whole number of seconds is refused", %{conn: conn} do

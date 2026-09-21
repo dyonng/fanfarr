@@ -200,10 +200,23 @@ defmodule Fanfarr.Themes.AutoCropTest do
       assert suggestion.start_ms <= 42_000
     end
 
-    test "a track barely longer than the target is left alone" do
-      # Cropping 90s to 70s would be a generation of lossy loss for twenty
-      # seconds, so it declines rather than doing it.
-      assert AutoCrop.suggest_from_audio(track(), target_ms: 70_000) == :no_suggestion
+    test "a track shorter than the target is left alone entirely" do
+      # Not clamped and not partially cropped: there is nothing to save.
+      assert AutoCrop.suggest_from_audio(track(), target_ms: 120_000) == :no_suggestion
+    end
+
+    test "a marginal crop is left alone when the minimum says so" do
+      # 90 seconds against a 70-second target saves twenty seconds for a
+      # generation of lossy loss, so a minimum above the track declines it.
+      assert AutoCrop.suggest_from_audio(track(), target_ms: 70_000, min_ms: 105_000) ==
+               :no_suggestion
+    end
+
+    test "and the same track is cropped when the minimum allows" do
+      # The default minimum is the crop length itself, so 90 seconds against a
+      # 70-second target is worth doing unless told otherwise.
+      assert {:ok, suggestion} = AutoCrop.suggest_from_audio(track(), target_ms: 70_000)
+      assert suggestion.end_ms - suggestion.start_ms == 70_000
     end
   end
 end

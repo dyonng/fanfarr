@@ -69,6 +69,25 @@ defmodule Fanfarr.Themes.MostReplayed do
 
   def best_window(_markers, _length_ms), do: :no_signal
 
+  @doc """
+  How long the graph covers, which is the video's own length.
+
+  This is what lets a track already shorter than the crop be declined before
+  anything is fetched: the graph is the only length available at that point,
+  and for the audio path the decode answers the same question.
+  """
+  @spec duration_ms([marker()]) :: non_neg_integer()
+  def duration_ms(markers) when is_list(markers) do
+    markers
+    |> Enum.map(& &1[:end_time])
+    |> Enum.filter(&is_number/1)
+    |> Enum.max(fn -> 0 end)
+    |> Kernel.*(1000)
+    |> round()
+  end
+
+  def duration_ms(_markers), do: 0
+
   # The window of `count` buckets starting at `index`, or nothing when the
   # graph runs out first: the tail of a track is not a full window.
   defp window_at(beats, index, count) do

@@ -24,6 +24,38 @@ defmodule FanfarrWeb.SettingsLive.Index do
      |> load()}
   end
 
+  # Blank clears the setting, which is how a field goes back to its default. A
+  # value that is not a whole number of seconds is refused rather than stored
+  # as nothing, which would leave the field looking as though it had worked.
+  defp crop_seconds(value, label) do
+    case value |> to_string() |> String.trim() do
+      "" ->
+        {:ok, nil}
+
+      typed ->
+        case Integer.parse(typed) do
+          {seconds, ""} when seconds >= 5 -> {:ok, Integer.to_string(seconds * 1000)}
+          _ -> {:error, "#{label} must be a whole number of seconds, 5 or more"}
+        end
+    end
+  end
+
+  # The checkbox posts its value only when it is ticked, so absence is "off".
+  defp graph_choice(params) do
+    if params["auto_crop_graph"] == "true", do: "true", else: "false"
+  end
+
+  # Blank rather than the resolved value: an empty field means "use the crop
+  # length", and filling it in would freeze today's default into a setting.
+  defp configured_seconds(nil), do: ""
+
+  defp configured_seconds(value) do
+    case value |> to_string() |> String.trim() |> Integer.parse() do
+      {ms, ""} when ms > 0 -> Integer.to_string(div(ms, 1000))
+      _ -> ""
+    end
+  end
+
   defp load(socket) do
     socket
     |> assign(:plex_url, Fanfarr.Config.get("plex_url") || "")
@@ -35,6 +67,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:ytdlp_proxy, Fanfarr.Config.get("ytdlp_proxy") || "")
     |> assign(:theme_loudness_lufs, Fanfarr.Config.get("theme_loudness_lufs") || "")
     |> assign(:crop_seconds, div(Fanfarr.Themes.AutoCrop.target_ms(), 1000))
+    |> assign(:crop_min_seconds, configured_seconds(Fanfarr.Config.get("auto_crop_min_ms")))
+    |> assign(:crop_graph, Fanfarr.Themes.AutoCrop.use_graph?())
     |> assign(:apply_concurrency, Fanfarr.Jobs.apply_concurrency())
     |> assign(:apply_concurrency_range, Fanfarr.Jobs.apply_concurrency_range())
     |> assign(:log_retention, Fanfarr.Log.Store.retention())
@@ -123,28 +157,19 @@ defmodule FanfarrWeb.SettingsLive.Index do
     {:noreply, socket |> load() |> put_flash(:info, "yt-dlp proxy saved")}
   end
 
-  # Seconds in the field, milliseconds in the setting: the operator thinks in
-  # "a minute and a half" and the analyser wants a number it can compare.
-  def handle_event("save_crop", %{"auto_crop_seconds" => value}, socket) do
-    case String.trim(value) do
-      "" ->
-        Fanfarr.Settings.put_setting!("auto_crop_target_ms", nil)
-        {:noreply, socket |> load() |> put_flash(:info, "Crop length reset to the default")}
+  # One form for the whole feature: seconds in the fields, milliseconds in the
+  # settings, because the operator thinks in "a minute and a half" and the
+  # analyser wants a number it can compare.
+  def handle_event("save_crop", params, socket) do
+    with {:ok, target} <- crop_seconds(params["auto_crop_seconds"], "Crop length"),
+         {:ok, floor} <- crop_seconds(params["auto_crop_min_seconds"], "Minimum length") do
+      Fanfarr.Settings.put_setting!("auto_crop_target_ms", target)
+      Fanfarr.Settings.put_setting!("auto_crop_min_ms", floor)
+      Fanfarr.Settings.put_setting!("auto_crop_graph", graph_choice(params))
 
-      typed ->
-        case Integer.parse(typed) do
-          {seconds, ""} when seconds >= 5 ->
-            Fanfarr.Settings.put_setting!(
-              "auto_crop_target_ms",
-              Integer.to_string(seconds * 1000)
-            )
-
-            {:noreply, socket |> load() |> put_flash(:info, "Crop length saved")}
-
-          _ ->
-            {:noreply,
-             put_flash(socket, :error, "Crop length must be a whole number of seconds, 5 or more")}
-        end
+      {:noreply, socket |> load() |> put_flash(:info, "Crop settings saved")}
+    else
+      {:error, message} -> {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -808,12 +833,11 @@ defmodule FanfarrWeb.SettingsLive.Index do
             minutes of music is a lot of library disk to play ninety seconds of. This
             is the length the item page suggests when you press <span class="font-medium">Suggest a crop</span>; it proposes, and you decide.
           </p>
-          <form id="crop-form" phx-submit="save_crop" class="mt-4 flex items-end gap-2">
-            <div class="flex-1">
+          <form id="crop-form" phx-submit="save_crop" class="mt-4 space-y-4">
+            <div>
               <label class="text-xs font-medium text-muted-foreground">Crop length (seconds)</label>
               <p class="mt-0.5 text-xs text-muted-foreground">
-                Defaults to 90. A theme shorter than one and a half times this is left
-                alone rather than re-encoded for nothing. Leave blank to reset.
+                Defaults to 90. Leave blank to go back to that.
               </p>
               <input
                 type="text"
@@ -824,6 +848,43 @@ defmodule FanfarrWeb.SettingsLive.Index do
                 class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
               />
             </div>
+
+            <div>
+              <label class="text-xs font-medium text-muted-foreground">
+                Only crop themes longer than (seconds)
+              </label>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                Blank means the crop length itself: a theme already shorter than the crop
+                is ignored entirely rather than clamped. Raise this if saving a few
+                seconds is not worth re-encoding the file.
+              </p>
+              <input
+                type="text"
+                inputmode="numeric"
+                name="auto_crop_min_seconds"
+                value={@crop_min_seconds}
+                placeholder={Integer.to_string(@crop_seconds)}
+                class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+              />
+            </div>
+
+            <div class="space-y-1">
+              <label class="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="auto_crop_graph"
+                  value="true"
+                  checked={@crop_graph}
+                  class="size-4 rounded border-input"
+                /> Ask YouTube's viewership graph first
+              </label>
+              <p class="text-xs text-muted-foreground">
+                On, the suggestion comes from the parts viewers replay; where there is no
+                graph it falls back to the audio. Off keeps the whole thing local: the
+                audio is decoded and analysed in the container.
+              </p>
+            </div>
+
             <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               Save
             </button>

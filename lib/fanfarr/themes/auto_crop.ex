@@ -53,8 +53,6 @@ defmodule Fanfarr.Themes.AutoCrop do
   @default_target_ms 90_000
   @frame_ms 1_000
   @snap_ms 2_000
-  # A track this close to the target is not worth a re-encode.
-  @worth_cropping_ratio 1.5
 
   @typedoc "A window worth writing, and what decided it."
   @type suggestion :: %{
@@ -73,16 +71,51 @@ defmodule Fanfarr.Themes.AutoCrop do
   taking the feature down with it.
   """
   @spec target_ms() :: pos_integer()
-  def target_ms do
-    case Fanfarr.Config.get("auto_crop_target_ms") do
+  def target_ms, do: ms_setting("auto_crop_target_ms") || @default_target_ms
+
+  @doc """
+  The shortest a theme may be and still be worth cropping, as configured.
+
+  What the settings page shows and what a plain call resolves to. A call that
+  overrides the target length also moves the floor with it -- see `floor_for/2`
+  -- because a floor left behind at the configured value would let a longer
+  target produce a window longer than the track.
+  """
+  @spec min_ms() :: pos_integer()
+  def min_ms, do: ms_setting("auto_crop_min_ms") || target_ms()
+
+  # An explicit option wins, then the operator's setting, then the target this
+  # call is actually using.
+  defp floor_for(target, opts) do
+    Keyword.get(opts, :min_ms) || ms_setting("auto_crop_min_ms") || target
+  end
+
+  @doc """
+  Whether to ask YouTube's viewership graph before analysing the audio.
+
+  On by default, and the first choice when it is: viewers skipping back to a
+  moment answers the question directly. Off for an install that would rather
+  not reach a third party from the item page, or whose library mostly has no
+  graph anyway -- the audio analysis is local and always available.
+
+  Only a setting that says so turns it off, so an unset or half-typed value
+  leaves the better signal in place.
+  """
+  @spec use_graph?() :: boolean()
+  def use_graph?, do: Fanfarr.Config.get("auto_crop_graph") not in ["false", "0", "off"]
+
+  # One reader for a millisecond setting, so the parsing and the fallback live
+  # in one place rather than beside each caller.
+  defp ms_setting(key) do
+    case Fanfarr.Config.get(key) do
       value when is_binary(value) ->
         case value |> String.trim() |> Integer.parse() do
           {ms, ""} when ms > 0 -> ms
-          _ -> @default_target_ms
+          _ -> nil
         end
 
       _ ->
-        @default_target_ms
+        nil
     end
   end
 
@@ -103,21 +136,26 @@ defmodule Fanfarr.Themes.AutoCrop do
           {:ok, suggestion()} | {:error, term()} | :no_suggestion
   def suggest(item, opts \\ []) do
     target = Keyword.get(opts, :target_ms, target_ms())
+    floor = floor_for(target, opts)
 
     with {:ok, url, _origin} <- Choice.url(item, %{}) do
-      case from_graph(url, target) do
+      case from_graph(url, target, floor) do
         {:ok, suggestion} -> {:ok, suggestion}
-        :no_signal -> from_audio(item, target)
+        # Short is an answer, not a miss: the audio is the same length, so
+        # there is nothing to ask it either.
+        :short -> :no_suggestion
+        :no_signal -> from_audio(item, target, floor)
       end
     end
   end
 
   # --- the graph -----------------------------------------------------------
 
-  defp from_graph(url, target) do
-    with true <- Downloader.youtube_url?(url),
+  defp from_graph(url, target, floor) do
+    with true <- use_graph?(),
+         true <- Downloader.youtube_url?(url),
          {:ok, markers} <- Downloader.impl().heatmap(url),
-         {:ok, window} <- MostReplayed.best_window(markers, target) do
+         {:ok, window} <- from_heatmap(markers, target, floor) do
       {:ok,
        %{
          start_ms: window.start_ms,
@@ -126,17 +164,31 @@ defmodule Fanfarr.Themes.AutoCrop do
          score: window.score
        }}
     else
-      # A video with no graph, or a downloader that cannot say. Either way the
-      # audio is still there to be asked.
-      _ -> :no_signal
+      :short ->
+        :short
+
+      # A video with no graph, or a downloader that cannot say, or the graph
+      # turned off. Either way the audio is still there to be asked.
+      _ ->
+        :no_signal
+    end
+  end
+
+  # The graph spans the video, so its length is the track's length: a track
+  # shorter than the crop is declined here rather than clamped later.
+  defp from_heatmap(markers, target, floor) do
+    if MostReplayed.duration_ms(markers) < floor do
+      :short
+    else
+      MostReplayed.best_window(markers, target)
     end
   end
 
   # --- the audio -----------------------------------------------------------
 
-  defp from_audio(item, target) do
+  defp from_audio(item, target, floor) do
     case EditSource.resolve(item) do
-      {:ok, %{path: path}} -> suggest_from_audio(path, target_ms: target)
+      {:ok, %{path: path}} -> suggest_from_audio(path, target_ms: target, min_ms: floor)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -151,20 +203,21 @@ defmodule Fanfarr.Themes.AutoCrop do
   @spec suggest_from_audio(Path.t(), keyword()) :: {:ok, suggestion()} | :no_suggestion
   def suggest_from_audio(path, opts \\ []) do
     target = Keyword.get(opts, :target_ms, target_ms())
+    floor = floor_for(target, opts)
 
     with {:ok, pcm} <- Pcm.decode(path) do
-      analyse(features(pcm), target)
+      analyse(features(pcm), target, floor)
     end
   end
 
-  defp analyse(frames, target) do
+  defp analyse(frames, target, floor) do
     cond do
       frames == [] ->
         :no_suggestion
 
-      length(frames) * @frame_ms < target * @worth_cropping_ratio ->
-        # Nothing to save, and a re-encode to shave ten seconds off is a
-        # generation of lossy loss for a rounding error.
+      length(frames) * @frame_ms < floor ->
+        # Shorter than the crop is worth: nothing to save, and a re-encode
+        # would cost a generation of lossy loss for a few seconds.
         :no_suggestion
 
       true ->
