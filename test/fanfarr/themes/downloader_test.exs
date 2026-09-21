@@ -171,4 +171,46 @@ defmodule Fanfarr.Themes.DownloaderTest do
       assert {:error, :not_installed} = YtDlp.search("one piece", 3)
     end
   end
+
+  describe "YtDlp.parse_heatmap/1" do
+    test "the buckets yt-dlp emits become a list of markers" do
+      # Verbatim shape from a live run: one JSON array, on one line.
+      output =
+        ~s([{"start_time":0.0,"end_time":2.0,"value":0.2},{"start_time":2.0,"end_time":4.0,"value":1.0}])
+
+      assert {:ok, [first, second]} = YtDlp.parse_heatmap(output)
+      assert first["start_time"] == 0.0
+      assert first["value"] == 0.2
+      assert second["value"] == 1.0
+    end
+
+    test "NA is a video with no graph, not a failure worth retrying" do
+      # What an upload without enough views answers.
+      assert YtDlp.parse_heatmap("NA") == :error
+    end
+
+    test "nothing usable is an error rather than an empty window" do
+      assert YtDlp.parse_heatmap("") == :error
+      assert YtDlp.parse_heatmap("null") == :error
+      assert YtDlp.parse_heatmap("[]") == :error
+    end
+
+    test "it does not pretend to validate marker shape" do
+      # The contract is "a non-empty array of JSON objects". Which of them are
+      # usable is MostReplayed's question, and it answers it by ignoring the
+      # ones without numbers rather than by raising here.
+      assert YtDlp.parse_heatmap(~s([{"nonsense":true}])) == {:ok, [%{"nonsense" => true}]}
+    end
+
+    test "a warning line before the value does not lose the value" do
+      # yt-dlp writes warnings to stdout too, which is why this scans lines
+      # rather than reading the first one.
+      output =
+        "WARNING: falling back to another client\n" <>
+          ~s([{"start_time":0.0,"end_time":2.0,"value":0.5}])
+
+      assert {:ok, [marker]} = YtDlp.parse_heatmap(output)
+      assert marker["value"] == 0.5
+    end
+  end
 end

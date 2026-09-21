@@ -202,22 +202,21 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
 
   @doc false
   # Public only so the suite can pin the shapes a live yt-dlp emits: `NA` when
-  # the video has no graph, the JSON array of buckets when it does, and a
-  # downloader too old to know the field at all.
+  # the video has no graph, the JSON array of buckets when it does, and nothing
+  # at all from a downloader too old to know the field.
+  #
+  # Scans the lines rather than reading the first one, for the same reason
+  # `parse_search` does: yt-dlp writes its warnings to stdout too, and a
+  # warning ahead of the value must not throw the value away.
   def parse_heatmap(output) do
-    case output |> String.split("\n", trim: true) |> List.first() do
-      nil ->
-        :error
-
-      "NA" ->
-        :error
-
-      json ->
-        case Jason.decode(json) do
-          {:ok, markers} when is_list(markers) and markers != [] -> {:ok, markers}
-          _ -> :error
-        end
-    end
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.find_value(:error, fn line ->
+      case Jason.decode(line) do
+        {:ok, markers} when is_list(markers) and markers != [] -> {:ok, markers}
+        _ -> nil
+      end
+    end)
   end
 
   # yt-dlp reports why it could not fetch a video on stderr; the distinctions
