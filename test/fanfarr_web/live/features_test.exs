@@ -785,6 +785,55 @@ defmodule FanfarrWeb.FeaturesTest do
       _ = html
     end
 
+    test "a suggested crop fills the range, and says where it came from",
+         %{conn: conn, item: item} do
+      # A two-second target, because the fixture is a four-second file: the
+      # graph is scaled to the file so the window is real rather than
+      # hypothetical. Twenty of the hundred buckets carry the attention.
+      Fanfarr.Settings.put_setting!("auto_crop_target_ms", "2000")
+
+      markers =
+        for i <- 0..99 do
+          %{
+            start_time: i * 0.04,
+            end_time: i * 0.04 + 0.04,
+            value: if(i in 60..79, do: 1.0, else: 0.1)
+          }
+        end
+
+      expect(Fanfarr.ThemeDownloaderMock, :heatmap, fn _url -> {:ok, markers} end)
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      render_async(view, 10_000)
+
+      render_click(view, "suggest_crop", %{})
+      html = render_async(view, 10_000)
+
+      # The claim is named, because "the part people watch" and "the part our
+      # own analysis picked" are different things to trust.
+      assert html =~ "From the most-replayed graph"
+
+      # And the numbers really moved: the Apply label is the selected length.
+      assert html =~ "Apply trimmed theme (0:02)"
+    end
+
+    test "a theme shorter than the target is declined, not cropped anyway",
+         %{conn: conn, item: item} do
+      # No graph, so it falls to the audio: four seconds against a ninety-second
+      # target, where cropping would be a re-encode for nothing.
+      expect(Fanfarr.ThemeDownloaderMock, :heatmap, fn _url -> {:error, :no_heatmap} end)
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      render_async(view, 10_000)
+
+      render_click(view, "suggest_crop", %{})
+      html = render_async(view, 10_000)
+
+      assert html =~ "No suggestion for this one"
+    end
+
     test "the editor renders every control the hook reaches for", %{conn: conn, item: item} do
       # Everything inside the editor is phx-update="ignore", so the server
       # renders this markup once and then never hears about it again. A
@@ -974,6 +1023,40 @@ defmodule FanfarrWeb.FeaturesTest do
       {:ok, view, _html} = live(conn, "/settings")
       html = render_click(view, "browse", %{"path" => "/definitely/not/here"})
       assert html =~ "Cannot read"
+    end
+  end
+
+  describe "settings: the theme crop length" do
+    test "a valid length is saved, and shown in seconds", %{conn: conn} do
+      {:ok, view, html} = live(conn, "/settings")
+
+      # The effective default, so the field is never blank on a fresh install.
+      assert html =~ ~s(value="90")
+
+      html = view |> form("#crop-form", %{"auto_crop_seconds" => "45"}) |> render_submit()
+
+      assert html =~ "Crop length saved"
+      assert Fanfarr.Config.get("auto_crop_target_ms") == "45000"
+      assert html =~ ~s(value="45")
+    end
+
+    test "a value that is not a whole number of seconds is refused", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      html = view |> form("#crop-form", %{"auto_crop_seconds" => "a minute"}) |> render_submit()
+
+      assert html =~ "whole number of seconds"
+      refute Fanfarr.Config.get("auto_crop_target_ms")
+    end
+
+    test "blank resets it to the default rather than to zero", %{conn: conn} do
+      Fanfarr.Settings.put_setting!("auto_crop_target_ms", "30000")
+
+      {:ok, view, _html} = live(conn, "/settings")
+      view |> form("#crop-form", %{"auto_crop_seconds" => ""}) |> render_submit()
+
+      refute Fanfarr.Config.get("auto_crop_target_ms")
+      assert Fanfarr.Themes.AutoCrop.target_ms() == 90_000
     end
   end
 

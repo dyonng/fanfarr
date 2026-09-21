@@ -48,7 +48,9 @@ defmodule Fanfarr.Themes.AutoCrop do
 
   require Logger
 
-  @default_target_ms 30_000
+  # Ninety seconds: long enough to be the piece rather than a fragment, short
+  # enough that an eleven-minute suite stops costing 14 MB of library disk.
+  @default_target_ms 90_000
   @frame_ms 1_000
   @snap_ms 2_000
   # A track this close to the target is not worth a re-encode.
@@ -62,9 +64,27 @@ defmodule Fanfarr.Themes.AutoCrop do
           score: float()
         }
 
-  @doc "How long a written theme should be. One setting, read here and nowhere else."
+  @doc """
+  How long a written theme should be, in milliseconds.
+
+  Read through `Fanfarr.Config`, the way every other operator setting is: the
+  dashboard value wins over `AUTO_CROP_TARGET_MS`, and the default above applies
+  when neither is set. A value that is not a number falls back rather than
+  taking the feature down with it.
+  """
   @spec target_ms() :: pos_integer()
-  def target_ms, do: Application.get_env(:fanfarr, :auto_crop_target_ms, @default_target_ms)
+  def target_ms do
+    case Fanfarr.Config.get("auto_crop_target_ms") do
+      value when is_binary(value) ->
+        case value |> String.trim() |> Integer.parse() do
+          {ms, ""} when ms > 0 -> ms
+          _ -> @default_target_ms
+        end
+
+      _ ->
+        @default_target_ms
+    end
+  end
 
   @doc """
   Roughly what `target_ms` of audio costs at the writer's bitrate, for the

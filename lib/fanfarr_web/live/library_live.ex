@@ -953,11 +953,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp resolve_columns(_filters), do: saved_columns()
 
   defp saved_columns do
-    Fanfarr.Settings.list_settings!()
-    |> Enum.find_value(fn setting ->
-      if setting.key == "library_columns", do: setting.value
-    end)
-    |> case do
+    case Fanfarr.Config.get("library_columns") do
       value when is_binary(value) ->
         case split_columns(value) do
           [] -> @default_columns

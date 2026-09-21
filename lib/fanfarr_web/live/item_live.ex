@@ -49,6 +49,8 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:trim, nil)
       |> assign(:trim_loading, false)
       |> assign(:trim_error, nil)
+      |> assign(:suggesting, false)
+      |> assign(:suggestion_note, nil)
       |> load()
       |> track_applying()
       |> maybe_lookup()
@@ -289,6 +291,20 @@ defmodule FanfarrWeb.ItemLive.Show do
     {:noreply, socket |> assign(:trim, nil) |> assign(:trim_error, nil)}
   end
 
+  # A starting point, not a decision: this fills the handles and the operator
+  # drags from there. It can take a second or two -- a viewership fetch, or a
+  # decode of the source when there is no graph -- so it runs async and the
+  # panel says it is working.
+  def handle_event("suggest_crop", _params, socket) do
+    item = socket.assigns.item
+
+    {:noreply,
+     socket
+     |> assign(:suggesting, true)
+     |> assign(:suggestion_note, nil)
+     |> start_async(:suggest_crop, fn -> Fanfarr.Themes.AutoCrop.suggest(item) end)}
+  end
+
   # One event for every control in the panel -- handles, nudges, typed fields
   # -- because they all say the same thing: here are the new points. The hook
   # owns the interaction; the server owns the numbers.
@@ -456,6 +472,43 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> assign(:trim_error, trim_error(reason))}
   end
 
+  def handle_async(:suggest_crop, {:ok, {:ok, suggestion}}, socket) do
+    trim = socket.assigns.trim || draft(socket.assigns.item)
+
+    {:noreply,
+     socket
+     |> assign(:suggesting, false)
+     |> assign(:suggestion_note, suggestion_note(suggestion))
+     |> assign(:trim, %{trim | start_ms: suggestion.start_ms, end_ms: suggestion.end_ms})
+     # The hook owns the handles, so the numbers are handed to it rather than
+     # only rendered: the same path a drag takes, from the other end.
+     |> push_event("set_trim", %{
+       start_ms: suggestion.start_ms,
+       end_ms: suggestion.end_ms
+     })}
+  end
+
+  def handle_async(:suggest_crop, {:ok, :no_suggestion}, socket) do
+    {:noreply,
+     socket
+     |> assign(:suggesting, false)
+     |> assign(:suggestion_note, "No suggestion for this one -- drag the handles.")}
+  end
+
+  def handle_async(:suggest_crop, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:suggesting, false)
+     |> assign(:suggestion_note, suggestion_error(reason))}
+  end
+
+  def handle_async(:suggest_crop, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:suggesting, false)
+     |> assign(:suggestion_note, suggestion_error(reason))}
+  end
+
   # Relative, because "when did Fanfarr last look" is the question the Refresh
   # button raises and a timestamp is a worse answer to it.
   defp last_synced(nil), do: "never"
@@ -509,6 +562,25 @@ defmodule FanfarrWeb.ItemLive.Show do
       duration_ms: nil
     }
   end
+
+  # Where the idea came from, in the operator's terms. The graph is other
+  # people's behaviour; the audio is our own analysis of this file.
+  defp suggestion_note(%{source: :most_replayed}),
+    do: "From the most-replayed graph: the part people watch."
+
+  defp suggestion_note(%{source: :audio}),
+    do: "From the audio itself: the part that repeats and carries the most."
+
+  defp suggestion_note(_suggestion), do: nil
+
+  defp suggestion_error(:no_themerrdb_entry),
+    do: "Nothing knows of a theme for this title yet -- look one up first."
+
+  defp suggestion_error(:no_heatmap),
+    do: "That video has no viewership graph, and the audio gave nothing to go on."
+
+  defp suggestion_error(reason),
+    do: "Could not suggest a crop: #{inspect(reason, limit: 3)}"
 
   # Everything arrives as a string from the DOM. An unparseable value leaves
   # the field alone rather than resetting it to zero, which is what a half-typed
@@ -725,6 +797,26 @@ defmodule FanfarrWeb.ItemLive.Show do
               <.icon name="lucide-loader-circle" class="size-3.5 animate-spin" />
               Fetching the audio to trim… the first time for a theme this means a download.
             </p>
+
+            <%!-- The suggestion fills the handles; it does not decide. Where
+            it came from is named, because "the part people watch" and "the
+            part our own analysis picked" are different claims. --%>
+            <div :if={!@trim_loading} class="flex flex-wrap items-center gap-2">
+              <button
+                phx-click="suggest_crop"
+                disabled={@suggesting}
+                class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-60 sm:h-8"
+              >
+                <.icon
+                  name={if @suggesting, do: "lucide-loader-circle", else: "lucide-sparkles"}
+                  class={["size-3.5", @suggesting && "animate-spin"]}
+                />
+                {if @suggesting, do: "Finding the hook…", else: "Suggest a crop"}
+              </button>
+              <span :if={@suggestion_note} class="text-xs text-muted-foreground">
+                {@suggestion_note}
+              </span>
+            </div>
 
             <%!-- Everything below is the hook's. It draws the waveform, drags
             the handles and drives the audio; the server only ever hears the
@@ -1248,6 +1340,19 @@ defmodule FanfarrWeb.ItemLive.Show do
 
                 this.repaint = () => this.paint()
                 window.addEventListener("resize", this.repaint)
+
+                // The server can propose a crop. The handles belong to this
+                // hook, so the numbers arrive here and it repaints -- the same
+                // path a drag takes, entered from the other side.
+                this.handleEvent("set_trim", ({ start_ms, end_ms }) => {
+                  const duration = this.state.duration || 0
+                  const clamp = (at) =>
+                    duration ? Math.max(0, Math.min(at, duration)) : Math.max(0, at)
+
+                  this.state.start = clamp(start_ms)
+                  this.state.end = Math.max(this.state.start, clamp(end_ms))
+                  this.paint()
+                })
               },
 
               // --- playback --------------------------------------------------

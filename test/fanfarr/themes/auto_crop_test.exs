@@ -57,15 +57,26 @@ defmodule Fanfarr.Themes.AutoCropTest do
     test "a snippet's cost, at the bitrate the writer uses" do
       assert AutoCrop.projected_bytes(30_000) == 720_000
       assert AutoCrop.projected_bytes(30_000, 128_000) == 480_000
+      # The default target, which is what the page quotes in practice.
+      assert AutoCrop.projected_bytes(90_000) == 2_160_000
     end
 
-    test "the target length is one setting with a default" do
-      assert AutoCrop.target_ms() == 30_000
+    test "the target length is a setting with a default" do
+      # Ninety seconds: the piece, not a fragment of it.
+      assert AutoCrop.target_ms() == 90_000
+    end
 
-      Application.put_env(:fanfarr, :auto_crop_target_ms, 20_000)
-      on_exit(fn -> Application.delete_env(:fanfarr, :auto_crop_target_ms) end)
+    test "the operator's setting wins" do
+      Fanfarr.Settings.put_setting!("auto_crop_target_ms", "45000")
 
-      assert AutoCrop.target_ms() == 20_000
+      assert AutoCrop.target_ms() == 45_000
+    end
+
+    test "a setting that is not a number falls back to the default" do
+      # A half-typed value in the settings field must not stop the feature.
+      Fanfarr.Settings.put_setting!("auto_crop_target_ms", "ninety seconds")
+
+      assert AutoCrop.target_ms() == 90_000
     end
   end
 

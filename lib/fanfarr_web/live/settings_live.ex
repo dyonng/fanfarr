@@ -34,6 +34,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:local_auth_bypass, Fanfarr.Accounts.AuthMode.bypass_enabled?())
     |> assign(:ytdlp_proxy, Fanfarr.Config.get("ytdlp_proxy") || "")
     |> assign(:theme_loudness_lufs, Fanfarr.Config.get("theme_loudness_lufs") || "")
+    |> assign(:crop_seconds, div(Fanfarr.Themes.AutoCrop.target_ms(), 1000))
     |> assign(:apply_concurrency, Fanfarr.Jobs.apply_concurrency())
     |> assign(:apply_concurrency_range, Fanfarr.Jobs.apply_concurrency_range())
     |> assign(:log_retention, Fanfarr.Log.Store.retention())
@@ -120,6 +121,31 @@ defmodule FanfarrWeb.SettingsLive.Index do
   def handle_event("save_ytdlp_proxy", %{"ytdlp_proxy" => proxy}, socket) do
     Fanfarr.Settings.put_setting!("ytdlp_proxy", String.trim(proxy))
     {:noreply, socket |> load() |> put_flash(:info, "yt-dlp proxy saved")}
+  end
+
+  # Seconds in the field, milliseconds in the setting: the operator thinks in
+  # "a minute and a half" and the analyser wants a number it can compare.
+  def handle_event("save_crop", %{"auto_crop_seconds" => value}, socket) do
+    case String.trim(value) do
+      "" ->
+        Fanfarr.Settings.put_setting!("auto_crop_target_ms", nil)
+        {:noreply, socket |> load() |> put_flash(:info, "Crop length reset to the default")}
+
+      typed ->
+        case Integer.parse(typed) do
+          {seconds, ""} when seconds >= 5 ->
+            Fanfarr.Settings.put_setting!(
+              "auto_crop_target_ms",
+              Integer.to_string(seconds * 1000)
+            )
+
+            {:noreply, socket |> load() |> put_flash(:info, "Crop length saved")}
+
+          _ ->
+            {:noreply,
+             put_flash(socket, :error, "Crop length must be a whole number of seconds, 5 or more")}
+        end
+    end
   end
 
   def handle_event("save_loudness", %{"theme_loudness_lufs" => value}, socket) do
@@ -767,6 +793,34 @@ defmodule FanfarrWeb.SettingsLive.Index do
                 name="theme_loudness_lufs"
                 value={@theme_loudness_lufs}
                 placeholder="-14"
+                class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+              />
+            </div>
+            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              Save
+            </button>
+          </form>
+        </section>
+        <section class="rounded-lg border border-border bg-card p-4">
+          <h2 class="text-sm font-semibold text-card-foreground">Theme crop</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            A theme loops in a detail page rather than being listened to, so eleven
+            minutes of music is a lot of library disk to play ninety seconds of. This
+            is the length the item page suggests when you press <span class="font-medium">Suggest a crop</span>; it proposes, and you decide.
+          </p>
+          <form id="crop-form" phx-submit="save_crop" class="mt-4 flex items-end gap-2">
+            <div class="flex-1">
+              <label class="text-xs font-medium text-muted-foreground">Crop length (seconds)</label>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                Defaults to 90. A theme shorter than one and a half times this is left
+                alone rather than re-encoded for nothing. Leave blank to reset.
+              </p>
+              <input
+                type="text"
+                inputmode="numeric"
+                name="auto_crop_seconds"
+                value={@crop_seconds}
+                placeholder="90"
                 class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
               />
             </div>
