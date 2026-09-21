@@ -62,6 +62,13 @@ config :fanfarr, Oban,
 # guide for an explanation of each setting:
 # https://hexdocs.pm/ash/backwards-compatibility-config.html
 config :ash,
+  # Ash 3.33 refuses to guess how string length is counted, where earlier
+  # versions assumed. :codepoints is what the library recommends and what
+  # SQLite counts in a TEXT value, so a max_length here bounds what the data
+  # layer actually stores. The alternative, :mixed, counts graphemes in Elixir
+  # and defers atomic updates to the data layer, so a single grapheme can carry
+  # unbounded combining characters and max_length stops bounding the value.
+  default_string_length_count: :codepoints,
   allow_forbidden_field_for_relationships_by_default: true,
   include_embedded_source_by_default?: false,
   show_keysets_for_all_actions?: false,
