@@ -810,6 +810,10 @@ defmodule FanfarrWeb.FeaturesTest do
       render_click(view, "suggest_crop", %{})
       html = render_async(view, 10_000)
 
+      # The button is there to be pressed, which the disabled case refutes:
+      # between the two, both states are pinned rather than just one.
+      assert html =~ "Suggest a crop"
+
       # The claim is named, because "the part people watch" and "the part our
       # own analysis picked" are different things to trust.
       assert html =~ "From the most-replayed graph"
