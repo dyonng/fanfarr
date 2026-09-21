@@ -29,75 +29,26 @@ downloads, and appearance, all in one place.
 
 ## Features
 
-- **Overview** — the homepage: coverage per Plex library, what is worth acting
-  on right now (titles missing a theme that ThemerrDB has an answer for, and
-  anything that failed), what is running with an ETA, when the next sync is
-  due, and any failing health check. Every number links into the library view
-  that lists exactly those titles.
-- **Library** — every show and movie with its poster, theme status,
-  critic/audience scores (normalised to one scale, whichever service Plex
-  used), and studio. Filter by status, type, studio, or collection; sort any
-  column by clicking it; search. Served from a local mirror, so it stays fast
-  at thousands of items, and remembers your filters when you open an item and
-  come back.
-- **Trim what gets written** — pick where a theme starts and ends on a
-  waveform, with fades at both ends and a "loop the join" preview, because
-  Plex loops themes and the seam is what you would otherwise get wrong. The
-  crop is stored as two numbers, not a second copy of the audio, so it can be
-  widened later; the mp3 next to your media stays the only audio file.
-- **Knows a stock theme from a chosen one** — Plex marks its own agent's
-  themes in the `ratingKey`, and Fanfarr reads it. A show that "has a theme"
-  because Plex shipped one is listed as such, so it can be found and replaced.
-- **Movies and shows both** — Plex's movie agent supplies no themes at all, so
-  a local `theme.mp3` is the only way a film gets one, verified end to end.
-- **Find a theme without leaving the page** — search YouTube from the item
-  page, play the result inline, and pick it. What you pick is exactly what
-  gets applied, and it outranks ThemerrDB from then on. Or paste a URL.
-- **ThemerrDB** — the community theme database is looked up automatically as
-  the default source; misses are cached so nothing is re-requested.
-- **Dry run first, by default** — a preview resolves the source and the
-  destination and checks the folder is writable, then stops. Run it on the
-  whole library before writing a single file.
-- **Bulk actions** — tick rows, or select everything matching a filter, and
-  preview, look up, or apply in one go. Each queues one job per item, capped
-  at 2 concurrent downloads so a thousand-item run does not hammer YouTube,
-  and stoppable mid-run from Activity without losing whatever already applied.
-- **Local `theme.mp3`, never an upload** — themes are written beside the
-  media, where deleting the file undoes them. Plex's upload API cannot be
-  undone, so it is not used.
-- **Renamed folders don't fork a row** — a Plex rename issues a new item id;
-  Fanfarr recognises it by IMDb/TMDB/TVDB id and keeps the same row, theme and
-  history rather than starting over. An item Plex has genuinely dropped is
-  removed on the next sync.
-- **Root folders, like Sonarr** — mount each library location wherever you
-  like (`/tv1`, `/tv2`, …), browse to it from Settings, and items are located
-  by directory name across the roots so a theme lands on the drive that holds
-  the show.
-- **Loudness normalisation** — every applied theme is brought to a consistent
-  level (-14 LUFS by default, adjustable in Settings), so one show is not
-  blasting while the next is inaudible.
-- **System page** — Sonarr-style health checks: Plex reachable, yt-dlp
-  present, root folders writable, Plex paths resolving on this side of the
-  mount, ThemerrDB up, database healthy. A dot on the sidebar when something
-  needs attention.
-- **A real log console** — a full-page, colour-coded, filterable log view for
-  when something needs debugging, separate from the System page's health
-  checks.
-- **Append-only application log** — every attempt Fanfarr makes is recorded
-  permanently: what, when, from where, and how it went. Dry runs included,
-  but never counted.
-- **Activity view** — live job queue with an ETA, per-job errors and retry, a
-  "Stop bulk theme work" button that cancels every queued and running job in
-  one click, plus recent theme failures with their actual error message.
-- **Login from the environment** — set `AUTH_USERNAME` and `AUTH_PASSWORD` and
-  that is the account, with an optional "remember me" and a Sonarr/Radarr-style
-  bypass for local addresses. Leave both unset and the dashboard is open, same
-  as the *arrs.
-- **Safe by default** — libraries are opt-in, a written theme is one file you
-  can delete to undo it, and posters are cached server-side so your Plex token
-  never reaches a browser.
-- **One container, one volume** — SQLite for everything, secrets generated on
-  first boot, `PUID`/`PGID` respected, port 7373.
+- **Overview** — coverage per library, what needs attention, the live queue with an ETA, next sync, failing health checks. Every number links to the matching filtered view.
+- **Library** — poster, theme status, critic/audience scores on one scale, studio. Filter by status, type, studio or collection; sort any column; search. Local mirror, so it stays fast at thousands of items.
+- **Trim what gets written** — waveform editor with fades at both ends and a loop-join preview. Stored as two numbers, so a crop can be widened later.
+- **Stock themes vs chosen ones** — Plex's own agent supplies themes too; those are flagged separately so they can be found and replaced.
+- **Movies and shows both** — a local `theme.mp3` is the only way a film gets a theme, verified end to end.
+- **Find a theme without leaving the page** — search YouTube, preview inline, pick it. Your pick outranks ThemerrDB from then on, or paste a URL.
+- **ThemerrDB** — the default source, looked up automatically; misses are cached so nothing is re-requested.
+- **Dry run first, by default** — resolves the source and destination, checks the folder is writable, then stops.
+- **Bulk actions** — tick rows or select everything matching a filter; one job per item, two downloads at a time, cancellable mid-run.
+- **Local `theme.mp3`, never an upload** — written beside the media, so deleting the file undoes it. Plex's upload API cannot be undone.
+- **Renames don't fork a row** — items are matched by IMDb/TMDB/TVDB id, keeping the same theme and history; anything Plex has genuinely dropped goes on the next sync.
+- **Root folders, like Sonarr** — mount each library location wherever you like and browse to it in Settings; items are found by directory name across the roots.
+- **Loudness normalisation** — every written theme lands at one level (-14 LUFS by default, adjustable).
+- **System page** — health checks: Plex reachable, yt-dlp present, roots writable, Plex paths resolving, ThemerrDB up, database healthy. A sidebar dot when something needs attention.
+- **Log console** — full-page, colour-coded, filterable.
+- **Append-only application log** — every attempt recorded permanently; dry runs included, never counted.
+- **Activity** — live queue with an ETA, per-job errors and retry, recent failures, and one button to stop all bulk work.
+- **Login from the environment** — `AUTH_USERNAME` and `AUTH_PASSWORD`, an optional "remember me" and a local-address bypass. Unset, the dashboard is open, as the *arrs ship.
+- **Safe by default** — libraries are opt-in, a written theme is one file you can delete, and posters are proxied so your Plex token never reaches a browser.
+- **One container, one volume** — SQLite, secrets generated on first boot, `PUID`/`PGID` respected, port 7373.
 
 ## Tech stack
 
