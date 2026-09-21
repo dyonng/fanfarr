@@ -834,6 +834,19 @@ defmodule FanfarrWeb.FeaturesTest do
       assert html =~ "No suggestion for this one"
     end
 
+    test "a disabled feature is not offered at all", %{conn: conn, item: item} do
+      Fanfarr.Settings.put_setting!("auto_crop_enabled", "false")
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      html = render_async(view, 10_000)
+
+      # Gone rather than greyed out, and the panel says where it went, so a
+      # missing button is an answer rather than a mystery.
+      refute html =~ "Suggest a crop"
+      assert html =~ "Crop suggestions are off in Settings"
+    end
+
     test "the editor renders every control the hook reaches for", %{conn: conn, item: item} do
       # Everything inside the editor is phx-update="ignore", so the server
       # renders this markup once and then never hears about it again. A
@@ -1057,6 +1070,40 @@ defmodule FanfarrWeb.FeaturesTest do
       assert Fanfarr.Config.get("auto_crop_min_ms") == "135000"
       assert Fanfarr.Config.get("auto_crop_graph") == "true"
       assert Fanfarr.Themes.AutoCrop.min_ms() == 135_000
+    end
+
+    test "the feature can be turned off and back on", %{conn: conn} do
+      # Off the way the operator's own save leaves it.
+      Fanfarr.Settings.put_setting!("auto_crop_enabled", "false")
+
+      {:ok, view, html} = live(conn, "/settings")
+      assert html =~ "Offer a crop suggestion"
+      refute Fanfarr.Themes.AutoCrop.enabled?()
+
+      # Saving with the box unticked keeps it off, and keeps the lengths: they
+      # are stored either way, so turning the feature back on does not mean
+      # typing them again.
+      html =
+        view
+        |> form("#crop-form", %{
+          "auto_crop_seconds" => "90",
+          "auto_crop_min_seconds" => "135"
+        })
+        |> render_submit()
+
+      assert html =~ "Crop settings saved"
+      assert Fanfarr.Config.get("auto_crop_enabled") == "false"
+      assert Fanfarr.Config.get("auto_crop_target_ms") == "90000"
+      assert Fanfarr.Config.get("auto_crop_min_ms") == "135000"
+
+      # Ticking it again turns the feature back on, lengths intact.
+      view
+      |> form("#crop-form", %{"auto_crop_enabled" => "true", "auto_crop_seconds" => "90"})
+      |> render_submit()
+
+      assert Fanfarr.Config.get("auto_crop_enabled") == "true"
+      assert Fanfarr.Themes.AutoCrop.enabled?()
+      assert Fanfarr.Config.get("auto_crop_target_ms") == "90000"
     end
 
     test "an explicit no turns the graph off, and nothing else does", %{conn: conn} do

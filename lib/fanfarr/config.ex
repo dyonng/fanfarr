@@ -21,7 +21,8 @@ defmodule Fanfarr.Config do
     "sync_interval_hours" => "SYNC_INTERVAL_HOURS",
     "themerrdb_interval_hours" => "THEMERRDB_INTERVAL_HOURS",
     "log_retention_entries" => "LOG_RETENTION_ENTRIES",
-    "auto_crop_target_ms" => "AUTO_CROP_TARGET_MS"
+    "auto_crop_target_ms" => "AUTO_CROP_TARGET_MS",
+    "auto_crop_enabled" => "AUTO_CROP_ENABLED"
   }
 
   @doc "The resolved value for a key, or nil."

@@ -40,9 +40,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
     end
   end
 
-  # The checkbox posts its value only when it is ticked, so absence is "off".
-  defp graph_choice(params) do
-    if params["auto_crop_graph"] == "true", do: "true", else: "false"
+  # A checkbox posts its value only when it is ticked, so absence is "off".
+  # Named by key rather than per box, because the crop card now has two.
+  defp checkbox_choice(params, key) do
+    if params[key] == "true", do: "true", else: "false"
   end
 
   # Blank rather than the resolved value: an empty field means "use the crop
@@ -66,6 +67,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:local_auth_bypass, Fanfarr.Accounts.AuthMode.bypass_enabled?())
     |> assign(:ytdlp_proxy, Fanfarr.Config.get("ytdlp_proxy") || "")
     |> assign(:theme_loudness_lufs, Fanfarr.Config.get("theme_loudness_lufs") || "")
+    |> assign(:crop_enabled, Fanfarr.Themes.AutoCrop.enabled?())
     |> assign(:crop_seconds, div(Fanfarr.Themes.AutoCrop.target_ms(), 1000))
     |> assign(:crop_min_seconds, configured_seconds(Fanfarr.Config.get("auto_crop_min_ms")))
     |> assign(:crop_graph, Fanfarr.Themes.AutoCrop.use_graph?())
@@ -163,9 +165,16 @@ defmodule FanfarrWeb.SettingsLive.Index do
   def handle_event("save_crop", params, socket) do
     with {:ok, target} <- crop_seconds(params["auto_crop_seconds"], "Crop length"),
          {:ok, floor} <- crop_seconds(params["auto_crop_min_seconds"], "Minimum length") do
+      # Stored even when the feature is off, so turning it back on does not
+      # mean typing the lengths again.
+      Fanfarr.Settings.put_setting!(
+        "auto_crop_enabled",
+        checkbox_choice(params, "auto_crop_enabled")
+      )
+
       Fanfarr.Settings.put_setting!("auto_crop_target_ms", target)
       Fanfarr.Settings.put_setting!("auto_crop_min_ms", floor)
-      Fanfarr.Settings.put_setting!("auto_crop_graph", graph_choice(params))
+      Fanfarr.Settings.put_setting!("auto_crop_graph", checkbox_choice(params, "auto_crop_graph"))
 
       {:noreply, socket |> load() |> put_flash(:info, "Crop settings saved")}
     else
@@ -838,7 +847,27 @@ defmodule FanfarrWeb.SettingsLive.Index do
             is the length the item page suggests when you press <span class="font-medium">Suggest a crop</span>; it proposes, and you decide.
           </p>
           <form id="crop-form" phx-submit="save_crop" class="mt-4 space-y-4">
-            <div>
+            <div class="space-y-1">
+              <label class="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="auto_crop_enabled"
+                  value="true"
+                  checked={@crop_enabled}
+                  class="size-4 rounded border-input"
+                /> Offer a crop suggestion on the item page
+              </label>
+              <p class="text-xs text-muted-foreground">
+                Off, the item page stops offering one and nothing is fetched or decoded;
+                trimming by hand is unaffected. The three settings below only apply while
+                this is on, and are kept either way.
+              </p>
+            </div>
+
+            <%!-- Dimmed rather than disabled when the feature is off: a disabled
+            input is not submitted, so Save would then clear the lengths rather
+            than leave them alone. --%>
+            <div class={not @crop_enabled && "opacity-60"}>
               <label class="text-xs font-medium text-muted-foreground">Crop length (seconds)</label>
               <p class="mt-0.5 text-xs text-muted-foreground">
                 Defaults to 90. Leave blank to go back to that.
@@ -853,7 +882,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
               />
             </div>
 
-            <div>
+            <div class={not @crop_enabled && "opacity-60"}>
               <label class="text-xs font-medium text-muted-foreground">
                 Only crop themes longer than (seconds)
               </label>
@@ -872,7 +901,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
               />
             </div>
 
-            <div class="space-y-1">
+            <div class={["space-y-1", not @crop_enabled && "opacity-60"]}>
               <label class="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"

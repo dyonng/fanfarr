@@ -51,6 +51,9 @@ defmodule FanfarrWeb.ItemLive.Show do
       |> assign(:trim_error, nil)
       |> assign(:suggesting, false)
       |> assign(:suggestion_note, nil)
+      # Whether this page offers a suggestion at all. An operator setting rather
+      # than a property of the item, so it is read here and not in the panel.
+      |> assign(:crop_enabled, Fanfarr.Themes.AutoCrop.enabled?())
       |> load()
       |> track_applying()
       |> maybe_lookup()
@@ -573,6 +576,11 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   defp suggestion_note(_suggestion), do: nil
 
+  # Reachable from a page left open in a browser tab when the operator turns
+  # the feature off, rather than from the button, which is gone by then.
+  defp suggestion_error(:disabled),
+    do: "Crop suggestions are off in Settings."
+
   defp suggestion_error(:no_themerrdb_entry),
     do: "Nothing knows of a theme for this title yet -- look one up first."
 
@@ -798,10 +806,14 @@ defmodule FanfarrWeb.ItemLive.Show do
               Fetching the audio to trim… the first time for a theme this means a download.
             </p>
 
+            <p :if={!@trim_loading && !@crop_enabled} class="text-xs text-muted-foreground">
+              Crop suggestions are off in Settings, so this is hand-trimming only.
+            </p>
+
             <%!-- The suggestion fills the handles; it does not decide. Where
             it came from is named, because "the part people watch" and "the
             part our own analysis picked" are different claims. --%>
-            <div :if={!@trim_loading} class="flex flex-wrap items-center gap-2">
+            <div :if={!@trim_loading && @crop_enabled} class="flex flex-wrap items-center gap-2">
               <button
                 phx-click="suggest_crop"
                 disabled={@suggesting}

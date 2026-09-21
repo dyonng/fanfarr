@@ -104,6 +104,23 @@ defmodule Fanfarr.Themes.AutoCrop do
   @spec use_graph?() :: boolean()
   def use_graph?, do: Fanfarr.Config.get("auto_crop_graph") not in ["false", "0", "off"]
 
+  @doc """
+  Whether the feature is offered at all.
+
+  Off, the item page stops offering a suggestion and `suggest/2` refuses, so
+  nothing is fetched from YouTube and nothing is decoded. Trimming by hand is
+  untouched: this switches off the automatic part, not the editor.
+
+  `suggest_from_audio/2` is deliberately not gated. It is the mechanism the
+  suggestion is built on rather than the offer itself, and it has callers of
+  its own.
+
+  On by default, like the graph: only a setting that says so turns it off, so
+  an unset or half-typed value does not quietly disable a feature.
+  """
+  @spec enabled?() :: boolean()
+  def enabled?, do: Fanfarr.Config.get("auto_crop_enabled") not in ["false", "0", "off"]
+
   # One reader for a millisecond setting, so the parsing and the fallback live
   # in one place rather than beside each caller.
   defp ms_setting(key) do
@@ -129,8 +146,9 @@ defmodule Fanfarr.Themes.AutoCrop do
   @doc """
   A crop for `item`: the iconic window, or why there is not one.
 
-  `{:error, :no_url}` when nothing knows of a theme for this item at all, and
-  `:no_suggestion` when there is one but no signal could place a window in it.
+  `{:error, :no_url}` when nothing knows of a theme for this item at all,
+  `:no_suggestion` when there is one but no signal could place a window in it,
+  and `{:error, :disabled}` when the operator has turned the feature off.
   """
   @spec suggest(Fanfarr.Library.MediaItem.t(), keyword()) ::
           {:ok, suggestion()} | {:error, term()} | :no_suggestion
@@ -138,14 +156,20 @@ defmodule Fanfarr.Themes.AutoCrop do
     target = Keyword.get(opts, :target_ms, target_ms())
     floor = floor_for(target, opts)
 
-    with {:ok, url, _origin} <- Choice.url(item, %{}) do
-      case from_graph(url, target, floor) do
-        {:ok, suggestion} -> {:ok, suggestion}
-        # Short is an answer, not a miss: the audio is the same length, so
-        # there is nothing to ask it either.
-        :short -> :no_suggestion
-        :no_signal -> from_audio(item, target, floor)
+    # Asked here rather than only in the page that draws the button, so a
+    # caller added later cannot route around the operator's answer.
+    if enabled?() do
+      with {:ok, url, _origin} <- Choice.url(item, %{}) do
+        case from_graph(url, target, floor) do
+          {:ok, suggestion} -> {:ok, suggestion}
+          # Short is an answer, not a miss: the audio is the same length, so
+          # there is nothing to ask it either.
+          :short -> :no_suggestion
+          :no_signal -> from_audio(item, target, floor)
+        end
       end
+    else
+      {:error, :disabled}
     end
   end
 

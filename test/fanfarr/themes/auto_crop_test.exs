@@ -78,6 +78,27 @@ defmodule Fanfarr.Themes.AutoCropTest do
 
       assert AutoCrop.target_ms() == 90_000
     end
+
+    test "the feature is on unless a setting turns it off" do
+      # Not everyone wants this. Nor should the ones who do not have to argue
+      # with a half-typed value: only an explicit off turns it off.
+      assert AutoCrop.enabled?()
+
+      Fanfarr.Settings.put_setting!("auto_crop_enabled", "false")
+      refute AutoCrop.enabled?()
+
+      Fanfarr.Settings.put_setting!("auto_crop_enabled", "maybe")
+      assert AutoCrop.enabled?()
+    end
+
+    test "a disabled feature refuses before it reaches for anything" do
+      Fanfarr.Settings.put_setting!("auto_crop_enabled", "false")
+
+      # A bare struct, because the refusal has to come before the item is read
+      # at all. Were the order the other way round this would answer
+      # {:error, :no_url}, and the check would be in the wrong place.
+      assert AutoCrop.suggest(%Fanfarr.Library.MediaItem{}) == {:error, :disabled}
+    end
   end
 
   describe "an item whose theme has a graph" do
