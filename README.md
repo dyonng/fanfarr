@@ -40,7 +40,7 @@ downloads, and appearance, all in one place.
 - **Bulk actions** — tick rows or select everything matching a filter; one job per item, two downloads at a time, cancellable mid-run.
 - **Local `theme.mp3`, never an upload** — written beside the media, so deleting the file undoes it. Plex's upload API cannot be undone.
 - **Renames don't fork a row** — items are matched by IMDb/TMDB/TVDB id, keeping the same theme and history; anything Plex has genuinely dropped goes on the next sync.
-- **Root folders, like Sonarr** — mount each library location wherever you like and browse to it in Settings; items are found by directory name across the roots.
+- **Root folders, like Sonarr** — mount each library location wherever you like and browse to it in Settings; items are found by directory name across the roots, and each root reports whether it is accessible, writable, and how much room is left on the drive.
 - **Loudness normalisation** — every written theme lands at one level (-14 LUFS by default, adjustable).
 - **System page** — health checks: Plex reachable, yt-dlp present, roots writable, Plex paths resolving, ThemerrDB up, database healthy. A sidebar dot when something needs attention.
 - **Log console** — full-page, colour-coded, filterable.
