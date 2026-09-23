@@ -378,9 +378,10 @@ defmodule Fanfarr.Workers.ApplyTheme do
   # than source -> mp3 -> cut -> mp3.
   #
   # Only ever a `:source` entry: `fetch_source/1` refuses a `:render`, which is
-  # an mp3 we wrote earlier and would compound its own losses. Nothing here
-  # populates the cache; it is written on the edit path alone, or a bulk apply
-  # would fill the volume for a run nobody is editing.
+  # an mp3 we wrote earlier and would compound its own losses. Otherwise the
+  # cache is written on the edit path alone, or a bulk apply would fill the
+  # volume for a run nobody is editing -- the one exception being a forced
+  # redownload, which exists precisely to replace what is in there.
   defp obtain(url, tmp, force) do
     # A forced redownload skips the cache. The cache holds a lossless original
     # and exists to make re-trimming cheap, but "the file on disk is a
@@ -414,9 +415,39 @@ defmodule Fanfarr.Workers.ApplyTheme do
         end
 
       :miss ->
-        Themes.Downloader.impl().download(url, tmp)
+        downloaded = Themes.Downloader.impl().download(url, tmp)
+        if force, do: remember(url, downloaded), else: downloaded
     end
   end
+
+  # Puts a fresh download into the cache, so the next apply of this title works
+  # from the source the operator just asked for rather than from the generation
+  # they replaced. Copied first, because the pipeline cuts and normalises the
+  # working copy in place and the cache is meant to keep the original.
+  #
+  # A cache that cannot be written is logged and stepped over: the theme file is
+  # already correct by then, and a redownload that refused to finish because of
+  # a full volume would be trading the thing that was asked for against a
+  # convenience beside it.
+  defp remember(url, {:ok, %{path: path}} = result) do
+    staged = Path.join(Path.dirname(path), "cache-#{Path.basename(path)}")
+
+    with :ok <- File.cp(path, staged),
+         {:ok, _entry} <- Themes.SourceCache.put(url, staged, :source) do
+      result
+    else
+      {:error, reason} ->
+        Logger.warning(
+          "[fanfarr] could not cache the redownloaded source (#{inspect(reason)}); " <>
+            "the theme itself is written and correct"
+        )
+
+        File.rm(staged)
+        result
+    end
+  end
+
+  defp remember(_url, other), do: other
 
   # A no-op range does not get a re-encode: running ffmpeg to produce the same
   # audio costs a generation of lossy loss for nothing.

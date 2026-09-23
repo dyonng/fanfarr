@@ -142,6 +142,12 @@ defmodule Fanfarr.Themes.SourceCache do
     target = Path.join(dir(), "#{key}.#{kind}#{Path.extname(source)}")
     peaks = peaks_path(key, kind)
 
+    # The same URL can come back in a different container -- a video served as
+    # webm one day and m4a the next -- and `audio_path/1` takes whichever of the
+    # two the directory listing happens to offer first. Left alone, the entry
+    # this write is replacing could be the one that gets used instead.
+    remove_stale(key, kind, target)
+
     with :ok <- Fanfarr.Themes.Writer.place(source, target),
          {:ok, _} <- Waveform.write(target, peaks) do
       sweep()
@@ -151,6 +157,17 @@ defmodule Fanfarr.Themes.SourceCache do
         File.rm(target)
         File.rm(peaks)
         {:error, reason}
+    end
+  end
+
+  # Whatever is cached for this key and kind that is not the file about to be
+  # written. One key holds one entry per kind; two would make the lookup a coin
+  # toss.
+  defp remove_stale(key, kind, target) do
+    case audio_path(key, kind) do
+      nil -> :ok
+      ^target -> :ok
+      other -> File.rm(other)
     end
   end
 

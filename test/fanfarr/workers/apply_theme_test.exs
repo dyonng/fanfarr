@@ -147,6 +147,73 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       # what came back from the fetch.
       assert File.read!(Path.join(ctx.media, "theme.mp3")) == "the-fresh-audio"
     end
+
+    test "and the cache is left holding what it fetched", ctx do
+      # Real audio, because this one goes into the cache, and an entry is only
+      # stored once its peaks have been rendered.
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        file = Path.join(dir, "fresh.mp3")
+
+        {_output, 0} =
+          System.cmd(
+            "ffmpeg",
+            ~w(-hide_banner -loglevel error -y -f lavfi -i sine=frequency=660:duration=3 -c:a libmp3lame) ++
+              [file],
+            stderr_to_stdout: true
+          )
+
+        {:ok, %{path: file, bytes: File.stat!(file).size, codec: "mp3", duration: 3.0}}
+      end)
+
+      item = item(ctx)
+      themerr_hit()
+
+      assert :ok = run(item, %{"force_download" => true})
+
+      # Three seconds, not the two the setup cached. Without this the next
+      # apply of this title works from the generation the operator just
+      # replaced, and the redownload quietly undoes itself.
+      url = "https://www.youtube.com/watch?v=abc123"
+      assert {:ok, entry} = Fanfarr.Themes.SourceCache.fetch_source(url)
+      assert %{"duration_ms" => 3_000} = entry.peaks |> File.read!() |> Jason.decode!()
+    end
+
+    test "and a different container replaces the old file rather than sitting beside it", ctx do
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        file = Path.join(dir, "fresh.m4a")
+
+        {_output, 0} =
+          System.cmd(
+            "ffmpeg",
+            ~w(-hide_banner -loglevel error -y -f lavfi -i sine=frequency=660:duration=3 -c:a aac) ++
+              [file],
+            stderr_to_stdout: true
+          )
+
+        {:ok, %{path: file, bytes: File.stat!(file).size, codec: "aac", duration: 3.0}}
+      end)
+
+      item = item(ctx)
+      themerr_hit()
+
+      assert :ok = run(item, %{"force_download" => true})
+
+      # One entry per key and kind. Two would make the lookup whichever the
+      # directory listing happens to offer first, which could be the file the
+      # redownload was asked to replace.
+      assert {:ok, entry} =
+               Fanfarr.Themes.SourceCache.fetch_source("https://www.youtube.com/watch?v=abc123")
+
+      assert Path.extname(entry.path) == ".m4a"
+
+      audio =
+        Fanfarr.Themes.SourceCache.dir()
+        |> Path.join("*")
+        |> Path.wildcard()
+        |> Enum.reject(&(&1 =~ ~r/\.peaks\.json$/))
+
+      assert [entry.path] == audio
+    end
   end
 
   describe "an unwritable destination" do
