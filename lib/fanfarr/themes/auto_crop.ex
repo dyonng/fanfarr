@@ -160,7 +160,7 @@ defmodule Fanfarr.Themes.AutoCrop do
     # caller added later cannot route around the operator's answer.
     if enabled?() do
       with {:ok, url, _origin} <- Choice.url(item, %{}) do
-        case from_graph(url, target, floor) do
+        case from_graph(url, target) do
           {:ok, suggestion} -> {:ok, suggestion}
           # Short is an answer, not a miss: the audio is the same length, so
           # there is nothing to ask it either.
@@ -175,11 +175,11 @@ defmodule Fanfarr.Themes.AutoCrop do
 
   # --- the graph -----------------------------------------------------------
 
-  defp from_graph(url, target, floor) do
+  defp from_graph(url, target) do
     with true <- use_graph?(),
          true <- Downloader.youtube_url?(url),
          {:ok, markers} <- Downloader.impl().heatmap(url),
-         {:ok, window} <- from_heatmap(markers, target, floor) do
+         {:ok, window} <- from_heatmap(markers, target) do
       {:ok,
        %{
          start_ms: window.start_ms,
@@ -188,9 +188,6 @@ defmodule Fanfarr.Themes.AutoCrop do
          score: window.score
        }}
     else
-      :short ->
-        :short
-
       # A video with no graph, or a downloader that cannot say, or the graph
       # turned off. Either way the audio is still there to be asked.
       _ ->
@@ -198,14 +195,18 @@ defmodule Fanfarr.Themes.AutoCrop do
     end
   end
 
-  # The graph spans the video, so its length is the track's length: a track
-  # shorter than the crop is declined here rather than clamped later.
-  defp from_heatmap(markers, target, floor) do
-    if MostReplayed.duration_ms(markers) < floor do
-      :short
-    else
-      MostReplayed.best_window(markers, target)
-    end
+  # The extent of a graph is not the length of a track. It covers only the part
+  # viewers replayed enough to appear in it, so a 275-second theme can answer
+  # with a hundred seconds of graph -- and reading that as "too short" declined
+  # it *without asking the audio*, which is the fallback that exists for exactly
+  # this case. Measured: Inception, 275s of theme, full decode, a good window at
+  # 56s, and declined anyway.
+  #
+  # So a graph that does not reach far enough is a miss rather than a verdict.
+  # `best_window/2` still declines a graph too short to hold the crop itself,
+  # which is the only length question the graph can honestly answer.
+  defp from_heatmap(markers, target) do
+    MostReplayed.best_window(markers, target)
   end
 
   # --- the audio -----------------------------------------------------------

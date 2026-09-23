@@ -143,6 +143,28 @@ defmodule Fanfarr.Themes.AutoCropTest do
       assert suggestion.end_ms - suggestion.start_ms == 20_000
     end
 
+    test "a graph shorter than the floor but longer than the crop still yields a window",
+         %{item: item} do
+      # A hundred and seventy seconds of graph against a three-minute floor and
+      # a ninety-second crop. The extent of a graph is not the length of the
+      # track -- it covers only what viewers replayed enough to appear in it --
+      # so reading it as a length declined this without ever asking the audio,
+      # which is the fallback that exists for exactly this case.
+      markers =
+        for index <- 0..169,
+            do: %{start_time: index * 1.0, end_time: index * 1.0 + 1.0, value: 0.1}
+
+      loud = List.replace_at(markers, 100, %{start_time: 100.0, end_time: 101.0, value: 1.0})
+
+      expect(Fanfarr.ThemeDownloaderMock, :heatmap, fn _url -> {:ok, loud} end)
+
+      # Nothing stubs the audio, so if this fell through to it the test would
+      # fail on an unexpected call rather than pass quietly.
+      assert {:ok, suggestion} = AutoCrop.suggest(item, target_ms: 90_000, min_ms: 180_000)
+      assert suggestion.source == :most_replayed
+      assert suggestion.end_ms - suggestion.start_ms == 90_000
+    end
+
     test "no graph means the audio is asked instead", %{item: item} do
       expect(Fanfarr.ThemeDownloaderMock, :heatmap, fn _url -> {:error, :no_heatmap} end)
 
@@ -238,6 +260,20 @@ defmodule Fanfarr.Themes.AutoCropTest do
       # 70-second target is worth doing unless told otherwise.
       assert {:ok, suggestion} = AutoCrop.suggest_from_audio(track(), target_ms: 70_000)
       assert suggestion.end_ms - suggestion.start_ms == 70_000
+    end
+
+    test "an explicit request is cropped even when the configured floor declines it" do
+      # Three minutes in the settings, ninety seconds of track. Left to itself
+      # the feature declines this as too short to bother with, which is the
+      # automatic rule doing its job.
+      Fanfarr.Settings.put_setting!("auto_crop_min_ms", "180000")
+      assert AutoCrop.suggest_from_audio(track()) == :no_suggestion
+
+      # Asked for by hand -- the item page's button, or a bulk trim -- the
+      # floor is the crop length instead. The configured floor says what is
+      # worth doing unattended, and a button press is not that question.
+      assert {:ok, suggestion} = AutoCrop.suggest_from_audio(track(), min_ms: 90_000)
+      assert suggestion.end_ms - suggestion.start_ms == 90_000
     end
   end
 end

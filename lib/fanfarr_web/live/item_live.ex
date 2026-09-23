@@ -300,12 +300,19 @@ defmodule FanfarrWeb.ItemLive.Show do
   # panel says it is working.
   def handle_event("suggest_crop", _params, socket) do
     item = socket.assigns.item
+    target = Fanfarr.Themes.AutoCrop.target_ms()
 
     {:noreply,
      socket
      |> assign(:suggesting, true)
      |> assign(:suggestion_note, nil)
-     |> start_async(:suggest_crop, fn -> Fanfarr.Themes.AutoCrop.suggest(item) end)}
+     # The operator asked, so the configured floor does not apply to it: the
+     # floor decides what is worth cropping unattended, and a button press is
+     # not that question. Something too short to hold the crop is still
+     # declined; anything long enough is cropped to the configured length.
+     |> start_async(:suggest_crop, fn ->
+       Fanfarr.Themes.AutoCrop.suggest(item, min_ms: target)
+     end)}
   end
 
   # One event for every control in the panel -- handles, nudges, typed fields

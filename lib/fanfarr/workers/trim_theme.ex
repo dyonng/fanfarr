@@ -35,6 +35,8 @@ defmodule Fanfarr.Workers.TrimTheme do
     max_attempts: 3,
     unique: [period: 300, keys: [:media_item_id], states: [:available, :scheduled, :executing]]
 
+  require Logger
+
   alias Fanfarr.Library
   alias Fanfarr.Themes
   alias Fanfarr.Themes.AutoCrop
@@ -68,10 +70,29 @@ defmodule Fanfarr.Workers.TrimTheme do
       broadcast(item)
       :ok
     else
-      {:cancel, reason} -> {:cancel, reason}
-      {:error, reason} -> {:error, reason}
+      {:cancel, reason} ->
+        # Logged on purpose. A skip is an answer rather than a fault, and
+        # without this the only trace of one is a cancelled job with no
+        # explanation on it -- which is what made a batch of them take a
+        # database autopsy to understand.
+        Logger.info(
+          "[fanfarr] trim skipped for #{item.title}: #{skip_reason(reason)} " <>
+            "(crop #{div(AutoCrop.target_ms(), 1000)}s)"
+        )
+
+        {:cancel, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  # In the operator's terms rather than ours.
+  defp skip_reason(:crop_disabled), do: "crop suggestions are turned off in Settings"
+  defp skip_reason(:already_cropped), do: "it already has a crop"
+  defp skip_reason(:no_local_theme), do: "there is no theme file beside the media to cut"
+  defp skip_reason(:no_suggestion), do: "no window could be found in it"
+  defp skip_reason(other), do: inspect(other)
 
   defp enabled? do
     if AutoCrop.enabled?(), do: :ok, else: {:cancel, :crop_disabled}
@@ -92,7 +113,12 @@ defmodule Fanfarr.Workers.TrimTheme do
   defp local_theme(_item), do: {:cancel, :no_local_theme}
 
   defp crop(item) do
-    case AutoCrop.suggest(item) do
+    # The configured floor is a policy for what is worth doing on its own. This
+    # is not that: the operator picked these rows and pressed the button, so the
+    # crop length is the only length that can veto -- a theme too short to hold
+    # ninety seconds is declined, and one long enough is cropped whatever the
+    # floor says.
+    case AutoCrop.suggest(item, min_ms: AutoCrop.target_ms()) do
       {:ok, suggestion} -> {:ok, trim_from(suggestion)}
       :no_suggestion -> {:cancel, :no_suggestion}
       {:error, reason} -> {:cancel, reason}
