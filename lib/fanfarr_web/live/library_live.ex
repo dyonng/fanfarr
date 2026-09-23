@@ -54,6 +54,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
      |> assign(:show_columns, false)
      |> assign(:columns, @columns)
      |> assign(:visible_columns, @default_columns)
+     # Gates the bulk trim, which is the auto-crop feature wearing a different
+     # hat: the crop itself is found by the worker, not here.
+     |> assign(:crop_enabled, Fanfarr.Themes.AutoCrop.enabled?())
      |> assign(:page_title, "Library")}
   end
 
@@ -170,6 +173,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
       case action do
         "apply" -> {Enum.count(ids, &enqueue_apply/1), "theme writes"}
         "lookup" -> {Enum.count(ids, &enqueue_lookup/1), "ThemerrDB lookups"}
+        "trim" -> {Enum.count(ids, &enqueue_trim/1), "theme trims"}
       end
 
     {:noreply,
@@ -182,6 +186,12 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
   defp enqueue_lookup(id) do
     match?({:ok, _}, %{media_item_id: id} |> Fanfarr.Workers.LookupTheme.new() |> Oban.insert())
+  end
+
+  # The crop is found by the worker rather than here: it needs the audio, and
+  # a hundred decodes cannot happen inside a click.
+  defp enqueue_trim(id) do
+    match?({:ok, _}, %{media_item_id: id} |> Fanfarr.Workers.TrimTheme.new() |> Oban.insert())
   end
 
   @impl true
@@ -604,6 +614,14 @@ defmodule FanfarrWeb.LibraryLive.Index do
             class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8"
           >
             <.icon name="lucide-database" class="size-3.5" /> Look up ThemerrDB
+          </button>
+          <button
+            :if={@crop_enabled}
+            phx-click="bulk"
+            phx-value-action="trim"
+            class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8"
+          >
+            <.icon name="lucide-scissors" class="size-3.5" /> Trim current themes
           </button>
           <button
             phx-click="bulk"

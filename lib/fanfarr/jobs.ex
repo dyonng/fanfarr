@@ -21,10 +21,16 @@ defmodule Fanfarr.Jobs do
 
   @active ~w(executing available scheduled retryable)
 
-  # The two workers a bulk selection on the Library page can queue -- the
-  # only jobs "Stop" on the Activity page means, so a scheduled sync or
-  # ThemerrDB refresh is never swept up by accident.
-  @bulk_theme_workers ~w(Fanfarr.Workers.ApplyTheme Fanfarr.Workers.LookupTheme)
+  # The workers a bulk selection on the Library page can queue -- the only
+  # jobs "Stop" on the Activity page means, so a scheduled sync or ThemerrDB
+  # refresh is never swept up by accident. TrimTheme belongs here because it is
+  # the first half of a bulk trim: it finds the crop and queues the write, and
+  # a run stopped halfway would leave crops chosen but never written.
+  @bulk_theme_workers [
+    "Fanfarr.Workers.ApplyTheme",
+    "Fanfarr.Workers.LookupTheme",
+    "Fanfarr.Workers.TrimTheme"
+  ]
 
   # Plumbing rather than work. The scheduler heartbeat runs every five
   # minutes; counting it would flash "1 running" in the sidebar 288 times a

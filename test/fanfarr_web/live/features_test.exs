@@ -1001,6 +1001,40 @@ defmodule FanfarrWeb.FeaturesTest do
       refute has_element?(view, "#bulk-bar"), "selection clears after acting"
     end
 
+    test "trimming the selection queues the crop worker", %{conn: conn, item: item, other: other} do
+      {:ok, view, _html} = live(conn, "/library")
+      render_click(view, "select_page", %{})
+
+      html = render_click(view, "bulk", %{"action" => "trim"})
+
+      assert html =~ "2 theme trims"
+
+      # The crop itself is found by the worker -- it needs the audio, and a
+      # hundred decodes cannot happen inside a click -- so all this does is
+      # queue one per item.
+      jobs = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "TrimTheme"))
+
+      assert Enum.map(jobs, & &1.args["media_item_id"]) |> Enum.sort() ==
+               Enum.sort([item.id, other.id])
+
+      # And it writes nothing itself: putting themes on disk stays ApplyTheme's
+      # job, which the trim worker queues once it has found a crop.
+      refute Enum.any?(Fanfarr.Repo.all(Oban.Job), &(&1.worker =~ "ApplyTheme"))
+    end
+
+    test "the trim action goes away when the crop feature is off", %{conn: conn} do
+      Fanfarr.Settings.put_setting!("auto_crop_enabled", "false")
+
+      {:ok, view, _html} = live(conn, "/library")
+      render_click(view, "select_page", %{})
+
+      # Gone, while the two actions that need no crop stay exactly where they
+      # were.
+      refute has_element?(view, ~s([phx-value-action="trim"]))
+      assert has_element?(view, ~s([phx-value-action="apply"]))
+      assert has_element?(view, ~s([phx-value-action="lookup"]))
+    end
+
     test "select all matching reaches beyond the current page", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/library?q=flea")
       render_click(view, "toggle_select", %{"id" => "x"})
