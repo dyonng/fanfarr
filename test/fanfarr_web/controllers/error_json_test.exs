@@ -1,5 +1,5 @@
 defmodule FanfarrWeb.ErrorJSONTest do
-  use FanfarrWeb.ConnCase, async: true
+  use FanfarrWeb.ConnCase, async: false
 
   test "renders 404" do
     assert FanfarrWeb.ErrorJSON.render("404.json", %{}) == %{errors: %{detail: "Not Found"}}

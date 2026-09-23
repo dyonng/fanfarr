@@ -1,5 +1,5 @@
 defmodule Fanfarr.Themes.ThemerrEntryTest do
-  use Fanfarr.DataCase, async: true
+  use Fanfarr.DataCase, async: false
 
   alias Fanfarr.Themes.ThemerrEntry
 

@@ -7,7 +7,7 @@ defmodule Fanfarr.Library.ThemeDurationTest do
   means. Exercised against a real database because the point of deriving it is
   that it stays true to the rows underneath.
   """
-  use Fanfarr.DataCase, async: true
+  use Fanfarr.DataCase, async: false
 
   alias Fanfarr.Library.MediaItem
   alias Fanfarr.Library.Section

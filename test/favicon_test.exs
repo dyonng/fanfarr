@@ -4,7 +4,7 @@ defmodule FaviconTest do
   exists on disk but is not listed 404s, which for a favicon looks like the
   browser simply ignoring it.
   """
-  use FanfarrWeb.ConnCase, async: true
+  use FanfarrWeb.ConnCase, async: false
 
   @icons ~w(favicon.svg favicon.ico apple-touch-icon.png)
 

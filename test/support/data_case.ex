@@ -8,10 +8,20 @@ defmodule Fanfarr.DataCase do
 
   Finally, if the test case interacts with the database,
   we enable the SQL sandbox, so changes done to the database
-  are reverted at the end of every test. If you are using
-  PostgreSQL, you can even run database tests asynchronously
-  by setting `use Fanfarr.DataCase, async: true`, although
-  this option is not recommended for other databases.
+  are reverted at the end of every test.
+
+  ## Why nothing that touches the database is async
+
+  SQLite allows exactly one writer at a time. An async test is its own sandbox
+  owner on its own connection, so two of them writing at once do not fail
+  themselves: they fail whichever tests happen to be running beside them, in
+  files that had nothing to do with each other, and usually in a setup before
+  the test body has even started. That is why every case here is
+  `async: false`.
+
+  A test that never touches the database should not use this module at all.
+  `ExUnit.Case` is async safely -- see the many cases in `test/` that use it
+  for parsing, formatting, and the pure modules.
   """
 
   use ExUnit.CaseTemplate

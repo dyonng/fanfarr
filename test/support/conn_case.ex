@@ -9,10 +9,12 @@ defmodule FanfarrWeb.ConnCase do
 
   Finally, if the test case interacts with the database,
   we enable the SQL sandbox, so changes done to the database
-  are reverted at the end of every test. If you are using
-  PostgreSQL, you can even run database tests asynchronously
-  by setting `use FanfarrWeb.ConnCase, async: true`, although
-  this option is not recommended for other databases.
+  are reverted at the end of every test.
+
+  That checkout alone makes a test a writer, so these cases are `async: false`
+  as well: SQLite takes one writer at a time, and `Fanfarr.DataCase` writes the
+  reasoning out in full. A controller test that never reaches the database can
+  be async by using `ExUnit.Case` instead.
   """
 
   use ExUnit.CaseTemplate

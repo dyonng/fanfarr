@@ -1,5 +1,5 @@
 defmodule FanfarrWeb.HealthControllerTest do
-  use FanfarrWeb.ConnCase, async: true
+  use FanfarrWeb.ConnCase, async: false
 
   test "reports ok and the app version when the database is reachable", %{conn: conn} do
     conn = get(conn, ~p"/health")

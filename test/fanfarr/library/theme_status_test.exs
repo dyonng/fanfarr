@@ -4,7 +4,7 @@ defmodule Fanfarr.Library.ThemeStatusTest do
   database rather than the calculation in isolation -- the point of deriving
   status is that it stays true to the underlying rows.
   """
-  use Fanfarr.DataCase, async: true
+  use Fanfarr.DataCase, async: false
 
   alias Fanfarr.Library.MediaItem
   alias Fanfarr.Library.Section

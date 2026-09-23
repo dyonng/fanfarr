@@ -4,7 +4,7 @@ defmodule Fanfarr.Themes.ThemeApplicationTest do
   because uploads cannot be undone through its API. These cover the properties
   that makes necessary.
   """
-  use Fanfarr.DataCase, async: true
+  use Fanfarr.DataCase, async: false
 
   alias Fanfarr.Library.MediaItem
   alias Fanfarr.Library.Section

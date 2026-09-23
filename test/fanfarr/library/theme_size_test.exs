@@ -7,7 +7,7 @@ defmodule Fanfarr.Library.ThemeSizeTest do
   of deriving it is that it stays true to the append-only log underneath, and
   the interesting cases are all about which row wins.
   """
-  use Fanfarr.DataCase, async: true
+  use Fanfarr.DataCase, async: false
 
   alias Fanfarr.Library.MediaItem
   alias Fanfarr.Library.Section
