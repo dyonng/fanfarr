@@ -29,13 +29,15 @@ defmodule Fanfarr.Workers.ApplyTheme do
   """
   # Keyed on the URL as well as the item: applying a ThemerrDB suggestion and
   # then a URL picked from search are two different jobs for the same item,
-  # and the second must not be swallowed as a duplicate of the first.
+  # and the second must not be swallowed as a duplicate of the first. The force
+  # flag is in there for the same reason -- a redownload is a different job
+  # from an apply that would be happy with the cached source.
   use Oban.Worker,
     queue: :apply,
     max_attempts: 3,
     unique: [
       period: 300,
-      keys: [:media_item_id, :theme_url],
+      keys: [:media_item_id, :theme_url, :force_download],
       states: [:available, :scheduled, :executing]
     ]
 
@@ -68,7 +70,8 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
   `:theme_url` applies that URL instead of the item's manual pick or ThemerrDB
   entry -- used by "apply this one" from a search result, where the URL was
-  just listened to.
+  just listened to. `force: true` fetches the source again instead of using the
+  cached copy, which is what the item page's Redownload does.
   """
   @spec enqueue(Fanfarr.Library.MediaItem.t() | String.t(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, term()}
@@ -78,6 +81,7 @@ defmodule Fanfarr.Workers.ApplyTheme do
     %{media_item_id: id}
     |> maybe_put(:theme_url, opts[:theme_url])
     |> maybe_put(:source, opts[:source])
+    |> maybe_put(:force_download, opts[:force])
     |> new()
     |> Oban.insert()
   end
@@ -97,7 +101,8 @@ defmodule Fanfarr.Workers.ApplyTheme do
          source: source,
          dir: dir,
          path: Path.join(dir, @theme_filename),
-         trim: trim(item)
+         trim: trim(item),
+         force: args["force_download"] == true
        }}
     end
   end
@@ -332,7 +337,7 @@ defmodule Fanfarr.Workers.ApplyTheme do
     File.mkdir_p!(tmp)
 
     try do
-      case obtain(plan.url, tmp) do
+      case obtain(plan.url, tmp, plan[:force]) do
         {:ok, %{path: downloaded} = result} ->
           # Cut BEFORE normalising, and the order is load-bearing. Normalizer
           # is two-pass: it measures integrated loudness and applies exactly
@@ -376,8 +381,14 @@ defmodule Fanfarr.Workers.ApplyTheme do
   # an mp3 we wrote earlier and would compound its own losses. Nothing here
   # populates the cache; it is written on the edit path alone, or a bulk apply
   # would fill the volume for a run nobody is editing.
-  defp obtain(url, tmp) do
-    case Themes.SourceCache.fetch_source(url) do
+  defp obtain(url, tmp, force) do
+    # A forced redownload skips the cache. The cache holds a lossless original
+    # and exists to make re-trimming cheap, but "the file on disk is a
+    # generation down and I want the source again" is precisely the question it
+    # cannot answer, so this is the one caller that ignores it.
+    lookup = if force, do: :miss, else: Themes.SourceCache.fetch_source(url)
+
+    case lookup do
       {:ok, cached} ->
         # Copied into the scratch dir, because the pipeline cuts and normalises
         # in place and the cache is not ours to rewrite.

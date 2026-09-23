@@ -340,6 +340,13 @@ defmodule FanfarrWeb.ItemLive.Show do
     |> queue(theme_url: trim.url, flash: "Queued for writing")
   end
 
+  # The way back from trimming in place. A file that has been cut carries every
+  # generation it has been through, and the only way to shed them is to fetch
+  # the original again -- which is what this asks the worker for.
+  def handle_event("redownload", _params, socket) do
+    queue(socket, force: true, flash: "Queued a fresh download")
+  end
+
   def handle_event("clear_manual", _params, socket) do
     Library.set_manual_theme!(socket.assigns.item, %{
       manual_theme_url: nil,
@@ -768,6 +775,13 @@ defmodule FanfarrWeb.ItemLive.Show do
                 title="Choose where this theme starts and ends"
               >
                 <.icon name="lucide-scissors" class="size-3.5" /> Trim
+              </button>
+              <button
+                phx-click="redownload"
+                class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8"
+                title="Fetch the source again and write it fresh. Trimming in place adds a lossy generation each time, so this is how a file that has been trimmed a few times gets back to one."
+              >
+                <.icon name="lucide-download" class="size-3.5" /> Redownload
               </button>
               <button
                 phx-click="remove_theme"

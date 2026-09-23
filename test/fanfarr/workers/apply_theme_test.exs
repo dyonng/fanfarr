@@ -86,6 +86,69 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end)
   end
 
+  describe "the source cache" do
+    setup ctx do
+      # The cache holds the original, which is what an ordinary apply works
+      # from. `put` moves the file and renders its peaks, so this has to be
+      # real audio rather than a placeholder string.
+      source = Path.join(ctx.root, "cached-source.mp3")
+
+      {_output, 0} =
+        System.cmd(
+          "ffmpeg",
+          ~w(-hide_banner -loglevel error -y -f lavfi -i sine=frequency=440:duration=2 -c:a libmp3lame) ++
+            [source],
+          stderr_to_stdout: true
+        )
+
+      {:ok, _} =
+        Fanfarr.Themes.SourceCache.put(
+          "https://www.youtube.com/watch?v=abc123",
+          source,
+          :source
+        )
+
+      # The cache is shared for the whole run, so a source left here would
+      # change what every other test that applies this URL does. This file is
+      # not async, so clearing it cannot pull the ground from under another.
+      on_exit(fn -> File.rm_rf!(Fanfarr.Themes.SourceCache.dir()) end)
+
+      :ok
+    end
+
+    test "an ordinary apply uses it, and does not download", ctx do
+      # No stub here, so any call at all raises: this asserts the cache was
+      # used rather than that it merely might have been.
+      expect(Fanfarr.ThemeDownloaderMock, :download, 0, fn _url, _dir ->
+        flunk("downloaded when the source was already cached")
+      end)
+
+      item = item(ctx)
+      themerr_hit()
+
+      assert :ok = run(item)
+      assert File.regular?(Path.join(ctx.media, "theme.mp3"))
+    end
+
+    test "a forced redownload ignores it", ctx do
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        file = Path.join(dir, "fresh.mp3")
+        File.write!(file, "the-fresh-audio")
+        {:ok, %{path: file, bytes: 15, codec: "mp3", duration: 90.0}}
+      end)
+
+      item = item(ctx)
+      themerr_hit()
+
+      assert :ok = run(item, %{"force_download" => true})
+
+      # The bytes are the fresh download's, not the cache's: the stub writes
+      # something ffmpeg cannot normalise, so what is left on disk is exactly
+      # what came back from the fetch.
+      assert File.read!(Path.join(ctx.media, "theme.mp3")) == "the-fresh-audio"
+    end
+  end
+
   describe "an unwritable destination" do
     @describetag :requires_mount
 
