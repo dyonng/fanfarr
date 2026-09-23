@@ -147,11 +147,12 @@ defmodule Fanfarr.Themes.AutoCrop do
   A crop for `item`: the iconic window, or why there is not one.
 
   `{:error, :no_url}` when nothing knows of a theme for this item at all,
-  `:no_suggestion` when there is one but no signal could place a window in it,
-  and `{:error, :disabled}` when the operator has turned the feature off.
+  `:too_short` when the theme cannot hold the crop at all, `:no_suggestion`
+  when it can but no signal could place a window in it, and `{:error,
+  :disabled}` when the operator has turned the feature off.
   """
   @spec suggest(Fanfarr.Library.MediaItem.t(), keyword()) ::
-          {:ok, suggestion()} | {:error, term()} | :no_suggestion
+          {:ok, suggestion()} | {:error, term()} | :too_short | :no_suggestion
   def suggest(item, opts \\ []) do
     target = Keyword.get(opts, :target_ms, target_ms())
     floor = floor_for(target, opts)
@@ -224,8 +225,14 @@ defmodule Fanfarr.Themes.AutoCrop do
   Separate from `suggest/2` so the analysis can be exercised against a fixture
   instead of whatever YouTube would serve today, and so a caller that already
   has the audio -- the trim editor does -- can ask without a second resolve.
+
+  `:too_short` when the file cannot hold the crop, and `:no_suggestion` when
+  it can but no window stood out of the rest. Two answers rather than one
+  because the first is a length and the second is a listen, and a caller that
+  reports a skip is more useful when it can say which happened.
   """
-  @spec suggest_from_audio(Path.t(), keyword()) :: {:ok, suggestion()} | :no_suggestion
+  @spec suggest_from_audio(Path.t(), keyword()) ::
+          {:ok, suggestion()} | :too_short | :no_suggestion
   def suggest_from_audio(path, opts \\ []) do
     target = Keyword.get(opts, :target_ms, target_ms())
     floor = floor_for(target, opts)
@@ -241,9 +248,11 @@ defmodule Fanfarr.Themes.AutoCrop do
         :no_suggestion
 
       length(frames) * @frame_ms < floor ->
-        # Shorter than the crop is worth: nothing to save, and a re-encode
-        # would cost a generation of lossy loss for a few seconds.
-        :no_suggestion
+        # Shorter than the crop is worth, which is its own answer rather than a
+        # failure to find one: nothing to save, and a re-encode would cost a
+        # generation of lossy loss for a few seconds. Named so a caller that
+        # skips the file can say which of the two happened.
+        :too_short
 
       true ->
         case best_window(frames, div(target, @frame_ms)) do

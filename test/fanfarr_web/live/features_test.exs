@@ -825,7 +825,9 @@ defmodule FanfarrWeb.FeaturesTest do
     test "a theme shorter than the target is declined, not cropped anyway",
          %{conn: conn, item: item} do
       # No graph, so it falls to the audio: four seconds against a ninety-second
-      # target, where cropping would be a re-encode for nothing.
+      # target, where cropping would be a re-encode for nothing. Declined as a
+      # length rather than as a failure to find a window -- a length is not a
+      # listen, and the page says which of the two happened.
       expect(Fanfarr.ThemeDownloaderMock, :heatmap, fn _url -> {:error, :no_heatmap} end)
 
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
@@ -835,7 +837,7 @@ defmodule FanfarrWeb.FeaturesTest do
       render_click(view, "suggest_crop", %{})
       html = render_async(view, 10_000)
 
-      assert html =~ "No suggestion for this one"
+      assert html =~ "Shorter than a crop would be"
     end
 
     test "a disabled feature is not offered at all", %{conn: conn, item: item} do

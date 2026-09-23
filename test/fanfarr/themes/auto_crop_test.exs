@@ -244,15 +244,17 @@ defmodule Fanfarr.Themes.AutoCropTest do
     end
 
     test "a track shorter than the target is left alone entirely" do
-      # Not clamped and not partially cropped: there is nothing to save.
-      assert AutoCrop.suggest_from_audio(track(), target_ms: 120_000) == :no_suggestion
+      # Not clamped and not partially cropped: there is nothing to save. Its own
+      # answer rather than "no window found", so a caller that skips the file
+      # can say whether the length decided it or the listen did.
+      assert AutoCrop.suggest_from_audio(track(), target_ms: 120_000) == :too_short
     end
 
     test "a marginal crop is left alone when the minimum says so" do
       # 90 seconds against a 70-second target saves twenty seconds for a
       # generation of lossy loss, so a minimum above the track declines it.
       assert AutoCrop.suggest_from_audio(track(), target_ms: 70_000, min_ms: 105_000) ==
-               :no_suggestion
+               :too_short
     end
 
     test "and the same track is cropped when the minimum allows" do
@@ -267,7 +269,7 @@ defmodule Fanfarr.Themes.AutoCropTest do
       # the feature declines this as too short to bother with, which is the
       # automatic rule doing its job.
       Fanfarr.Settings.put_setting!("auto_crop_min_ms", "180000")
-      assert AutoCrop.suggest_from_audio(track()) == :no_suggestion
+      assert AutoCrop.suggest_from_audio(track()) == :too_short
 
       # Asked for by hand -- the item page's button, or a bulk trim -- the
       # floor is the crop length instead. The configured floor says what is

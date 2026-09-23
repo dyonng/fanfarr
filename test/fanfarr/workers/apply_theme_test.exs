@@ -772,6 +772,141 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
   end
 
+  describe "cropping on the way in" do
+    # The unattended rule: a theme that arrives longer than the configured floor
+    # is shortened on the way to the library, and one below it is written whole.
+    # Real audio again -- the claim is about the length of the file that lands.
+    #
+    # Quiet, then loud, then quiet: to something that cannot hear, that is a
+    # chorus in the middle. A featureless tone would give the scorer nothing to
+    # prefer -- every window is every other window -- and the crop would be
+    # declined for a reason that has nothing to do with the floor under test.
+    defp track(dir, seconds, {loud_from, loud_to}) do
+      path = Path.join(dir, "theme.mp3")
+
+      # A list rather than a ~w sigil: the filter expression contains quotes and
+      # parentheses, and ffmpeg wants the single quotes kept so the colons
+      # inside it are not read as option separators.
+      args = [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=#{seconds}",
+        "-af",
+        "volume='if(between(t,#{loud_from},#{loud_to}),1,0.05)':eval=frame",
+        "-c:a",
+        "libmp3lame",
+        path
+      ]
+
+      {_out, 0} = System.cmd("ffmpeg", args, stderr_to_stdout: true)
+      path
+    end
+
+    test "a theme longer than the floor is cropped to the target", ctx do
+      themerr_hit()
+      Fanfarr.Settings.put_setting!("auto_crop_min_ms", "180000")
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        path = track(dir, 240, {60, 180})
+        {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 240.0}}
+      end)
+
+      item = item(ctx)
+      assert :ok = run(item)
+
+      assert_in_delta duration(Path.join(ctx.media, "theme.mp3")), 90.0, 0.5
+
+      # The range is on the item as well as in the file, so the item page
+      # shows the crop the theme has and a later trim recognises the file as
+      # cropped rather than cutting a second generation.
+      written = Fanfarr.Library.get_media_item!(item.id)
+      assert written.theme_end_ms - written.theme_start_ms == 90_000
+      assert written.theme_fade_in_ms == 250
+      assert written.theme_fade_out_ms == 500
+
+      # The log distinguishes what was asked from what happened: the intent row
+      # was written before the download, when no crop had been chosen yet.
+      [outcome, intent] = history(item)
+      assert intent.start_ms == nil
+      assert outcome.end_ms - outcome.start_ms == 90_000
+    end
+
+    test "a theme shorter than the floor is written whole", ctx do
+      # The floor is the whole point of the setting: at three minutes, a
+      # hundred-second theme has nothing worth saving.
+      themerr_hit()
+      Fanfarr.Settings.put_setting!("auto_crop_min_ms", "180000")
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        path = tone(dir, 100)
+        {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 100.0}}
+      end)
+
+      item = item(ctx)
+      assert :ok = run(item)
+
+      assert_in_delta duration(Path.join(ctx.media, "theme.mp3")), 100.0, 0.5
+      assert Fanfarr.Library.get_media_item!(item.id).theme_start_ms == nil
+    end
+
+    test "the lengths are read from the settings", ctx do
+      # A floor below the track and a twenty-second target: the same download
+      # as the test above, cropped, which is the proof that the length being
+      # compared is the setting rather than a constant.
+      themerr_hit()
+      Fanfarr.Settings.put_setting!("auto_crop_min_ms", "30000")
+      Fanfarr.Settings.put_setting!("auto_crop_target_ms", "20000")
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        path = track(dir, 100, {30, 70})
+        {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 100.0}}
+      end)
+
+      assert :ok = run(item(ctx))
+      assert_in_delta duration(Path.join(ctx.media, "theme.mp3")), 20.0, 0.5
+    end
+
+    test "the operator's crop wins over the automatic one", ctx do
+      themerr_hit()
+      Fanfarr.Settings.put_setting!("auto_crop_min_ms", "30000")
+
+      item =
+        ctx
+        |> item()
+        |> Fanfarr.Library.set_theme_trim!(%{theme_start_ms: 4_000, theme_end_ms: 14_000})
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        path = tone(dir, 100)
+        {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 100.0}}
+      end)
+
+      assert :ok = run(item)
+      assert_in_delta duration(Path.join(ctx.media, "theme.mp3")), 10.0, 0.5
+    end
+
+    test "nothing is cropped on the way in while the feature is off", ctx do
+      themerr_hit()
+      Fanfarr.Settings.put_setting!("auto_crop_min_ms", "30000")
+      Fanfarr.Settings.put_setting!("auto_crop_enabled", "false")
+
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+        path = tone(dir, 100)
+        {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 100.0}}
+      end)
+
+      item = item(ctx)
+      assert :ok = run(item)
+
+      assert_in_delta duration(Path.join(ctx.media, "theme.mp3")), 100.0, 0.5
+      assert Fanfarr.Library.get_media_item!(item.id).theme_start_ms == nil
+    end
+  end
+
   describe "enqueue/2" do
     test "it carries an explicit URL and source through to the job", ctx do
       item = item(ctx)

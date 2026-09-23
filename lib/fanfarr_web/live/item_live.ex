@@ -505,6 +505,13 @@ defmodule FanfarrWeb.ItemLive.Show do
      })}
   end
 
+  def handle_async(:suggest_crop, {:ok, :too_short}, socket) do
+    {:noreply,
+     socket
+     |> assign(:suggesting, false)
+     |> assign(:suggestion_note, "Shorter than a crop would be -- leave it whole.")}
+  end
+
   def handle_async(:suggest_crop, {:ok, :no_suggestion}, socket) do
     {:noreply,
      socket

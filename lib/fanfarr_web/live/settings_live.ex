@@ -887,9 +887,12 @@ defmodule FanfarrWeb.SettingsLive.Index do
                 Only crop themes longer than (seconds)
               </label>
               <p class="mt-0.5 text-xs text-muted-foreground">
-                Blank means the crop length itself: a theme already shorter than the crop
-                is ignored entirely rather than clamped. Raise this if saving a few
-                seconds is not worth re-encoding the file.
+                The unattended rule: a theme that arrives longer than this is cropped on
+                the way in, and one shorter than it is written whole. Blank means the
+                crop length itself. Raise it if saving a few seconds is not worth
+                re-encoding the file. A trim you ask for by hand -- the item page's
+                button, or Trim in the library -- uses the crop length instead, so it
+                only declines a theme too short to hold it.
               </p>
               <input
                 type="text"

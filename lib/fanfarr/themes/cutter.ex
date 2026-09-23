@@ -45,6 +45,13 @@ defmodule Fanfarr.Themes.Cutter do
   @binary "ffmpeg"
   @timeout_ms 120_000
 
+  # The fades a crop gets when the operator did not place it by hand. The
+  # browser's fallback in the Trimmer is the same number -- see item_live --
+  # and all three have to agree, or the same crop would sound different
+  # depending on which page asked for it.
+  @default_fade_in_ms 250
+  @default_fade_out_ms 500
+
   @type range :: %{
           start_ms: non_neg_integer() | nil,
           end_ms: non_neg_integer() | nil,
@@ -67,6 +74,19 @@ defmodule Fanfarr.Themes.Cutter do
   end
 
   defp positive(value), do: is_integer(value) and value > 0
+
+  @doc """
+  The fades an automatically chosen crop gets, in milliseconds.
+
+  Shared rather than repeated so the two workers that crop on their own -- the
+  trimmer and the apply pipeline -- cannot drift apart, and so the browser
+  default has one place to be checked against.
+  """
+  @spec default_fade_in_ms() :: pos_integer()
+  def default_fade_in_ms, do: @default_fade_in_ms
+
+  @spec default_fade_out_ms() :: pos_integer()
+  def default_fade_out_ms, do: @default_fade_out_ms
 
   @doc """
   Cuts `path` in place to `range`, returning the resulting duration in ms.

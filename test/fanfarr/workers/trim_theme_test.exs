@@ -119,6 +119,39 @@ defmodule Fanfarr.Workers.TrimThemeTest do
     refute "Fanfarr.Workers.ApplyTheme" in queued_workers()
   end
 
+  test "a theme shorter than the crop is skipped, and says so", ctx do
+    # Asked for by hand the floor is the crop length, so a 40-second theme has
+    # nothing to cut. Named rather than lumped in with "no window could be
+    # found": a length is not a listen, and the log is read by an operator
+    # deciding whether to go and look at the file.
+    path = write_theme(ctx, 40)
+
+    item =
+      ctx
+      |> item()
+      |> Library.set_manual_theme!(%{
+        manual_theme_url: "https://www.youtube.com/watch?v=trimme00000"
+      })
+      |> Library.record_local_theme!(%{local_theme_present: true, local_theme_path: path})
+
+    # A four-second graph cannot hold the crop either, so this is the graph
+    # missing and the audio answering -- which is the path that has to reach
+    # the length question at all.
+    expect(Fanfarr.ThemeDownloaderMock, :heatmap, fn _url -> {:ok, markers()} end)
+
+    # The audio path resolves the source before it can listen to it. Pointing
+    # that at the file already beside the media keeps the test offline; the
+    # source cache it lands in is shared per run and has to be cleared, or the
+    # next test inherits this one's file.
+    stub(Fanfarr.ThemeDownloaderMock, :download_source, fn _url, _dir ->
+      {:ok, %{path: path}}
+    end)
+
+    on_exit(fn -> File.rm_rf!(Fanfarr.Themes.SourceCache.dir()) end)
+
+    assert perform(item) == {:cancel, :too_short}
+  end
+
   test "a crop the operator chose is left alone", ctx do
     item =
       ctx

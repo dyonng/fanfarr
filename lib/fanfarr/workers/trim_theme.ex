@@ -40,13 +40,7 @@ defmodule Fanfarr.Workers.TrimTheme do
   alias Fanfarr.Library
   alias Fanfarr.Themes
   alias Fanfarr.Themes.AutoCrop
-
-  # The trimmer's own defaults, so a bulk crop fades the way a hand-made one
-  # does. These are the browser's fallbacks in the hook -- see the Trimmer in
-  # item_live -- and the two have to agree or the same crop would sound
-  # different depending on which page asked for it.
-  @default_fade_in_ms 250
-  @default_fade_out_ms 500
+  alias Fanfarr.Themes.Cutter
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"media_item_id" => item_id}}) do
@@ -91,6 +85,7 @@ defmodule Fanfarr.Workers.TrimTheme do
   defp skip_reason(:crop_disabled), do: "crop suggestions are turned off in Settings"
   defp skip_reason(:already_cropped), do: "it already has a crop"
   defp skip_reason(:no_local_theme), do: "there is no theme file beside the media to cut"
+  defp skip_reason(:too_short), do: "it is shorter than the crop"
   defp skip_reason(:no_suggestion), do: "no window could be found in it"
   defp skip_reason(other), do: inspect(other)
 
@@ -120,6 +115,7 @@ defmodule Fanfarr.Workers.TrimTheme do
     # floor says.
     case AutoCrop.suggest(item, min_ms: AutoCrop.target_ms()) do
       {:ok, suggestion} -> {:ok, trim_from(suggestion)}
+      :too_short -> {:cancel, :too_short}
       :no_suggestion -> {:cancel, :no_suggestion}
       {:error, reason} -> {:cancel, reason}
     end
@@ -168,8 +164,8 @@ defmodule Fanfarr.Workers.TrimTheme do
     %{
       start_ms: suggestion.start_ms,
       end_ms: suggestion.end_ms,
-      fade_in_ms: @default_fade_in_ms,
-      fade_out_ms: @default_fade_out_ms
+      fade_in_ms: Cutter.default_fade_in_ms(),
+      fade_out_ms: Cutter.default_fade_out_ms()
     }
   end
 end

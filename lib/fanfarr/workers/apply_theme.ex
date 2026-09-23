@@ -21,6 +21,16 @@ defmodule Fanfarr.Workers.ApplyTheme do
   attach to everything in it. `destination_dir/1` refuses that case rather
   than writing.
 
+  ## Cropping on the way in
+
+  A theme that arrives long enough to be worth shortening is shortened here, in
+  the same pass, using the window `AutoCrop` places in the audio that just
+  landed. The operator's own crop always wins, and a theme below the configured
+  floor is written whole: the floor is the unattended rule, and this is the
+  unattended path. Cropping here rather than queueing the trimmer keeps the cut
+  before normalisation, which is what keeps a cropped theme level-matched with
+  the rest of the library.
+
   ## Ordering
 
   The intent row is written before anything happens, so a crash mid-flight
@@ -218,6 +228,10 @@ defmodule Fanfarr.Workers.ApplyTheme do
           local_theme_path: plan.path
         })
 
+      # Before record_outcome, which broadcasts: a subscriber that reloads
+      # after it should see the crop the file actually has.
+      item = record_auto_trim(item, download)
+
       record_outcome(item, plan, :succeeded, nil, download)
       hand_over_to_plex(item, plan)
       :ok
@@ -227,6 +241,20 @@ defmodule Fanfarr.Workers.ApplyTheme do
         retry_or_stop(reason)
     end
   end
+
+  # The automatic crop is written to the item as well as to the file, so the
+  # item page shows the range the theme really has, and so a later trim
+  # recognises the file as cropped rather than cutting a second generation.
+  defp record_auto_trim(item, %{auto_trim: trim}) do
+    Library.set_theme_trim!(item, %{
+      theme_start_ms: trim.start_ms,
+      theme_end_ms: trim.end_ms,
+      theme_fade_in_ms: trim.fade_in_ms,
+      theme_fade_out_ms: trim.fade_out_ms
+    })
+  end
+
+  defp record_auto_trim(item, _download), do: item
 
   # Writing the file is only half of it. Plex finds files and fetches metadata
   # in two separate stages, and neither runs on its own schedule when a sidecar
@@ -346,7 +374,12 @@ defmodule Fanfarr.Workers.ApplyTheme do
           # trim to a quiet intro and the theme is quiet, trim to the chorus
           # and it is hot. Every other theme in the library is level-matched;
           # cutting last would quietly exempt the cropped ones.
-          result = cut(downloaded, plan.trim, result)
+          #
+          # The range is the operator's if there is one, and the automatic
+          # answer if there is not -- see `resolve_trim/2`.
+          {trim, automatic?} = resolve_trim(downloaded, plan.trim)
+          result = cut(downloaded, trim, result)
+          result = tag_auto_trim(result, trim, automatic?)
 
           # Before it is moved into place, so a normalisation that fails does
           # not leave a half-processed file next to the media.
@@ -448,6 +481,64 @@ defmodule Fanfarr.Workers.ApplyTheme do
   end
 
   defp remember(_url, other), do: other
+
+  # A chosen range wins: a crop the operator set is a decision, and a guess does
+  # not outrank one. Fades alone are not a range -- but they are not nothing
+  # either, because Plex loops themes and an uncropped one still wants its ends
+  # softened, so they survive into whichever range gets cut.
+  defp resolve_trim(path, trim) do
+    if chosen?(trim), do: {trim, false}, else: {auto_trim(path, trim), true}
+  end
+
+  # Both ends, because a start without an end is not a range this pipeline can
+  # write, and the item's fades default to on for every item there is.
+  defp chosen?(trim), do: is_integer(trim[:start_ms]) and is_integer(trim[:end_ms])
+
+  # The floor is the operator's -- three minutes by default -- and it is asked
+  # here rather than anywhere near the trim button, because this is the
+  # unattended case and the floor was only ever about that. A trim the operator
+  # asks for skips it: see `Fanfarr.Workers.TrimTheme`.
+  #
+  # The audio is on disk by now, so the window is placed from the audio alone.
+  # Asking YouTube's graph here would be a second network call for an answer
+  # this file can give.
+  defp auto_trim(path, trim) do
+    fades = %{
+      fade_in_ms: trim[:fade_in_ms] || Themes.Cutter.default_fade_in_ms(),
+      fade_out_ms: trim[:fade_out_ms] || Themes.Cutter.default_fade_out_ms()
+    }
+
+    with true <- Themes.AutoCrop.enabled?(),
+         {:ok, suggestion} <-
+           Themes.AutoCrop.suggest_from_audio(path, min_ms: Themes.AutoCrop.min_ms()) do
+      # Announced, because a theme that arrives shorter than the one that was
+      # downloaded is otherwise a mystery the operator has to go and read the
+      # settings to explain.
+      Logger.info(
+        "[fanfarr] cropping the download to #{div(Themes.AutoCrop.target_ms(), 1000)}s, " <>
+          "starting at #{div(suggestion.start_ms, 1000)}s " <>
+          "(source: #{suggestion.source})"
+      )
+
+      fades
+      |> Map.put(:start_ms, suggestion.start_ms)
+      |> Map.put(:end_ms, suggestion.end_ms)
+    else
+      # Off, too short to be worth it, or unreadable. All three mean the same
+      # thing: no crop, and the fades the file would have had anyway.
+      _ -> Map.merge(%{start_ms: nil, end_ms: nil}, fades)
+    end
+  end
+
+  # Tagged only when the cut actually happened. `cut/3` merges the range into
+  # the result on success and hands it back untouched when ffmpeg fails, so a
+  # missing start means the file is whole and there is no crop to record.
+  defp tag_auto_trim(result, _trim, false), do: result
+
+  defp tag_auto_trim(%{start_ms: start} = result, trim, true) when is_integer(start),
+    do: Map.put(result, :auto_trim, trim)
+
+  defp tag_auto_trim(result, _trim, true), do: result
 
   # A no-op range does not get a re-encode: running ffmpeg to produce the same
   # audio costs a generation of lossy loss for nothing.
@@ -610,8 +701,12 @@ defmodule Fanfarr.Workers.ApplyTheme do
       method: :local_file,
       theme_url: plan[:url],
       destination_path: plan[:path],
-      start_ms: get_in(plan, [:trim, :start_ms]),
-      end_ms: get_in(plan, [:trim, :end_ms]),
+      # The range that was written, which is the plan's when the operator chose
+      # one and the pipeline's when it cropped on the way in. Read from the
+      # download when it is there, because that is the file that got written:
+      # a crop nothing asked for would otherwise leave no record of itself.
+      start_ms: download[:start_ms] || get_in(plan, [:trim, :start_ms]),
+      end_ms: download[:end_ms] || get_in(plan, [:trim, :end_ms]),
       status: status,
       error: reason && explain(reason),
       codec: download[:codec],
