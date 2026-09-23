@@ -32,6 +32,7 @@ downloads, and appearance, all in one place.
 - **Overview** — coverage per library, what needs attention, the live queue with an ETA, next sync, failing health checks. Every number links to the matching filtered view.
 - **Library** — poster, theme status, critic/audience scores on one scale, studio. Filter by status, type, studio or collection; sort any column; search. Local mirror, so it stays fast at thousands of items.
 - **Trim what gets written** — waveform editor with fades at both ends and a loop-join preview. Stored as two numbers, so a crop can be widened later.
+- **Crop long themes on the way in** — a theme that arrives longer than 180s is cut to 90s as it is written, so the saving costs one encode rather than two. Both numbers are settings, and a trim you ask for by hand skips the threshold: it only declines a theme too short to hold the crop.
 - **Stock themes vs chosen ones** — Plex's own agent supplies themes too; those are flagged separately so they can be found and replaced.
 - **Movies and shows both** — a local `theme.mp3` is the only way a film gets a theme, verified end to end.
 - **Find a theme without leaving the page** — search YouTube, preview inline, pick it. Your pick outranks ThemerrDB from then on, or paste a URL.

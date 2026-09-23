@@ -163,9 +163,9 @@ defmodule Fanfarr.Themes.AutoCrop do
       with {:ok, url, _origin} <- Choice.url(item, %{}) do
         case from_graph(url, target) do
           {:ok, suggestion} -> {:ok, suggestion}
-          # Short is an answer, not a miss: the audio is the same length, so
-          # there is nothing to ask it either.
-          :short -> :no_suggestion
+          # The graph is the fast answer, never the only one. Absent,
+          # unreadable, too short to hold the crop, or turned off all arrive
+          # here as the same miss, and the audio answers next.
           :no_signal -> from_audio(item, target, floor)
         end
       end

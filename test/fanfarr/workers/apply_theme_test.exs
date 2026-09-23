@@ -729,24 +729,21 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       assert outcome.start_ms == 2_000 and outcome.end_ms == 9_000
     end
 
-    test "an untrimmed item is not re-encoded at all", ctx do
-      # Running ffmpeg to produce the same audio spends a generation of lossy
-      # loss for nothing. The proof is the byte-for-byte match: a re-encode,
-      # even to the same settings, does not round-trip identically.
+    test "an untrimmed item keeps the length it was downloaded at", ctx do
+      # Fades default to on for every item, so this file is re-encoded either
+      # way -- but with no crop there is no range to cut, and the length is the
+      # download's. Five seconds is also below the floor, so the automatic crop
+      # has nothing to say about it either.
       themerr_hit()
       item = item(ctx)
-      downloaded = :erlang.unique_integer([:positive])
 
       expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
         path = tone(dir, 5)
-        File.write!(Path.join(dir, "copy-#{downloaded}"), File.read!(path))
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 5.0}}
       end)
 
       assert :ok = run(item)
 
-      # Fades default to on, but with no crop there is nothing to fade into or
-      # out of, so trims?/1 says no and the download is placed untouched.
       assert item.theme_start_ms == nil and item.theme_end_ms == nil
       assert_in_delta duration(Path.join(ctx.media, "theme.mp3")), 5.0, 0.2
     end
