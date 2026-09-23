@@ -1,44 +1,65 @@
 defmodule Fanfarr.Workers.TrimThemeTest do
   @moduledoc """
-  Finding a crop for an item's current theme, and handing the write on.
+  Finding a crop for an item's current theme, and cutting the file that is
+  already on disk.
 
-  The write itself is `ApplyTheme`'s and is tested there; what is tested here is
-  the decision -- which items get a crop, and which are left alone.
+  Real audio, because the point of this worker is what it does to a file. The
+  downloader is deliberately left unstubbed: if anything here reached for the
+  network, Mox would fail the test rather than quietly pass it.
   """
   use Fanfarr.DataCase, async: false
 
   import Mox
 
   alias Fanfarr.Library
+  alias Fanfarr.Themes.ApplicationFacts
   alias Fanfarr.Workers.TrimTheme
 
   setup :verify_on_exit!
 
   setup do
-    section =
-      Library.sync_section_from_plex!(%{plex_key: "1", title: "TV Shows", kind: :show})
+    root = Path.join(System.tmp_dir!(), "fanfarr-trim-#{:erlang.unique_integer([:positive])}")
+    media = Path.join([root, "tv", "One Piece (1999)"])
+    File.mkdir_p!(media)
+    on_exit(fn -> File.rm_rf(root) end)
 
-    %{section: section}
+    section = Library.sync_section_from_plex!(%{plex_key: "1", title: "TV Shows", kind: :show})
+
+    %{media: media, section: section}
   end
 
-  defp item(section, over \\ %{}) do
+  defp item(ctx, over \\ %{}) do
     Library.sync_media_item_from_plex!(
       Map.merge(
         %{
           plex_rating_key: "rk-#{:erlang.unique_integer([:positive])}",
-          section_id: section.id,
+          section_id: ctx.section.id,
           title: "One Piece",
           kind: :show,
           imdb_id: "tt0388629",
-          plex_path: "/tv/One Piece (1999)"
+          plex_path: ctx.media
         },
         over
       )
     )
   end
 
+  defp write_theme(ctx, seconds \\ 4) do
+    path = Path.join(ctx.media, "theme.mp3")
+
+    {_output, 0} =
+      System.cmd(
+        "ffmpeg",
+        ~w(-hide_banner -loglevel error -y -f lavfi -i sine=frequency=440:duration=#{seconds} -c:a libmp3lame) ++
+          [path],
+        stderr_to_stdout: true
+      )
+
+    path
+  end
+
   # A hundred buckets over four seconds, twenty of them carrying the
-  # attention. The timeline is the graph's own, so nothing has to be downloaded
+  # attention. The timeline is the graph's own, so nothing has to be fetched
   # for the suggestion to be real.
   defp markers do
     for i <- 0..99 do
@@ -50,6 +71,17 @@ defmodule Fanfarr.Workers.TrimThemeTest do
     end
   end
 
+  defp croppable(ctx) do
+    path = write_theme(ctx)
+
+    ctx
+    |> item()
+    |> Library.set_manual_theme!(%{
+      manual_theme_url: "https://www.youtube.com/watch?v=trimme00000"
+    })
+    |> Library.record_local_theme!(%{local_theme_present: true, local_theme_path: path})
+  end
+
   defp perform(item) do
     TrimTheme.perform(%Oban.Job{args: %{"media_item_id" => item.id}})
   end
@@ -58,38 +90,38 @@ defmodule Fanfarr.Workers.TrimThemeTest do
     Fanfarr.Repo.all(Oban.Job) |> Enum.map(& &1.worker)
   end
 
-  test "a suggestion becomes a crop, and the write is queued", %{section: section} do
+  test "cuts the file that is there, and records what it wrote", ctx do
     Fanfarr.Settings.put_setting!("auto_crop_target_ms", "2000")
-
-    item =
-      section
-      |> item()
-      |> Library.set_manual_theme!(%{
-        manual_theme_url: "https://www.youtube.com/watch?v=trimme00000"
-      })
+    item = croppable(ctx)
+    path = item.local_theme_path
 
     expect(Fanfarr.ThemeDownloaderMock, :heatmap, fn _url -> {:ok, markers()} end)
 
-    assert {:ok, %Oban.Job{}} = perform(item)
+    assert perform(item) == :ok
 
     written = Library.get_media_item!(item.id)
 
-    # A window of the configured length, wherever the graph put it.
-    assert is_integer(written.theme_start_ms)
+    # A window of the configured length, wherever the graph put it, faded the
+    # way the trimmer would have faded it by hand: 250 in, 500 out.
     assert written.theme_end_ms - written.theme_start_ms == 2_000
-
-    # And faded the way the trimmer would have faded it by hand: 250 in, 500
-    # out, the hook's own fallbacks.
     assert written.theme_fade_in_ms == 250
     assert written.theme_fade_out_ms == 500
 
-    # The crop is only a decision until ApplyTheme writes it.
-    assert "Fanfarr.Workers.ApplyTheme" in queued_workers()
+    # The file on disk really is shorter, and the log agrees with it -- the
+    # Size and Length columns read the log rather than the file, so a trim that
+    # recorded nothing would leave both describing the old theme.
+    facts = ApplicationFacts.latest([item.id])
+    assert facts[item.id].duration_ms == 2_000
+    assert facts[item.id].bytes == File.stat!(path).size
+
+    # Nothing was queued: this worker does the write itself now, rather than
+    # handing it to the worker that would download the source again.
+    refute "Fanfarr.Workers.ApplyTheme" in queued_workers()
   end
 
-  test "a crop the operator chose is left alone", %{section: section} do
+  test "a crop the operator chose is left alone", ctx do
     item =
-      section
+      ctx
       |> item()
       |> Library.set_theme_trim!(%{
         theme_start_ms: 1_000,
@@ -100,27 +132,22 @@ defmodule Fanfarr.Workers.TrimThemeTest do
 
     assert perform(item) == {:cancel, :already_cropped}
 
-    # Nothing was queued either, which is what makes this safe to press twice:
-    # the second run over the same library writes nothing.
-    refute "Fanfarr.Workers.ApplyTheme" in queued_workers()
-
-    kept = Library.get_media_item!(item.id)
-    assert kept.theme_start_ms == 1_000
-    assert kept.theme_end_ms == 31_000
+    # Nothing was cut and nothing was recorded, which is what makes this safe
+    # to press twice: the second run over the same library writes nothing.
+    assert ApplicationFacts.latest([item.id]) == %{}
   end
 
-  test "a disabled feature cancels rather than guessing anyway", %{section: section} do
+  test "a disabled feature cancels rather than guessing anyway", ctx do
     Fanfarr.Settings.put_setting!("auto_crop_enabled", "false")
-    item = item(section)
+    item = item(ctx)
 
     assert perform(item) == {:cancel, :crop_disabled}
     refute "Fanfarr.Workers.ApplyTheme" in queued_workers()
   end
 
-  test "an item with no theme to crop is skipped", %{section: section} do
-    # Nothing knows of a theme for it, so there is no window to find. A
-    # cancellation rather than a failure: retrying will not produce one.
-    assert {:cancel, _reason} = perform(item(section))
-    refute "Fanfarr.Workers.ApplyTheme" in queued_workers()
+  test "an item with no theme file is skipped", ctx do
+    # A Plex-supplied theme has nothing on disk to cut, and fetching one would
+    # be an apply rather than a trim.
+    assert perform(item(ctx)) == {:cancel, :no_local_theme}
   end
 end
