@@ -11,7 +11,19 @@ config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 # Run `mix help test` for more information.
 config :fanfarr, Fanfarr.Repo,
   database: Path.expand("../fanfarr_test.db", __DIR__),
-  pool_size: 5,
+  # Raised for the async tests, which own a connection each.
+  pool_size: 10,
+  # A non-async test shares one connection with every process in it -- see
+  # `Fanfarr.DataCase.setup_sandbox/1` -- so a request queues behind whatever
+  # else is talking to the database: the scheduler, a LiveView, an async task.
+  # DBConnection drops a request from that queue once the average wait passes
+  # queue_target, and the defaults are tight enough that a slow test surfaced as
+  # "connection not available and request was dropped from queue after 4804ms",
+  # failing whichever tests happened to be running anywhere near it. Nothing is
+  # short of writers here, it is short of patience, so the wait is what is
+  # raised. See the SQLite note in config/config.exs for the lock half.
+  queue_target: 10_000,
+  queue_interval: 20_000,
   pool: Ecto.Adapters.SQL.Sandbox
 
 # We don't run a server during test. If one is required,
