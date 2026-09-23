@@ -381,9 +381,9 @@ defmodule Fanfarr.Workers.ApplyTheme do
       {:ok, cached} ->
         # Copied into the scratch dir, because the pipeline cuts and normalises
         # in place and the cache is not ours to rewrite.
-        working = Path.join(tmp, "source" <> Path.extname(cached))
+        working = Path.join(tmp, "source" <> Path.extname(cached.path))
 
-        case File.cp(cached, working) do
+        case File.cp(cached.path, working) do
           :ok ->
             {:ok,
              %{

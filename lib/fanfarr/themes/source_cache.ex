@@ -106,11 +106,16 @@ defmodule Fanfarr.Themes.SourceCache do
   What `ApplyTheme` asks, and deliberately narrower than `fetch/1`: a
   `:render` entry is a previous output and rendering from it would compound
   the losses it already carries.
+
+  The whole entry comes back rather than just the path, because the peaks
+  beside it are how the caller knows the track's length without decoding it
+  again. Narrowing to the path here is what left `ApplyTheme` handing a string
+  to a function that reads an entry.
   """
-  @spec fetch_source(String.t()) :: {:ok, Path.t()} | :miss
+  @spec fetch_source(String.t()) :: {:ok, %{path: Path.t(), peaks: Path.t()}} | :miss
   def fetch_source(url) when is_binary(url) do
     case fetch(url) do
-      {:ok, %{path: path, kind: :source}} -> {:ok, path}
+      {:ok, %{kind: :source} = entry} -> {:ok, entry}
       _ -> :miss
     end
   end
