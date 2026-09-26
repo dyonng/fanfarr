@@ -385,7 +385,7 @@ defmodule FanfarrWeb.LogsLive.Index do
           <.toggle
             click="toggle_wrap"
             on={@wrap}
-            icon="lucide-wrap-text"
+            icon="lucide-text-wrap"
             title="Wrap long lines instead of scrolling sideways"
           >
             Wrap

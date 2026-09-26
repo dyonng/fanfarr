@@ -615,7 +615,7 @@ This is a Phoenix web application.
 - Begin every LiveView template with `<Layouts.app flash={@flash} ...>`, which wraps all inner content. `MyAppWeb.Layouts` is aliased in `my_app_web.ex`, so no re-alias.
 - A `current_scope` error means you did not follow the Authenticated Routes guidelines, or did not pass `current_scope` to `<Layouts.app>`. Fix it by moving routes to the proper `live_session`, not by working around it.
 - `<.flash_group>` lives in the `Layouts` module and is **forbidden** outside `layouts.ex`.
-- Icons: `core_components.ex` imports `<.icon name="hero-x-mark" class="w-5 h-5"/>`. Use `<.icon>`; **never** `Heroicons` modules. This app renders Lucide instead -- see `CLAUDE.md`.
+- Icons: **Lucide**, not Heroicons. `<.icon>` accepts only `lucide-*` names -- `<.icon name="lucide-x" class="size-4" />` -- and the generator's `<.icon name="hero-x-mark" class="w-5 h-5"/>` example is stale here: `assets/vendor/lucide.js` is the only icon plugin registered in `app.css`. A wrong name fails no compile and logs nothing, because Tailwind emits no class for it, so `test/icons_test.exs` fails on a `hero-` name and on a Lucide name with no SVG. It scans `assets/js` as well as `lib`, where the vendored toast chooses its variant icons.
 - Use the imported `<.input>` from `core_components.ex` for form inputs. If you override the default input classes (`<.input class="myclass px-2 py-1 rounded-lg">)`) class with your own values, no default classes are inherited, so your custom classes must fully style the input
 
 ### JS and CSS

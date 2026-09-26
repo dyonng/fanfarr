@@ -16,11 +16,15 @@ const SWIPE_THRESHOLD_PX = 45;
 const SWIPE_VELOCITY_THRESHOLD = 0.11; // px/ms, matches Sonner's flick-to-dismiss
 const SWIPE_EXIT_DISTANCE = "150%";
 
+// Vendored change: upstream asks for `hero-*` classes, but this project renders
+// Lucide and registers only `assets/vendor/lucide.js`. Tailwind emits no class
+// for a name it has no icon for and does not warn, so those four toasts drew
+// an empty span where the icon should have been.
 const VARIANT_ICON_NAMES = {
-  success: "hero-check-circle",
-  error: "hero-x-circle",
-  warning: "hero-exclamation-triangle",
-  info: "hero-information-circle",
+  success: "lucide-circle-check",
+  error: "lucide-circle-x",
+  warning: "lucide-triangle-alert",
+  info: "lucide-info",
 };
 
 const NEUTRAL_CARD_CLASSES = "border-border bg-background text-foreground";
@@ -650,7 +654,7 @@ class ToastComponent extends Component {
     }
   }
 
-  // Icon has no color class of its own — hero-* icons are `background-color:
+  // Icon has no color class of its own — lucide-* icons are `background-color:
   // currentColor` (mask-based), so they pick up whatever color the card
   // resolved to (see populateCard's colorClass) by inheritance, same as the
   // title text does.

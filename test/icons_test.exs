@@ -8,10 +8,19 @@ defmodule IconsTest do
 
   @icons_dir "deps/lucide/icons"
 
+  # JS names icons as well as templates do, and JS was the blind spot: the
+  # vendored toast asked for `hero-*` classes long after the Heroicons plugin
+  # was gone, so four toast icons rendered as empty spans and nothing said so.
+  @sources ["lib/**/*.{ex,heex}", "assets/js/**/*.js"]
+
+  defp source_files do
+    Enum.flat_map(@sources, &Path.wildcard/1)
+  end
+
   defp referenced_icons do
-    Path.wildcard("lib/**/*.{ex,heex}")
+    source_files()
     |> Enum.flat_map(fn file ->
-      ~r/class=(?:"([^"]*)"|\{([^}]*)\})|name="(lucide-[a-z0-9-]+)"/
+      ~r/class=(?:"([^"]*)"|\{([^}]*)\})|"(lucide-[a-z0-9-]+)"/
       |> Regex.scan(File.read!(file))
       |> Enum.flat_map(fn m -> Enum.drop(m, 1) end)
       |> Enum.flat_map(&Regex.scan(~r/lucide-([a-z0-9-]+)/, &1, capture: :all_but_first))
@@ -37,9 +46,11 @@ defmodule IconsTest do
   end
 
   test "no Heroicons remain" do
+    # `"hero-` catches both a HEEx attribute (`name="hero-x-mark"`) and a JS
+    # class name (`"hero-check-circle"`).
     offenders =
-      Path.wildcard("lib/**/*.{ex,heex}")
-      |> Enum.filter(&String.contains?(File.read!(&1), ~s(name="hero-)))
+      source_files()
+      |> Enum.filter(&String.contains?(File.read!(&1), ~s("hero-)))
 
     assert offenders == [], """
     Heroicons references found, but the Heroicons dependency and its Tailwind
