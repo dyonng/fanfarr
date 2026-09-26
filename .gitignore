@@ -53,3 +53,6 @@ erl_crash.dump
 # Python bytecode from the icon scripts.
 __pycache__/
 *.pyc
+
+# Local pi-lens config (LSP server selection). Never commit.
+.pi-lens.json

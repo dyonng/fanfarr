@@ -65,12 +65,17 @@ defmodule Fanfarr.Overview do
     sections = Library.list_sections!() |> Map.new(&{&1.id, &1})
     items = Library.list_media_items!(load: [:theme_status, :theme_size])
 
+    # An excluded title is not a task: it stops counting as missing, and it stops
+    # being chosen by anything unattended. It is still in the library, and still
+    # counts as themed if it is, so coverage does not move.
+    active = Enum.reject(items, & &1.excluded)
     by_status = Enum.frequencies_by(items, & &1.theme_status)
-    missing = Enum.filter(items, &(&1.theme_status == :missing))
+    missing = Enum.filter(active, &(&1.theme_status == :missing))
 
     %{
       sections: coverage(items, sections),
-      totals: totals(items, by_status),
+      totals: totals(items, by_status, length(missing)),
+      excluded: Enum.count(items, & &1.excluded),
       plex_supplied: Map.get(by_status, :plex_supplied, 0),
       failed: Map.get(by_status, :failed, 0),
       ready: ready(missing),
@@ -83,14 +88,14 @@ defmodule Fanfarr.Overview do
     }
   end
 
-  defp totals(items, by_status) do
+  defp totals(items, by_status, missing_count) do
     total = length(items)
     themed = Enum.reduce(@themed, 0, &(&2 + Map.get(by_status, &1, 0)))
 
     %{
       total: total,
       themed: themed,
-      missing: Map.get(by_status, :missing, 0),
+      missing: missing_count,
       percent: percent(themed, total)
     }
   end
@@ -179,6 +184,7 @@ defmodule Fanfarr.Overview do
   """
   def ready_ids do
     Library.list_media_items!(load: [:theme_status])
+    |> Enum.reject(& &1.excluded)
     |> Enum.filter(&(&1.theme_status == :missing))
     |> then(fn missing ->
       ids =

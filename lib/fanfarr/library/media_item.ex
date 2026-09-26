@@ -177,6 +177,17 @@ defmodule Fanfarr.Library.MediaItem do
       end
     end
 
+    @doc """
+    The one thing an operator says about a title rather than about a library.
+
+    `require_atomic? false`, like the trim action: a single attribute, but no
+    reason to make the write atomic when every other action here is not.
+    """
+    update :set_excluded do
+      accept [:excluded]
+      require_atomic? false
+    end
+
     read :by_section do
       argument :section_id, :uuid, allow_nil?: false
       filter expr(section_id == ^arg(:section_id))
@@ -377,6 +388,14 @@ defmodule Fanfarr.Library.MediaItem do
     # counts anything, so it is read from Plex rather than derived, and it is
     # nil for a film and for a show Plex has not scanned.
     attribute :season_count, :integer, public?: true
+
+    # "Never touch this title." Unattended work skips it -- the dashboard stops
+    # counting it as missing, a bulk apply does not select it -- while an action
+    # aimed at it by hand still works. Same distinction as the crop switch: it
+    # is about what happens on its own, not about what an operator may do.
+    # Needed because disabling a whole library is the only other way to leave a
+    # title alone, and nobody wants to disable a library over one show.
+    attribute :excluded, :boolean, default: false, public?: true
 
     timestamps()
   end
