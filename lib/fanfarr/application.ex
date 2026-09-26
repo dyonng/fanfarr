@@ -7,6 +7,16 @@ defmodule Fanfarr.Application do
 
   @impl true
   def start(_type, _args) do
+    # The very first thing, before anything can open the database: apply a
+    # restore that was staged and restarted for. It has to be here rather than
+    # later because the swap deletes the `-wal` file, and the previous
+    # database's log must not be sitting next to the file that replaces it.
+    # See `Fanfarr.Backup.Restore` for why this is not done on a live app.
+    case Fanfarr.Backup.Restore.apply_pending!() do
+      :restored -> Fanfarr.Backup.Restore.mark_restored()
+      _none_or_error -> :ok
+    end
+
     # Before anything else logs a timestamp. It is one line, and it is the only
     # way a TZ that did not resolve announces itself -- glibc uses UTC for a
     # zone it cannot find without a word.
@@ -67,6 +77,15 @@ defmodule Fanfarr.Application do
         # the handler feeds a process that must already exist.
         Fanfarr.Diagnostics.Redactor.prime()
         Fanfarr.Log.Buffer.attach()
+
+        # Here rather than as a child: a restore cancel works on the job table,
+        # so it needs the repo, and a bare MFA child spec for a task that exits
+        # normally is `restart: :permanent` -- the supervisor restarts it
+        # forever and eventually takes the whole tree down with it. The `{Task,
+        # fun}` shorthand above avoids that through `Task.child_spec/1`; a
+        # hand-written spec does not.
+        Fanfarr.Backup.Restore.cleanup_after_restore()
+
         {:ok, pid}
 
       other ->

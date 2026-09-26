@@ -21,6 +21,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
      |> assign(:testing, false)
      |> assign(:browser, nil)
      |> assign(:backing_up, false)
+     |> assign(:restore_target, nil)
      |> assign(:folder_path, "")
      |> load()}
   end
@@ -87,6 +88,20 @@ defmodule FanfarrWeb.SettingsLive.Index do
     end
   end
 
+  # The restart is what applies a staged restore, so the reply goes out first:
+  # stopping the VM inside the event would drop the flash the operator is owed.
+  # Off in the suite, where the staging itself is what gets asserted.
+  defp restart_to_apply(socket) do
+    if Application.get_env(:fanfarr, :restart_on_restore, true) do
+      spawn(fn ->
+        Process.sleep(1_000)
+        System.stop()
+      end)
+    end
+
+    socket
+  end
+
   defp load(socket) do
     socket
     |> assign(:plex_url, Fanfarr.Config.get("plex_url") || "")
@@ -115,6 +130,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:backups_dir, Fanfarr.Backup.dir())
     |> assign(:backups_usage, Fanfarr.Backup.usage())
     |> assign(:backups_list, Fanfarr.Backup.list())
+    |> assign(:restore_pending, Fanfarr.Backup.Restore.pending())
     |> assign(:schedules, schedules())
   end
 
@@ -350,6 +366,45 @@ defmodule FanfarrWeb.SettingsLive.Index do
 
       nil ->
         {:noreply, put_flash(socket, :error, "That snapshot is already gone")}
+    end
+  end
+
+  # Restoring is the one action here that throws work away, so it takes two
+  # steps and a typed word rather than a click and a confirm dialog.
+  def handle_event("restore_ask", %{"name" => name}, socket) do
+    {:noreply, assign(socket, :restore_target, name)}
+  end
+
+  def handle_event("restore_cancel", _params, socket) do
+    {:noreply, assign(socket, :restore_target, nil)}
+  end
+
+  def handle_event("cancel_restore", _params, socket) do
+    Fanfarr.Backup.Restore.cancel()
+    {:noreply, socket |> load() |> put_flash(:info, "Staged restore cancelled")}
+  end
+
+  def handle_event("restore_confirm", %{"name" => name, "confirm" => confirm}, socket) do
+    if String.downcase(String.trim(confirm)) == "restore" do
+      case Fanfarr.Backup.Restore.stage(name) do
+        {:ok, _pending} ->
+          socket =
+            socket
+            |> assign(:restore_target, nil)
+            |> load()
+            |> put_flash(
+              :info,
+              "Restore staged. Fanfarr is restarting, and applies it on the way up."
+            )
+
+          {:noreply, restart_to_apply(socket)}
+
+        {:error, reason} ->
+          {:noreply,
+           put_flash(socket, :error, "Could not stage that restore: #{inspect(reason, limit: 3)}")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, ~s(Type "restore" to confirm))}
     end
   end
 
@@ -1059,6 +1114,56 @@ defmodule FanfarrWeb.SettingsLive.Index do
             <span class="ml-auto font-mono text-muted-foreground">{@backups_dir}</span>
           </div>
 
+          <div
+            :if={@restore_pending}
+            class="mt-3 space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs"
+          >
+            <p class="font-medium text-foreground">
+              A restore of {@restore_pending["source"]} is staged
+            </p>
+            <p class="text-muted-foreground">
+              It is applied the next time Fanfarr starts, before anything opens the database.
+              The state being replaced was snapshotted first
+              ({@restore_pending["safety_snapshot"]}), and unfinished jobs will be dropped.
+            </p>
+            <button
+              phx-click="cancel_restore"
+              class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+            >Cancel the staged restore</button>
+          </div>
+
+          <div
+            :if={@restore_target}
+            class="mt-3 space-y-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs"
+          >
+            <p class="font-medium text-foreground">Restore {@restore_target}?</p>
+            <p class="text-muted-foreground">
+              This replaces everything Fanfarr knows with what that snapshot holds — settings,
+              the library mirror, and the record of themes written. The file being replaced is
+              kept beside it as <code class="font-mono">fanfarr.db.replaced-…</code>, a
+              pre-restore snapshot is taken first, and any unfinished jobs are dropped. Fanfarr
+              restarts to apply it.
+            </p>
+            <form phx-submit="restore_confirm" class="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="name" value={@restore_target} />
+              <input
+                type="text"
+                name="confirm"
+                autocomplete="off"
+                placeholder="type restore"
+                class="h-8 w-40 rounded-md border border-input bg-background px-2 font-mono text-xs"
+              />
+              <button class="h-8 rounded-md bg-destructive px-3 text-xs font-medium text-destructive-foreground hover:bg-destructive/90">
+                Restore and restart
+              </button>
+              <button
+                type="button"
+                phx-click="restore_cancel"
+                class="h-8 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground"
+              >Cancel</button>
+            </form>
+          </div>
+
           <form id="backups-form" phx-submit="save_backups" class="mt-4 space-y-4">
             <label class="flex items-center gap-2 text-sm">
               <input
@@ -1141,6 +1246,11 @@ defmodule FanfarrWeb.SettingsLive.Index do
                 not written by Fanfarr
               </span>
               <span class="ml-auto flex items-center gap-2">
+                <button
+                  phx-click="restore_ask"
+                  phx-value-name={snapshot.name}
+                  class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+                >Restore</button>
                 <a
                   href={"/backups/#{snapshot.name}"}
                   class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"

@@ -239,11 +239,11 @@ defmodule Fanfarr.Backup do
   removed rather than left behind, because a partial database in the directory
   is worse than an empty one: it is listed as a backup.
   """
-  @spec snapshot(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def snapshot(directory \\ dir()) do
+  @spec snapshot(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def snapshot(directory \\ dir(), opts \\ []) do
     with :ok <- File.mkdir_p(directory),
          :ok <- preflight(directory),
-         {:ok, path} <- unique_path(directory) do
+         {:ok, path} <- unique_path(directory, Keyword.get(opts, :prefix, @auto_prefix)) do
       case write_and_verify(path) do
         :ok ->
           write_metadata(path)
@@ -331,6 +331,16 @@ defmodule Fanfarr.Backup do
       end
     end)
   end
+
+  @doc """
+  A snapshot taken immediately before a restore, so the restore is undoable.
+
+  Named apart from the scheduled ones on purpose: it is exempt from the ordinary
+  rotation (it has its own smaller cap) because it is the undo button for a
+  decision just made, not another copy on a schedule.
+  """
+  @spec pre_restore(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def pre_restore(directory \\ dir()), do: snapshot(directory, prefix: @pre_restore_prefix)
 
   @doc "Deletes one snapshot and the metadata beside it."
   @spec remove(Path.t()) :: :ok | {:error, term()}
@@ -450,8 +460,8 @@ defmodule Fanfarr.Backup do
   # Two snapshots in the same second are a button pressed twice, not a mistake
   # worth failing over -- but the attempt has to end somewhere, and returning a
   # name that already exists would make VACUUM fail with a confusing error.
-  defp unique_path(directory) do
-    base = Path.join(directory, @auto_prefix <> stamp())
+  defp unique_path(directory, prefix) do
+    base = Path.join(directory, prefix <> stamp())
 
     case Enum.find(1..@name_attempts, fn n -> not File.exists?(name_for(base, n)) end) do
       nil -> {:error, :too_many_snapshots}
@@ -586,10 +596,16 @@ defmodule Fanfarr.Backup do
   defp describe(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp describe(other), do: inspect(other)
 
-  # The path `config/runtime.exs` resolved, read back rather than recomputed:
-  # DATABASE_PATH can point anywhere, and a backup beside the database is the
-  # one place certain to be on the same volume as the thing it copies.
-  defp database_path do
+  @doc """
+  The database file in use, as `config/runtime.exs` resolved it.
+
+  Read back rather than recomputed: `DATABASE_PATH` can point anywhere, and a
+  backup beside the database is the one place certain to be on the same volume
+  as the thing it copies. Public because the restore path has to move this file
+  and delete the log beside it.
+  """
+  @spec database_path() :: String.t()
+  def database_path do
     :fanfarr
     |> Application.get_env(Fanfarr.Repo, [])
     |> Keyword.get(:database)

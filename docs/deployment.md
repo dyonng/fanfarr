@@ -327,8 +327,26 @@ written and the wrong place for them to stay. Copy them somewhere else.
 
 ### Restoring one
 
-Stop Fanfarr first. SQLite keeps a write-ahead log beside the database, and
-replacing the file underneath a running process leaves the two out of step.
+**From the app.** **Restore** on any snapshot in Settings, then type `restore` to
+confirm. Fanfarr takes a `pre-restore` snapshot of the current state first,
+stages the file, and restarts; the swap is the first thing the next boot does,
+before anything opens the database. The database being replaced is renamed, not
+deleted, as `fanfarr.db.replaced-<timestamp>`.
+
+It has to happen at boot rather than on the click. SQLite keeps its write-ahead
+log beside the database at a fixed path, so replacing that file under a running
+application leaves the old database's log next to the new one, and SQLite would
+apply one database's log to another.
+
+A staged file that turns out not to be usable is set aside and the boot carries
+on with the database it already had, so a bad restore cannot leave you with a
+container that will not start. Unfinished jobs are dropped, because they name
+rows from the database that was replaced.
+
+**By hand.** The same thing done manually — the way back if the container will
+not start at all, or when restoring onto a different machine. Stop Fanfarr
+first: SQLite keeps a write-ahead log beside the database, and replacing the
+file underneath a running process leaves the two out of step.
 
 ```bash
 docker stop fanfarr

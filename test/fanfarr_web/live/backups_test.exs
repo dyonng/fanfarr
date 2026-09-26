@@ -167,6 +167,80 @@ defmodule FanfarrWeb.BackupsTest do
     end
   end
 
+  describe "restoring" do
+    setup do
+      # A real snapshot: staging validates the file, so a fixture would be
+      # refused before the flow under test had begun.
+      dir = Fanfarr.Backup.dir()
+      File.mkdir_p!(dir)
+      {:ok, path} = Fanfarr.Backup.snapshot(dir)
+      on_exit(fn -> Fanfarr.Backup.Restore.cancel() end)
+      %{snapshot: Path.basename(path)}
+    end
+
+    defp ask(view, snapshot) do
+      view
+      |> element(~s(button[phx-click="restore_ask"][phx-value-name="#{snapshot}"]))
+      |> render_click()
+    end
+
+    test "asks for the word before it will replace anything", %{conn: conn, snapshot: snapshot} do
+      {:ok, view, _html} = live(conn, "/settings")
+      ask(view, snapshot)
+
+      assert has_element?(view, "form[phx-submit=restore_confirm]")
+      assert Fanfarr.Backup.Restore.pending() == nil
+    end
+
+    test "the wrong word is refused", %{conn: conn, snapshot: snapshot} do
+      {:ok, view, _html} = live(conn, "/settings")
+      ask(view, snapshot)
+
+      html =
+        view
+        |> form("form[phx-submit=restore_confirm]", %{"name" => snapshot, "confirm" => "yes"})
+        |> render_submit()
+
+      # The word, not the quoted phrase: HEEx escapes the quotes in the flash,
+      # so matching the phrase as written would fail on the markup, not on the
+      # behaviour.
+      assert html =~ "to confirm"
+      assert Fanfarr.Backup.Restore.pending() == nil
+    end
+
+    test "the right word stages it, and keeps what it is about to replace",
+         %{conn: conn, snapshot: snapshot} do
+      {:ok, view, _html} = live(conn, "/settings")
+      ask(view, snapshot)
+
+      view
+      |> form("form[phx-submit=restore_confirm]", %{"name" => snapshot, "confirm" => "restore"})
+      |> render_submit()
+
+      pending = Fanfarr.Backup.Restore.pending()
+      assert pending["source"] == snapshot
+      # The undo button for the decision just made.
+      assert Enum.any?(Fanfarr.Backup.list(), &(&1.kind == :pre_restore))
+
+      # And the card says one is waiting. No restart happens here: the suite
+      # sets restart_on_restore false, which is why this test can end.
+      assert render(view) =~ "is staged"
+    end
+
+    test "a staged restore can be cancelled", %{conn: conn, snapshot: snapshot} do
+      {:ok, view, _html} = live(conn, "/settings")
+      ask(view, snapshot)
+
+      view
+      |> form("form[phx-submit=restore_confirm]", %{"name" => snapshot, "confirm" => "restore"})
+      |> render_submit()
+
+      view |> element(~s(button[phx-click="cancel_restore"])) |> render_click()
+
+      assert Fanfarr.Backup.Restore.pending() == nil
+    end
+  end
+
   describe "the download" do
     test "sends the snapshot as an attachment, never cached", %{conn: conn, dir: dir} do
       name = "fanfarr-20260926-120000.sqlite"

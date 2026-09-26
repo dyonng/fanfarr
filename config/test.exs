@@ -2,6 +2,16 @@ import Config
 config :fanfarr, token_signing_secret: "o8cnUUkYDa/PB6VPPGgjIhoRZFy6E2nK"
 config :bcrypt_elixir, log_rounds: 1
 config :fanfarr, Oban, testing: :manual
+
+# A restore stages a snapshot and restarts the container so the swap happens
+# at the next boot, before anything opens the database. Tests assert the
+# staging; restarting would take the suite down with it.
+config :fanfarr, restart_on_restore: false
+
+# Where a staged restore waits. Beside the database in production, because
+# applying one renames that file and a rename across filesystems fails; in the
+# suite it is a temp path so nothing is ever staged next to the repo.
+config :fanfarr, restore_staging_dir: Path.join(System.tmp_dir!(), "fanfarr-restore-tests")
 config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 
 # Configure your database
