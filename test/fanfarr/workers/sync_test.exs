@@ -49,7 +49,8 @@ defmodule Fanfarr.Workers.SyncTest do
         audience_score_source: "rottentomatoes",
         studio: "Toei Animation",
         collections: [],
-        added_at: ~U[2024-01-01 00:00:00Z]
+        added_at: ~U[2024-01-01 00:00:00Z],
+        season_count: 3
       },
       over
     )
@@ -117,6 +118,33 @@ defmodule Fanfarr.Workers.SyncTest do
     items = Fanfarr.Library.list_media_items!()
     assert Enum.map(items, & &1.title) |> Enum.sort() == ["Fleabag", "One Piece"]
     assert Enum.find(items, &(&1.title == "One Piece")).imdb_id == "tt0388629"
+  end
+
+  test "a show's season count is stored with it" do
+    # Plex reports childCount on a show in the listing, and this is the only
+    # place it is read. It was parsed and then never passed to the write, so
+    # every show arrived with the Seasons column empty: the parse had its own
+    # test and the column had its own fixture, and nothing joined the two.
+    expect(Fanfarr.PlexClientMock, :sections, fn _ -> {:ok, [section()]} end)
+    assert :ok = perform_job(Fanfarr.Workers.SyncLibrary, %{})
+    [s] = Fanfarr.Library.list_sections!()
+
+    expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+      {:ok,
+       [
+         plex_item(%{season_count: 2}),
+         plex_item(%{rating_key: "102", title: "Never Scanned", season_count: nil})
+       ]}
+    end)
+
+    assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+    items = Fanfarr.Library.list_media_items!()
+    assert Enum.find(items, &(&1.title == "One Piece")).season_count == 2
+
+    # A show Plex has not scanned has no count. Nil is the answer rather than
+    # zero, which would claim a season that does not exist.
+    assert Enum.find(items, &(&1.title == "Never Scanned")).season_count == nil
   end
 
   test "syncing twice updates rather than duplicates" do

@@ -55,7 +55,8 @@ defmodule Fanfarr.Library.ItemRefreshTest do
         audience_score_source: "rottentomatoes",
         studio: "Warner Bros. Pictures",
         collections: ["Batman Collection", "DC Universe"],
-        added_at: ~U[2024-01-01 00:00:00Z]
+        added_at: ~U[2024-01-01 00:00:00Z],
+        season_count: nil
       },
       over
     )
@@ -73,6 +74,17 @@ defmodule Fanfarr.Library.ItemRefreshTest do
     assert refreshed.imdb_id == "tt0468569"
     assert refreshed.collections == ["Batman Collection", "DC Universe"]
     assert refreshed.plex_path == "/movies1/The Dark Knight (2008)"
+  end
+
+  test "the season count comes across as well", %{item: item} do
+    # Plex reports childCount in the per-item response too, and this path had
+    # the same hole as the section sync: parsed, then never passed on.
+    expect(Fanfarr.PlexClientMock, :item, fn _config, "500" ->
+      {:ok, plex_item(%{season_count: 4})}
+    end)
+
+    assert {:ok, refreshed} = ItemRefresh.refresh(item)
+    assert refreshed.season_count == 4
   end
 
   test "it is the same row, not a replacement", %{item: item} do

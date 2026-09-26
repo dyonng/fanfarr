@@ -286,7 +286,8 @@ defmodule FanfarrWeb.FeaturesTest do
            audience_score_source: "rottentomatoes",
            studio: "Toei Animation",
            collections: ["Shonen Jump"],
-           added_at: nil
+           added_at: nil,
+           season_count: 3
          }}
       end)
 

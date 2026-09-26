@@ -69,7 +69,8 @@ defmodule Fanfarr.Library.ItemRefresh do
         plex_theme_url: fresh.theme,
         plex_theme_origin: origin,
         plex_theme_agent: agent,
-        added_at: fresh.added_at
+        added_at: fresh.added_at,
+        season_count: fresh.season_count
       })
 
       {:ok, Library.get_media_item!(item.id, load: [:theme_status, :section])}

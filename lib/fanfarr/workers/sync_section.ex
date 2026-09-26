@@ -76,7 +76,8 @@ defmodule Fanfarr.Workers.SyncSection do
             plex_theme_url: item.theme,
             plex_theme_origin: origin,
             plex_theme_agent: agent,
-            added_at: item.added_at
+            added_at: item.added_at,
+            season_count: item.season_count
           })
         end)
       end)
