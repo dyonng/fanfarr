@@ -37,18 +37,19 @@ downloads, and appearance, all in one place.
 - **Movies and shows both** — a local `theme.mp3` is the only way a film gets a theme, verified end to end.
 - **Find a theme without leaving the page** — search YouTube, preview inline, pick it. Your pick outranks ThemerrDB from then on, or paste a URL.
 - **ThemerrDB** — the default source, looked up automatically; misses are cached so nothing is re-requested.
-- **Dry run first, by default** — resolves the source and destination, checks the folder is writable, then stops.
+- **Resolves before it writes** — the Plex path is mapped, resolved against the root folders, and checked for existence and writability on the resolved directory first, so a wrong mapping is caught rather than a theme written into the wrong folder.
 - **Bulk actions** — tick rows or select everything matching a filter; one job per item, two downloads at a time, cancellable mid-run.
-- **Local `theme.mp3`, never an upload** — written beside the media, so deleting the file undoes it. Plex's upload API cannot be undone.
+- **Applying writes a local `theme.mp3`, never an upload** — beside the media, so deleting the file undoes it. (The System page's theme check has a separate, deliberate *upload* diagnostic, for when Plex refuses to promote a local asset. That one cannot be undone, and nothing else calls it.)
 - **Renames don't fork a row** — items are matched by IMDb/TMDB/TVDB id, keeping the same theme and history; anything Plex has genuinely dropped goes on the next sync.
 - **Root folders, like Sonarr** — mount each library location wherever you like and browse to it in Settings; items are found by directory name across the roots, and each root reports whether it is accessible, writable, and how much room is left on the drive.
 - **Loudness normalisation** — every written theme lands at one level (-14 LUFS by default, adjustable).
 - **System page** — health checks: Plex reachable, yt-dlp present, roots writable, Plex paths resolving, ThemerrDB up, database healthy. A sidebar dot when something needs attention.
 - **Log console** — full-page, colour-coded, filterable.
-- **Append-only application log** — every attempt recorded permanently; dry runs included, never counted.
+- **Append-only application log** — every attempt recorded permanently, including the range it wrote, so a theme that arrived short can be explained later.
 - **Activity** — live queue with an ETA, per-job errors and retry, recent failures, and one button to stop all bulk work.
 - **Login from the environment** — `AUTH_USERNAME` and `AUTH_PASSWORD`, an optional "remember me" and a local-address bypass. Unset, the dashboard is open, as the *arrs ship.
 - **Safe by default** — libraries are opt-in, a written theme is one file you can delete, and posters are proxied so your Plex token never reaches a browser.
+- **Database backups** — a daily snapshot into `<config>/backups/`, newest seven kept, taken with SQLite's own `VACUUM INTO` so it is safe while the app is running. A snapshot is a complete database; restoring is one `cp`, written out in `docs/deployment.md`.
 - **One container, one volume** — SQLite, secrets generated on first boot, `PUID`/`PGID` respected, port 7373.
 
 ## Tech stack

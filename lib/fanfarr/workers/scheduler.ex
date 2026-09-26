@@ -35,6 +35,13 @@ defmodule Fanfarr.Workers.Scheduler do
     # bounding the job table.
     Fanfarr.Jobs.prune_history!()
 
+    # And the same reasoning again for the database itself: how many snapshots
+    # to keep and how far apart they are settings, but the heartbeat is where
+    # "is one due" gets asked. The database is the whole of this appliance's
+    # state -- the setting, the mirror, and the record of every theme written --
+    # and nothing else on disk can reconstruct it.
+    Fanfarr.Backup.run_if_due()
+
     :ok
   end
 end

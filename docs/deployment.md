@@ -279,3 +279,56 @@ also be set from Settings, without touching compose or restarting.
 The library mount cannot be read-only if you use local theme output -- that
 mode writes into it. If you use API-upload mode exclusively, a read-only mount
 is fine and is a reasonable precaution.
+
+## Backups and restore
+
+The database is the whole of Fanfarr's state: your settings, the mirror of what
+Plex holds, the ThemerrDB cache, and the append-only record of every theme it
+has written. Nothing else on disk needs keeping, and nothing else can
+reconstruct that record -- Plex cannot be asked what Fanfarr did, and a theme
+that was uploaded cannot be read back out.
+
+So Fanfarr copies it. Once a day it writes a snapshot into
+`<config>/backups/`, keeping the newest seven, using SQLite's own `VACUUM INTO`:
+safe while the application is running, and a compacted copy rather than a
+half-written one. Nothing needs stopping, and no `sqlite3` binary is involved.
+
+| What | Setting | Env | Default |
+| --- | --- | --- | --- |
+| Snapshots | `backup_enabled` | `BACKUP_ENABLED` | on |
+| How many to keep | `backup_keep` | `BACKUP_KEEP` | 7 |
+| How far apart | `backup_interval_hours` | `BACKUP_INTERVAL_HOURS` | 24 |
+
+A snapshot is a complete SQLite database, so it also answers "what did this
+look like last Tuesday": copy one out and open it with any SQLite tool.
+
+**A snapshot on the same disk is not a backup against that disk failing.** The
+files land in your config directory, which is the right place for them to be
+written and the wrong place for them to stay. Copy them somewhere else.
+
+### Restoring one
+
+Stop Fanfarr first. SQLite keeps a write-ahead log beside the database, and
+replacing the file underneath a running process leaves the two out of step.
+
+```bash
+docker stop fanfarr
+
+# The database being replaced is kept rather than deleted: a restore you
+# regret is the worst possible moment to have thrown away what you restored
+# over. The -wal and -shm files belong to the old database and must go.
+cd /path/to/docker/fanfarr
+mv fanfarr.db fanfarr.db.replaced-$(date +%Y%m%d-%H%M%S)
+rm -f fanfarr.db-wal fanfarr.db-shm
+cp backups/fanfarr-20260926-101500.sqlite fanfarr.db
+
+docker start fanfarr
+```
+
+Then check Settings: the version, the Plex connection, and the library counts
+should be those from the moment the snapshot was taken.
+
+**Themes already written to your media are untouched.** They are files on the
+drives; a restore only changes what Fanfarr remembers about them, so a restored
+instance may believe a theme is missing that is in fact sitting on disk. The
+next sync works that out, and **Refresh** on an item settles it sooner.

@@ -22,7 +22,10 @@ defmodule Fanfarr.Config do
     "themerrdb_interval_hours" => "THEMERRDB_INTERVAL_HOURS",
     "log_retention_entries" => "LOG_RETENTION_ENTRIES",
     "auto_crop_target_ms" => "AUTO_CROP_TARGET_MS",
-    "auto_crop_enabled" => "AUTO_CROP_ENABLED"
+    "auto_crop_enabled" => "AUTO_CROP_ENABLED",
+    "backup_enabled" => "BACKUP_ENABLED",
+    "backup_keep" => "BACKUP_KEEP",
+    "backup_interval_hours" => "BACKUP_INTERVAL_HOURS"
   }
 
   @doc "The resolved value for a key, or nil."
