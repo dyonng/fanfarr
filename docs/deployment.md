@@ -305,6 +305,19 @@ full disk is deleted rather than listed -- and only files Fanfarr wrote are
 ever deleted by the rotation. A database you copied in yourself is left
 alone, which matters because that is the one you probably want back.
 
+All four settings are on the **Backups** card in Settings, which also shows what
+the snapshots cost in disk and how old the newest one is, and offers **Back up
+now**. With the schedule off, that button still works: the switch is about what
+happens unattended, not about what an operator is allowed to do.
+
+Each snapshot can be downloaded there, which is how a copy gets off the machine
+that took it. The download is behind the login and sent as an attachment with
+`no-store`, because the file contains your Plex token and the dashboard's
+password hash -- and every download is logged.
+
+Deleting one is also on the card, and it refuses a file Fanfarr did not write,
+which is the same rule the rotation follows.
+
 A snapshot is a complete SQLite database, so it also answers "what did this
 look like last Tuesday": copy one out and open it with any SQLite tool.
 

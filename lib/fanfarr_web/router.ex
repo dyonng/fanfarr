@@ -126,6 +126,10 @@ defmodule FanfarrWeb.Router do
     get "/posters/:id", PosterController, :show
     get "/library/:id/theme", ThemeController, :show
 
+    # Database snapshots. Behind the session gate like the media, and not as a
+    # static file: a snapshot contains the Plex token and the password hash.
+    get "/backups/:name", BackupController, :download
+
     # The trim editor's source and its waveform. Behind the same session gate
     # as the theme itself: this can trigger a download, and an unauthenticated
     # request that makes the server fetch from YouTube is a way to use someone

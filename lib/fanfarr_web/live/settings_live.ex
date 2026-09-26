@@ -20,6 +20,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
      |> assign(:test_result, nil)
      |> assign(:testing, false)
      |> assign(:browser, nil)
+     |> assign(:backing_up, false)
      |> assign(:folder_path, "")
      |> load()}
   end
@@ -57,6 +58,35 @@ defmodule FanfarrWeb.SettingsLive.Index do
     end
   end
 
+  # 0 is stored rather than treated as blank, because for an interval it means
+  # off -- and blank means "use the default", which is a different thing.
+  defp backup_hours(value) do
+    case value |> to_string() |> String.trim() do
+      "" ->
+        {:ok, nil}
+
+      typed ->
+        case Integer.parse(typed) do
+          {0, ""} -> {:ok, "0"}
+          {hours, ""} when hours in 1..168 -> {:ok, Integer.to_string(hours)}
+          _ -> {:error, "Backups must be 0 to turn the schedule off, or 1 to 168 hours"}
+        end
+    end
+  end
+
+  defp backup_count(value) do
+    case value |> to_string() |> String.trim() do
+      "" ->
+        {:ok, nil}
+
+      typed ->
+        case Integer.parse(typed) do
+          {count, ""} when count in 1..30 -> {:ok, Integer.to_string(count)}
+          _ -> {:error, "Keep between 1 and 30 snapshots"}
+        end
+    end
+  end
+
   defp load(socket) do
     socket
     |> assign(:plex_url, Fanfarr.Config.get("plex_url") || "")
@@ -79,6 +109,12 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:job_history_range, Fanfarr.Jobs.history_range())
     |> assign(:search_blacklist, Fanfarr.Themes.Blacklist.text())
     |> assign(:blacklist_limits, Fanfarr.Themes.Blacklist.limits())
+    |> assign(:backups_enabled, Fanfarr.Backup.enabled?())
+    |> assign(:backups_interval_hours, Fanfarr.Config.get("backup_interval_hours") || "")
+    |> assign(:backups_keep, Fanfarr.Config.get("backup_keep") || "")
+    |> assign(:backups_dir, Fanfarr.Backup.dir())
+    |> assign(:backups_usage, Fanfarr.Backup.usage())
+    |> assign(:backups_list, Fanfarr.Backup.list())
     |> assign(:schedules, schedules())
   end
 
@@ -272,6 +308,51 @@ defmodule FanfarrWeb.SettingsLive.Index do
     end
   end
 
+  def handle_event("save_backups", params, socket) do
+    with {:ok, hours} <- backup_hours(params["backup_interval_hours"] || ""),
+         {:ok, keep} <- backup_count(params["backup_keep"] || "") do
+      Fanfarr.Settings.put_setting!("backup_enabled", checkbox_choice(params, "backup_enabled"))
+      Fanfarr.Settings.put_setting!("backup_interval_hours", hours)
+      Fanfarr.Settings.put_setting!("backup_keep", keep)
+
+      {:noreply, socket |> load() |> put_flash(:info, "Backup settings saved")}
+    else
+      {:error, message} -> {:noreply, put_flash(socket, :error, message)}
+    end
+  end
+
+  # Through `start_async`: taking a snapshot reads the whole database, which is
+  # not work to do inside a click -- and a failure has to come back as a flash
+  # rather than taking the page down.
+  def handle_event("backup_now", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:backing_up, true)
+     |> start_async(:backup_now, fn -> Fanfarr.Workers.Backup.enqueue_now() end)}
+  end
+
+  def handle_event("delete_backup", %{"name" => name}, socket) do
+    case Enum.find(Fanfarr.Backup.list(), &(&1.name == name)) do
+      # The rule the rotation follows, kept in the UI as well: a file Fanfarr
+      # did not write is somebody's, and it is probably the one they want.
+      %{kind: :foreign} ->
+        {:noreply, put_flash(socket, :error, "That file was not written by Fanfarr, so it stays")}
+
+      %{path: path} ->
+        case Fanfarr.Backup.remove(path) do
+          :ok ->
+            {:noreply, socket |> load() |> put_flash(:info, "Snapshot deleted")}
+
+          {:error, reason} ->
+            {:noreply,
+             put_flash(socket, :error, "Could not delete it: #{inspect(reason, limit: 3)}")}
+        end
+
+      nil ->
+        {:noreply, put_flash(socket, :error, "That snapshot is already gone")}
+    end
+  end
+
   def handle_event("toggle_section", %{"id" => id}, socket) do
     section = Fanfarr.Library.get_section!(id)
     Fanfarr.Library.set_section_enabled!(section, !section.enabled)
@@ -349,6 +430,29 @@ defmodule FanfarrWeb.SettingsLive.Index do
   end
 
   @impl true
+  def handle_async(:backup_now, {:ok, {:ok, _job}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:backing_up, false)
+     |> load()
+     |> put_flash(:info, "Backup queued. It appears here when it is written.")}
+  end
+
+  def handle_async(:backup_now, {:ok, :ok}, socket) do
+    {:noreply,
+     socket
+     |> assign(:backing_up, false)
+     |> load()
+     |> put_flash(:info, "A backup is already queued")}
+  end
+
+  def handle_async(:backup_now, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:backing_up, false)
+     |> put_flash(:error, "Could not queue a backup: #{inspect(reason, limit: 3)}")}
+  end
+
   def handle_async(:plex_test, {:ok, result}, socket) do
     {:noreply, socket |> assign(:testing, false) |> assign(:test_result, result)}
   end
@@ -925,6 +1029,139 @@ defmodule FanfarrWeb.SettingsLive.Index do
               Save
             </button>
           </form>
+        </section>
+        <section id="backups-card" class="rounded-lg border border-border bg-card p-4">
+          <h2 class="text-sm font-semibold text-card-foreground">Backups</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            The database is everything Fanfarr knows — your settings, the mirror of Plex, and
+            the record of every theme it has written. A snapshot is a copy of it, taken with
+            SQLite's own <code class="font-mono">VACUUM INTO</code>, which is safe while the
+            app is running. Snapshots land in the config volume; restoring one is a file swap,
+            written out in <code class="font-mono">docs/deployment.md</code>.
+          </p>
+
+          <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+            <span class="font-medium text-foreground">
+              {@backups_usage.count} snapshot{if @backups_usage.count != 1, do: "s"}
+            </span>
+            <span class="text-muted-foreground">
+              {FanfarrWeb.Format.bytes(@backups_usage.bytes)}
+            </span>
+            <span
+              :if={@backups_usage.newest && @backups_usage.newest.taken_at}
+              class="text-muted-foreground"
+            >
+              newest {Fanfarr.Clock.ago(@backups_usage.newest.taken_at)}
+            </span>
+            <span :if={is_nil(@backups_usage.newest)} class="text-muted-foreground">
+              none yet
+            </span>
+            <span class="ml-auto font-mono text-muted-foreground">{@backups_dir}</span>
+          </div>
+
+          <form id="backups-form" phx-submit="save_backups" class="mt-4 space-y-4">
+            <label class="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="backup_enabled"
+                value="true"
+                checked={@backups_enabled}
+                class="size-4 rounded border-input"
+              /> Take a snapshot automatically
+            </label>
+
+            <div class={["grid gap-4 sm:grid-cols-2", not @backups_enabled && "opacity-60"]}>
+              <div class="space-y-1">
+                <label class="text-xs font-medium text-muted-foreground">Every (hours)</label>
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  name="backup_interval_hours"
+                  value={@backups_interval_hours}
+                  placeholder="24"
+                  class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+                <p class="text-xs text-muted-foreground">
+                  0 turns the schedule off; blank uses 24. Off means not automatically —
+                  <span class="font-medium text-foreground">Back up now</span>
+                  still works.
+                </p>
+              </div>
+
+              <div class="space-y-1">
+                <label class="text-xs font-medium text-muted-foreground">How many to keep</label>
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  name="backup_keep"
+                  value={@backups_keep}
+                  placeholder="7"
+                  class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+                <p class="text-xs text-muted-foreground">
+                  Older ones are deleted after each new snapshot. Only files Fanfarr wrote are
+                  ever deleted.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Save
+              </button>
+              <button
+                type="button"
+                phx-click="backup_now"
+                disabled={@backing_up}
+                class="h-9 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+              >
+                {if @backing_up, do: "Working…", else: "Back up now"}
+              </button>
+            </div>
+          </form>
+
+          <div :if={@backups_list != []} class="mt-4 space-y-1 border-t border-border pt-3">
+            <div
+              :for={snapshot <- @backups_list}
+              class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
+            >
+              <span class="font-mono text-foreground">{snapshot.name}</span>
+              <span class="text-muted-foreground">
+                {if snapshot.bytes,
+                  do: FanfarrWeb.Format.bytes(snapshot.bytes),
+                  else: "unreadable"}
+              </span>
+              <span :if={snapshot.taken_at} class="text-muted-foreground">
+                {Fanfarr.Clock.precise(snapshot.taken_at)}
+              </span>
+              <span
+                :if={snapshot.kind == :foreign}
+                class="rounded bg-muted px-1.5 py-0.5 text-muted-foreground"
+              >
+                not written by Fanfarr
+              </span>
+              <span class="ml-auto flex items-center gap-2">
+                <a
+                  href={"/backups/#{snapshot.name}"}
+                  class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+                >Download</a>
+                <button
+                  :if={snapshot.kind != :foreign}
+                  phx-click="delete_backup"
+                  phx-value-name={snapshot.name}
+                  data-confirm="Delete this snapshot? It cannot be brought back."
+                  class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+                >Delete</button>
+              </span>
+            </div>
+          </div>
+
+          <p class="mt-3 text-xs text-muted-foreground">
+            A snapshot contains your Plex token and the dashboard's password hash, so downloads
+            are logged and the file is served only to a signed-in session. A snapshot on the
+            same disk as the database is not protection against that disk failing — copy them
+            somewhere else.
+          </p>
         </section>
         <section class="rounded-lg border border-border bg-card p-4">
           <h2 class="text-sm font-semibold text-card-foreground">Logs</h2>
