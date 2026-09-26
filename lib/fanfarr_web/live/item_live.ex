@@ -186,6 +186,21 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  # "Never touch this title." Kept with the other per-item events: clauses of
+  # one function have to sit together, and `--warnings-as-errors` is right to
+  # insist on it.
+  def handle_event("toggle_excluded", _params, socket) do
+    item = socket.assigns.item
+
+    case Fanfarr.Library.set_media_item_excluded(item, %{excluded: not item.excluded}) do
+      {:ok, updated} ->
+        {:noreply, assign(socket, :item, updated)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not change that")}
+    end
+  end
+
   def handle_event("use_themerr", _params, socket) do
     case socket.assigns.themerr do
       %{youtube_theme_url: url} when is_binary(url) and url != "" ->
@@ -1945,6 +1960,23 @@ defmodule FanfarrWeb.ItemLive.Show do
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Theme locked</dt>
                 <dd>{if @item.theme_locked, do: "yes", else: "no"}</dd>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <dt class="text-muted-foreground">Never touch this title</dt>
+                <dd>
+                  <button
+                    phx-click="toggle_excluded"
+                    class={[
+                      "rounded-md border px-2 py-0.5 text-xs",
+                      @item.excluded &&
+                        "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                      !@item.excluded && "border-border hover:bg-accent hover:text-accent-foreground"
+                    ]}
+                    title="Unattended work skips it. A trim or apply you ask for still runs."
+                  >
+                    {if @item.excluded, do: "Excluded", else: "Not excluded"}
+                  </button>
+                </dd>
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-muted-foreground">Last read from Plex</dt>

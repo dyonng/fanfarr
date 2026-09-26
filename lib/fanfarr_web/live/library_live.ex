@@ -174,12 +174,31 @@ defmodule FanfarrWeb.LibraryLive.Index do
         "apply" -> {Enum.count(ids, &enqueue_apply/1), "theme writes"}
         "lookup" -> {Enum.count(ids, &enqueue_lookup/1), "ThemerrDB lookups"}
         "trim" -> {Enum.count(ids, &enqueue_trim/1), "theme trims"}
+        "exclude" -> {set_excluded(ids, true), "titles no longer touched"}
+        "include" -> {set_excluded(ids, false), "titles touched again"}
       end
 
     {:noreply,
      socket
      |> assign(:selected, MapSet.new())
+     |> load_items()
      |> put_flash(:info, "Queued #{queued} #{label}")}
+  end
+
+  # Deliberately not a job. Every other action here hands work off because it
+  # needs the network or the audio; this is one field, and whoever ticked twenty
+  # rows expects the badge to change rather than to read "queued" and wonder
+  # when. The page reloads in the same event instead.
+  defp set_excluded(ids, value) do
+    Enum.count(ids, fn id ->
+      case Fanfarr.Library.get_media_item(id) do
+        {:ok, item} ->
+          match?({:ok, _}, Fanfarr.Library.set_media_item_excluded(item, %{excluded: value}))
+
+        _ ->
+          false
+      end
+    end)
   end
 
   defp enqueue_apply(id), do: match?({:ok, _}, Fanfarr.Workers.ApplyTheme.enqueue(id))
@@ -625,6 +644,21 @@ defmodule FanfarrWeb.LibraryLive.Index do
           </button>
           <button
             phx-click="bulk"
+            phx-value-action="exclude"
+            class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8"
+            title="Nothing unattended will touch these; a trim or apply you ask for still runs."
+          >
+            <.icon name="lucide-eye-off" class="size-3.5" /> Exclude
+          </button>
+          <button
+            phx-click="bulk"
+            phx-value-action="include"
+            class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8"
+          >
+            <.icon name="lucide-eye" class="size-3.5" /> Include
+          </button>
+          <button
+            phx-click="bulk"
             phx-value-action="apply"
             class="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 sm:h-8"
           >
@@ -811,6 +845,14 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   />
                 </td>
                 <td :if={showing?(@visible_columns, "title")} class="px-3 py-2">
+                  <%!-- More important than the control is being able to see
+                  the result: this feature fails by a title quietly being left
+                  out and nobody remembering why. --%>
+                  <span
+                    :if={item.excluded}
+                    class="mr-1.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground"
+                    title="Nothing unattended touches this title."
+                  >excluded</span>
                   <.link
                     navigate={~p"/library/#{item.id}?#{item_params(@filters)}"}
                     class="font-medium hover:underline"
