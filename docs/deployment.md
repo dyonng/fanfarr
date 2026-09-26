@@ -297,7 +297,13 @@ half-written one. Nothing needs stopping, and no `sqlite3` binary is involved.
 | --- | --- | --- | --- |
 | Snapshots | `backup_enabled` | `BACKUP_ENABLED` | on |
 | How many to keep | `backup_keep` | `BACKUP_KEEP` | 7 |
-| How far apart | `backup_interval_hours` | `BACKUP_INTERVAL_HOURS` | 24 |
+| How far apart | `backup_interval_hours` | `BACKUP_INTERVAL_HOURS` | 24 (`0` is off) |
+| Where they go | `backup_dir` | `BACKUP_DIR` | beside the database |
+
+Snapshots are verified before they are announced -- a partial file from a
+full disk is deleted rather than listed -- and only files Fanfarr wrote are
+ever deleted by the rotation. A database you copied in yourself is left
+alone, which matters because that is the one you probably want back.
 
 A snapshot is a complete SQLite database, so it also answers "what did this
 look like last Tuesday": copy one out and open it with any SQLite tool.

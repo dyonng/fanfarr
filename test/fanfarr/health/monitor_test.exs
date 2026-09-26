@@ -28,7 +28,8 @@ defmodule Fanfarr.Health.MonitorTest do
                :local_assets,
                :paths,
                :themerrdb,
-               :database
+               :database,
+               :backups
              ]
 
     assert Monitor.latest() == snapshot

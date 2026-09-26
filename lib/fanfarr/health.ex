@@ -38,7 +38,8 @@ defmodule Fanfarr.Health do
       local_assets(),
       path_resolution(),
       themerrdb(),
-      database()
+      database(),
+      backups()
     ]
   end
 
@@ -324,6 +325,115 @@ defmodule Fanfarr.Health do
 
       {:error, reason} ->
         result(:database, "Database", :error, "Query failed", describe(reason))
+    end
+  end
+
+  @doc """
+  Snapshots of the database being taken, and reaching somewhere writable.
+
+  This check exists because of how the feature first failed: a backup directory
+  owned by the wrong user produced no snapshot, no error and no log line, while
+  the settings page said backups were on. How recent the newest snapshot is, is
+  the only honest answer to "are there backups" -- a snapshot that cannot be
+  written is otherwise indistinguishable from one nobody asked for.
+  """
+  def backups do
+    directory = Fanfarr.Backup.dir()
+
+    cond do
+      not Fanfarr.Backup.enabled?() ->
+        backups_off("Backups are switched off in Settings.")
+
+      is_nil(Fanfarr.Backup.interval_hours()) ->
+        backups_off("The interval is 0. Snapshots can still be taken by hand.")
+
+      not File.dir?(directory) ->
+        result(
+          :backups,
+          "Backups",
+          :warning,
+          "No snapshot taken yet",
+          "The first one is due within the interval; Back up now takes one " <>
+            "immediately. #{directory}"
+        )
+
+      not writable?(directory) ->
+        result(
+          :backups,
+          "Backups",
+          :error,
+          "Backup directory is not writable",
+          "#{directory} cannot be written to, so no snapshot is being taken. " <>
+            "This is usually ownership: it has to be the user the container runs as."
+        )
+
+      true ->
+        backups_age(directory, Fanfarr.Backup.interval_hours())
+    end
+  end
+
+  defp backups_off(detail) do
+    result(
+      :backups,
+      "Backups",
+      :warning,
+      "Automatic backups are off",
+      "Nothing is protecting the record of what this appliance has done. #{detail}"
+    )
+  end
+
+  defp backups_age(directory, hours) do
+    where = "#{directory}, keeping #{Fanfarr.Backup.keep()}"
+
+    case Fanfarr.Backup.newest(directory) do
+      nil ->
+        result(
+          :backups,
+          "Backups",
+          :warning,
+          "No snapshot taken yet",
+          "The first one is due within #{hours} hours. Back up now takes one immediately."
+        )
+
+      %{taken_at: nil} = snapshot ->
+        result(
+          :backups,
+          "Backups",
+          :warning,
+          "Cannot read the last snapshot",
+          "#{snapshot.name} is there but cannot be read, so its age is unknown. #{where}"
+        )
+
+      snapshot ->
+        backups_level(snapshot, hours, where)
+    end
+  end
+
+  defp backups_level(snapshot, hours, where) do
+    age = DateTime.diff(DateTime.utc_now(), snapshot.taken_at, :hour)
+    ago = Fanfarr.Clock.ago(snapshot.taken_at)
+
+    cond do
+      age > hours * 2 ->
+        result(
+          :backups,
+          "Backups",
+          :error,
+          "The last snapshot is overdue",
+          "Newest is #{snapshot.name}, #{ago}, and the interval is #{hours} hours. #{where}"
+        )
+
+      age > hours ->
+        result(
+          :backups,
+          "Backups",
+          :warning,
+          "The last snapshot is overdue",
+          "Newest is #{snapshot.name}, #{ago}. #{where}"
+        )
+
+      true ->
+        result(:backups, "Backups", :ok, "Last snapshot #{ago}", "#{snapshot.name}, #{where}")
     end
   end
 
