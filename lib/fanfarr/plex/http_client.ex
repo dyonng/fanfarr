@@ -9,9 +9,13 @@ defmodule Fanfarr.Plex.HTTPClient do
   **The JSON key is not the XML element name.** `/themes` returns `<Track>`
   elements in XML but a `"Metadata"` array in JSON, and `selected` is a real
   boolean there rather than `"1"`. Read paths are verified against a live
-  server; `upload_theme/3` and `lock_theme/3` are still unexercised, and every
-  parse tolerates missing fields rather than crashing on a server that reports
-  less.
+  server, and every parse tolerates missing fields rather than crashing on a
+  server that reports less.
+
+  `upload_theme/3` is exercised by `Fanfarr.Plex.ThemeCheck` -- the System
+  page's deliberate, per-item diagnostic, and its only caller. `lock_theme/3`
+  has no caller: the pipeline writes a local file, and the UI declines to apply
+  while Plex reports the field locked rather than uploading past it.
 
   `includeGuids=1` is load-bearing on the listing call: without it Plex omits
   the per-provider Guid entries, and those IDs are how ThemerrDB is keyed.

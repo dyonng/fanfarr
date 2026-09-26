@@ -26,7 +26,9 @@ jobs:
       # skips exactly the code most likely to be wrong -- so it is installed
       # rather than the tests being tagged around.
       - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Set up BEAM
         uses: erlef/setup-beam@v1
@@ -47,6 +49,14 @@ jobs:
 
       - name: Install dependencies
         run: mix deps.get
+
+      # Exits non-zero on a finding, so this gates rather than informs. Every
+      # advisory this project has had was found by hand while doing something
+      # else, and the last one sat open until someone happened to look. The
+      # first run of this step found two: an advisory on `lazy_html` that was
+      # test-only, and one on Ash itself hiding behind it.
+      - name: Audit dependencies
+        run: mix hex.audit
 
       - name: Check formatting
         run: mix format --check-formatted

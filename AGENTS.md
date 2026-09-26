@@ -15,9 +15,16 @@ framework boilerplate.**
 These come from the project brief and are not open for re-litigation.
 
 1. **Theme uploads are irreversible through Plex's API.** `deleteTheme()` raises
-   `NotImplementedError`. Every upload is append-only, so: be idempotent (check
-   before uploading, never blind-upload on a scan cycle), and dry-run must exist
-   from the start and default **on**.
+   `NotImplementedError`. So applying a theme writes a local `theme.mp3` and
+   never uploads: deleting the file undoes it. The one upload path is the System
+   page's theme diagnostic, deliberately and per item.
+
+   A dry run existed until v0.1.51 and was removed with its column and the rows
+   that carried it. What replaced it is stronger for the default path: the
+   destination is mapped, resolved and checked for writability before anything
+   is written, and the write is a local file that deleting undoes. What the rule
+   still forbids outright is an *automatic* upload -- a scan cycle must never
+   upload, and nothing may pressure it into one.
 2. **Never hold a database transaction open across an HTTP call.** SQLite has a
    single writer; a yt-dlp fetch or Plex upload takes minutes and would block
    every other write. Write intent, commit, do the IO, write the outcome.
@@ -428,10 +435,11 @@ release `vX.Y.Z` (matching `mix.exs`) to publish a versioned image.
 
 `Fanfarr.Workers.ApplyTheme`: intent -> plan -> download -> place -> outcome.
 
-- **Dry run is the default.** `"dry_run" => false` must be passed explicitly.
-  A dry run resolves the URL and the destination and checks the directory is
-  writable, then stops. That is how a wrong path mapping is found once instead
-  of 1,785 times.
+- **There is no dry run.** It was removed in v0.1.51 with its column. What makes
+  that acceptable is that the default path cannot do anything irreversible: the
+  destination is mapped, resolved and checked for writability before anything is
+  written, and the write is a local file. A dry run of an irreversible action
+  was always the weaker of the two guarantees.
 - **Local `theme.mp3` only.** Deleting the file undoes it; a Plex API upload
   cannot be undone, and irreversible actions are the project's first rule.
 - **Movies are supported.** This section originally refused them pending
@@ -586,6 +594,10 @@ the build depends on the bump.
 - Verify claims about libraries against source in `deps/` rather than memory.
 - CI publishes `ghcr.io/dyonng/fanfarr:latest` on push to `main`. The package
   is public.
+- CI runs `mix hex.audit`, which exits non-zero on a finding, and
+  `.github/dependabot.yml` proposes the bumps. Check the audit before assuming a
+  dependency is fine: the first run found two advisories, one hidden behind the
+  other, and neither was visible from the code.
 
 ## State
 
@@ -593,13 +605,14 @@ Done: scaffold, SQLite tuning, containerisation + GHCR, path mapping, root
 folder resolution, vendored UI, deployment docs, resource model, auth
 (single-user, password only, no mailer), Plex client behaviour + HTTP impl
 (**read paths verified** against PMS 1.43.4 and pinned as captured-response
-tests; **write paths -- upload_theme, lock_theme -- still UNVERIFIED**), sync/ThemerrDB Oban workers,
+tests), sync/ThemerrDB Oban workers,
 dashboard (Library, Item, Activity, Settings), theme origin detection.
 CLAUDE.md carries operational notes.
 
-Next: the yt-dlp resolver and theme writer (EXDEV fallback required), then the
-ApplyTheme worker with dry-run defaulting on. The first real upload also
-settles the `upload://` ratingKey shape above.
+This section is a historical snapshot of the early scaffolding -- `ROADMAP.md`
+is the authoritative list of what is built and what is missing. One note in it
+stayed wrong for a long time: `upload_theme/3` is exercised by the System page's
+theme diagnostic and has no other caller, while `lock_theme/3` still has none.
 
 ---
 

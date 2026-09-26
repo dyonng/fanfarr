@@ -1,0 +1,24 @@
+version: 2
+updates:
+  # The audit step in CI notices a dependency going bad; this is what proposes
+  # the fix for it. Before this file existed, every advisory this project ever
+  # had was found by hand, one at a time, usually while doing something else.
+  - package-ecosystem: mix
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Actions are pinned by major tag, so this brings those along too.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # The runner base images, and the ffmpeg/yt-dlp build arguments beside them.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

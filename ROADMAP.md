@@ -13,9 +13,10 @@ day-to-day decision record, see`AGENTS.md`.
 - Sync: Plex sections and items, theme origin detection (stock vs chosen),
  rename-aware (re-keys the same row rather than forking it), removes items
  Plex has genuinely dropped.
-- Apply pipeline: dry run by default, local`theme.mp3` for shows **and
+- Apply pipeline: local`theme.mp3` for shows **and
  movies**, loudness normalisation, mergerfs-safe writes (EXDEV fallback),
- bulk actions with a stoppable queue and an ETA.
+ bulk actions with a stoppable queue and an ETA, and a resolution pass that
+ checks the destination before anything is written.
 - Settings: Plex connection + test, per-library enable, scheduling (sync and
  ThemerrDB intervals, 0 to turn either off), root folders with a folder
  browser, path mappings, theme downloads (how many at once, yt-dlp proxy,
