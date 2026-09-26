@@ -12,7 +12,7 @@ defmodule Fanfarr.Application do
     # later because the swap deletes the `-wal` file, and the previous
     # database's log must not be sitting next to the file that replaces it.
     # See `Fanfarr.Backup.Restore` for why this is not done on a live app.
-    case Fanfarr.Backup.Restore.apply_pending!() do
+    case Fanfarr.Backup.Restore.apply_on_boot!() do
       :restored -> Fanfarr.Backup.Restore.mark_restored()
       _none_or_error -> :ok
     end

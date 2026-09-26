@@ -160,6 +160,23 @@ defmodule Fanfarr.Backup.RestoreTest do
       assert Path.wildcard(missing <> "*") == []
     end
 
+    test "no arrangement of files stops the boot", %{dir: dir} do
+      staging = Path.join(dir, "restore")
+      File.mkdir_p!(staging)
+
+      # A directory where the staged file should be, and a marker that is not
+      # JSON: not a staged restore, and not nothing either. The contract of the
+      # boot entry point is that it always returns -- a container that will not
+      # start can only be fixed by hand.
+      File.mkdir_p!(Path.join(staging, "pending.sqlite"))
+      File.write!(Path.join(staging, "pending.json"), ~s({"source": "x"}))
+      assert Restore.apply_on_boot!() == :none
+
+      File.rm_rf!(Path.join(staging, "pending.sqlite"))
+      File.write!(Path.join(staging, "pending.json"), "not json at all")
+      assert Restore.apply_on_boot!() == :none
+    end
+
     test "nothing staged is not an error", %{dir: dir} do
       assert Restore.apply_pending!(
                dir: Path.join(dir, "restore"),

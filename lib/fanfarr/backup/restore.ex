@@ -150,6 +150,31 @@ defmodule Fanfarr.Backup.Restore do
     end
   end
 
+  @doc """
+  `apply_pending!/1`, wrapped so nothing it does can stop the application.
+
+  This is what `Fanfarr.Application.start/2` calls, before anything opens the
+  database, and its contract is that it *always* returns. A restore is a
+  convenience; no failure inside one is worth a container that will not come up,
+  because that can only be fixed by hand.
+
+  The failures that were expected are handled where they happen -- a staged file
+  that will not validate, a swap that cannot complete, both of which put things
+  back as they were. This wrapper is for the ones nobody thought of.
+  """
+  @spec apply_on_boot!() :: :restored | :none | {:error, term()}
+  def apply_on_boot! do
+    apply_pending!()
+  rescue
+    error ->
+      Logger.error(
+        "[fanfarr] a staged restore could not even be attempted " <>
+          "(#{Exception.message(error)}); starting on the current database"
+      )
+
+      {:error, error}
+  end
+
   defp apply_staged(database, staged, marker) do
     stamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d-%H%M%S")
     incoming = database <> ".incoming-" <> stamp
@@ -298,6 +323,12 @@ defmodule Fanfarr.Backup.Restore do
     end
 
     :ok
+  rescue
+    # After the tree is up, so raising here would take the application down
+    # moments after it started. Stale jobs are a nuisance, not a reason to fail.
+    error ->
+      Logger.warning("[fanfarr] could not clear up after a restore: #{Exception.message(error)}")
+      :ok
   end
 
   defp remove(path) do
