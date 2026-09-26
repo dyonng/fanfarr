@@ -22,6 +22,16 @@ defmodule FanfarrWeb.SettingsLive.Index do
      |> assign(:browser, nil)
      |> assign(:backing_up, false)
      |> assign(:restore_target, nil)
+     |> allow_upload(:snapshot,
+       # `:any`, deliberately. Naming extensions requires a *known* MIME type
+       # for each one, and a filter that hides the file someone actually needs
+       # -- a backup named `fanfarr.db`, an export from another machine -- is
+       # worse than no filter at all. An extension is not evidence anyway: the
+       # content is checked before anything is staged.
+       accept: :any,
+       max_entries: 1,
+       max_file_size: 512 * 1024 * 1024
+     )
      |> assign(:folder_path, "")
      |> load()}
   end
@@ -405,6 +415,54 @@ defmodule FanfarrWeb.SettingsLive.Index do
       end
     else
       {:noreply, put_flash(socket, :error, ~s(Type "restore" to confirm))}
+    end
+  end
+
+  # Uploads need a change handler even when there is nothing to do with the
+  # change: this is what lets the form enable its button.
+  def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
+
+  def handle_event("restore_upload", _params, socket) do
+    # LiveView's constraints are checked before this runs, so an oversized file
+    # is an entry error rather than a consumed upload. `valid?` rather than an
+    # `errors` field: the entry struct does not carry one, and reaching for it
+    # raised, taking the event down instead of flashing a message.
+    if Enum.any?(socket.assigns.uploads.snapshot.entries, &(not &1.valid?)) do
+      {:noreply, put_flash(socket, :error, "That file is larger than the 512 MB limit")}
+    else
+      # Staged *inside* the callback, deliberately. LiveView removes an upload's
+      # temporary file as soon as the callback returns, so validating and
+      # copying it afterwards finds nothing there -- and reports a perfectly
+      # good snapshot as unreadable.
+      results =
+        consume_uploaded_entries(socket, :snapshot, fn %{path: path}, _entry ->
+          {:ok, Fanfarr.Backup.Restore.stage_upload(path, name: "an uploaded file")}
+        end)
+
+      case results do
+        [{:ok, _pending} | _rest] ->
+          socket =
+            socket
+            |> assign(:restore_target, nil)
+            |> load()
+            |> put_flash(
+              :info,
+              "Restore staged. Fanfarr is restarting, and applies it on the way up."
+            )
+
+          {:noreply, restart_to_apply(socket)}
+
+        [{:error, reason} | _rest] ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             "That file cannot be restored from: #{inspect(reason, limit: 3)}"
+           )}
+
+        [] ->
+          {:noreply, put_flash(socket, :error, "Choose a snapshot file first")}
+      end
     end
   end
 
@@ -1265,6 +1323,31 @@ defmodule FanfarrWeb.SettingsLive.Index do
               </span>
             </div>
           </div>
+
+          <form
+            id="restore-upload-form"
+            phx-change="validate_upload"
+            phx-submit="restore_upload"
+            class="mt-4 space-y-2 border-t border-border pt-3"
+          >
+            <label class="text-xs font-medium text-muted-foreground">
+              Restore from a file kept elsewhere
+            </label>
+            <p class="text-xs text-muted-foreground">
+              The way back when the disk holding these snapshots is the thing that failed. The
+              file is checked before anything is staged: a header, SQLite's own page check, and
+              the schema this application expects.
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+              <.live_file_input
+                upload={@uploads.snapshot}
+                class="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs"
+              />
+              <button class="h-8 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground">
+                Restore from file
+              </button>
+            </div>
+          </form>
 
           <p class="mt-3 text-xs text-muted-foreground">
             A snapshot contains your Plex token and the dashboard's password hash, so downloads

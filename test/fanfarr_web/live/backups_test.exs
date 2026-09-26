@@ -227,6 +227,41 @@ defmodule FanfarrWeb.BackupsTest do
       assert render(view) =~ "is staged"
     end
 
+    test "a snapshot kept elsewhere can be uploaded instead", %{conn: conn, dir: dir} do
+      # The case with no snapshot on disk to choose: the disk that held them is
+      # the thing that failed.
+      {:ok, snapshot} = Fanfarr.Backup.snapshot(dir)
+      elsewhere = Path.join(dir, "from-elsewhere.sqlite")
+      File.cp!(snapshot, elsewhere)
+
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> file_input("#restore-upload-form", :snapshot, [
+        %{name: "from-elsewhere.sqlite", content: File.read!(elsewhere)}
+      ])
+      |> render_upload("from-elsewhere.sqlite")
+
+      view |> element("#restore-upload-form") |> render_submit()
+
+      assert Fanfarr.Backup.Restore.pending()["source"] == "an uploaded file"
+    end
+
+    test "an uploaded file that is not a database is refused", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> file_input("#restore-upload-form", :snapshot, [
+        %{name: "not-a-db.sqlite", content: "definitely not a database"}
+      ])
+      |> render_upload("not-a-db.sqlite")
+
+      html = view |> element("#restore-upload-form") |> render_submit()
+
+      assert html =~ "cannot be restored from"
+      assert Fanfarr.Backup.Restore.pending() == nil
+    end
+
     test "a staged restore can be cancelled", %{conn: conn, snapshot: snapshot} do
       {:ok, view, _html} = live(conn, "/settings")
       ask(view, snapshot)

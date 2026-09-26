@@ -75,6 +75,29 @@ defmodule Fanfarr.Backup.RestoreTest do
     end
   end
 
+  describe "staging an uploaded file" do
+    test "a real database is staged, with the undo snapshot taken first", %{dir: dir} do
+      {:ok, snapshot} = Backup.snapshot(dir)
+      upload = Path.join(dir, "from-elsewhere.sqlite")
+      File.cp!(snapshot, upload)
+      staging = Path.join(dir, "staging")
+
+      assert {:ok, pending} = Restore.stage_upload(upload, dir: staging, name: "an uploaded file")
+
+      assert pending["source"] == "an uploaded file"
+      assert pending["safety_snapshot"] =~ "pre-restore-"
+      assert Restore.pending(staging) != nil
+    end
+
+    test "an uploaded file that is not a database is refused", %{dir: dir} do
+      upload = junk(Path.join(dir, "not-a-db.sqlite"), "definitely not a database")
+      staging = Path.join(dir, "staging")
+
+      assert {:error, _reason} = Restore.stage_upload(upload, dir: staging)
+      assert Restore.pending(staging) == nil
+    end
+  end
+
   describe "applying at boot" do
     test "swaps the files, keeps the one it replaced, and clears the log", %{dir: dir} do
       # A real snapshot, because validation opens the file and asks SQLite about
@@ -120,6 +143,21 @@ defmodule Fanfarr.Backup.RestoreTest do
       assert Path.wildcard(database <> ".replaced-*") == []
       assert Restore.pending(staging) == nil
       refute File.exists?(Path.join(staging, "pending.sqlite"))
+    end
+
+    test "a restore that cannot be copied into place leaves everything alone", %{dir: dir} do
+      {:ok, snapshot} = Backup.snapshot(dir)
+      staging = Path.join(dir, "restore")
+      {:ok, _pending} = Restore.stage(Path.basename(snapshot), dir: staging)
+
+      # A database whose directory does not exist: the copy into it fails. The
+      # point is that this is an error rather than a crash -- a restore that
+      # cannot be applied must still let the application start.
+      missing = Path.join([dir, "no-such-dir", "fanfarr.db"])
+
+      assert {:error, _reason} = Restore.apply_pending!(dir: staging, database: missing)
+      assert Restore.pending(staging) == nil
+      assert Path.wildcard(missing <> "*") == []
     end
 
     test "nothing staged is not an error", %{dir: dir} do

@@ -79,6 +79,34 @@ defmodule Fanfarr.Backup.Restore do
     end
   end
 
+  @doc """
+  Stages a restore from a file the operator uploaded.
+
+  The recovery path that matters most: when the disk holding the snapshots is
+  the thing that failed, there is no snapshot left to choose from, and the copy
+  kept somewhere else is the only one that exists.
+
+  Uploaded bytes are treated as untrusted. The name is not used as a path, the
+  content is validated like any other candidate, and nothing is staged unless it
+  passes -- the one thing worse than losing a database is replacing it with a
+  file that is not one.
+  """
+  @spec stage_upload(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def stage_upload(source, opts \\ []) do
+    directory = Keyword.get(opts, :dir, dir())
+    label = Keyword.get(opts, :name, "an uploaded file")
+
+    with :ok <- Fanfarr.Backup.validate(source),
+         {:ok, safety} <- Fanfarr.Backup.pre_restore(),
+         :ok <- File.mkdir_p(directory),
+         :ok <- File.cp(source, Path.join(directory, @pending)),
+         :ok <- write_marker(directory, label, safety) do
+      Logger.warning("[fanfarr] a restore from #{label} is staged; it applies on the next start")
+
+      {:ok, pending(directory)}
+    end
+  end
+
   @doc "The staged restore, for the settings page to show, or nil."
   @spec pending(String.t()) :: map() | nil
   def pending(directory \\ dir()) do
@@ -123,17 +151,20 @@ defmodule Fanfarr.Backup.Restore do
   end
 
   defp apply_staged(database, staged, marker) do
-    with :ok <- Fanfarr.Backup.validate(staged) do
-      replaced =
-        database <> ".replaced-" <> Calendar.strftime(DateTime.utc_now(), "%Y%m%d-%H%M%S")
+    stamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d-%H%M%S")
+    incoming = database <> ".incoming-" <> stamp
+    replaced = database <> ".replaced-" <> stamp
 
-      move_apart(database, replaced)
-      # Deleted, not moved: these belong to the database being replaced. Left
-      # behind, SQLite would apply them to the file that just arrived.
-      remove(database <> "-wal")
-      remove(database <> "-shm")
-      :ok = File.rename(staged, database)
+    with :ok <- Fanfarr.Backup.validate(staged),
+         # Copied into the database's own directory before anything moves, so
+         # the swap that follows is a rename within one filesystem -- the only
+         # kind that is atomic, and the only kind that cannot half-happen.
+         :ok <- copy(staged, incoming),
+         :ok <- move_apart(database, replaced),
+         :ok <- clear_log(database),
+         :ok <- swap_in(incoming, database, replaced) do
       remove(marker)
+      remove(staged)
 
       Logger.warning(
         "[fanfarr] restored the database from a staged backup; " <>
@@ -143,16 +174,26 @@ defmodule Fanfarr.Backup.Restore do
       :restored
     else
       {:error, reason} ->
-        # Nothing is touched, and the boot continues on the database that is
-        # already there. Refusing to start would be worse than the bad file.
+        # Nothing is left half-done: the incoming copy, the marker and the
+        # staged file all go, and the boot continues on the database that is
+        # already there. Refusing to start would be the one outcome this whole
+        # design exists to avoid.
         Logger.error(
-          "[fanfarr] the staged restore cannot be used (#{inspect(reason, limit: 3)}); " <>
+          "[fanfarr] the staged restore cannot be applied (#{inspect(reason, limit: 3)}); " <>
             "keeping the current database"
         )
 
+        remove(incoming)
         remove(marker)
         remove(staged)
         {:error, reason}
+    end
+  end
+
+  defp copy(source, target) do
+    case File.cp(source, target) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:copy, reason}}
     end
   end
 
@@ -167,7 +208,39 @@ defmodule Fanfarr.Backup.Restore do
         :ok
 
       {:error, reason} ->
-        Logger.warning("[fanfarr] could not set the old database aside: #{inspect(reason)}")
+        {:error, {:move, reason}}
+    end
+  end
+
+  # Deleted, not moved: these belong to the database being replaced, and left
+  # behind SQLite would apply them to the file that just arrived.
+  defp clear_log(database) do
+    remove(database <> "-wal")
+    remove(database <> "-shm")
+    :ok
+  end
+
+  defp swap_in(incoming, database, replaced) do
+    case File.rename(incoming, database) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        # Put back what was moved aside. The database path must never be left
+        # empty, or the next thing to open it creates a blank database -- and a
+        # restore that failed would then have cost the data it was meant to keep.
+        case File.rename(replaced, database) do
+          :ok ->
+            :ok
+
+          {:error, restore_reason} ->
+            Logger.error(
+              "[fanfarr] could not put the original database back " <>
+                "(#{inspect(restore_reason)}); it is at #{replaced}"
+            )
+        end
+
+        {:error, {:swap, reason}}
     end
   end
 

@@ -333,6 +333,12 @@ stages the file, and restarts; the swap is the first thing the next boot does,
 before anything opens the database. The database being replaced is renamed, not
 deleted, as `fanfarr.db.replaced-<timestamp>`.
 
+A snapshot kept on another machine can be **uploaded** instead, which is the way
+back when the disk that held the snapshots is the one that failed. The uploaded
+file is checked exactly like a local one -- header, SQLite's own page check, and
+the schema this application expects -- because the one thing worse than losing a
+database is replacing it with a file that is not one.
+
 It has to happen at boot rather than on the click. SQLite keeps its write-ahead
 log beside the database at a fixed path, so replacing that file under a running
 application leaves the old database's log next to the new one, and SQLite would
