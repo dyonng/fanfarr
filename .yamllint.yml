@@ -1,0 +1,13 @@
+# Two lines in the workflows cannot fit 80 columns: the bot's email address,
+# and a metadata-action expression that is one line of a multi-line scalar.
+# Both would be worse wrapped or split, so the limit is set somewhere CI
+# expressions can actually meet rather than contorting the workflow to suit a
+# rule written for prose.
+extends: default
+
+rules:
+  line-length:
+    max: 120
+
+  # Every file here is a list of steps; the document-start marker is noise.
+  document-start: disable
