@@ -85,6 +85,15 @@ defmodule Fanfarr.Workers.SyncSection do
       prune(section, items)
 
       Phoenix.PubSub.broadcast(Fanfarr.PubSub, "library", {:section_synced, section.id})
+
+      # Off by default: a sync that finishes every six hours is noise to most
+      # people, and exactly what somebody else wants to hear about.
+      Fanfarr.Notify.send(
+        :sync,
+        "#{section.title} synced",
+        "#{length(items)} item(s) mirrored from Plex"
+      )
+
       :ok
     else
       {:error, :plex_not_configured} -> {:cancel, :plex_not_configured}

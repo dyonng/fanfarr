@@ -12,6 +12,11 @@ config :fanfarr, restart_on_restore: false
 # applying one renames that file and a rename across filesystems fails; in the
 # suite it is a temp path so nothing is ever staged next to the repo.
 config :fanfarr, restore_staging_dir: Path.join(System.tmp_dir!(), "fanfarr-restore-tests")
+
+# Notifications get their own stub key, not the shared one: `req_options` above
+# already points at `Fanfarr.PlexReq`, and a notification test that hit the Plex
+# stub would be asserting against the wrong request entirely.
+config :fanfarr, notify_req_options: [plug: {Req.Test, Fanfarr.NotifyReq}]
 config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 
 # Configure your database

@@ -26,7 +26,13 @@ defmodule Fanfarr.Config do
     "backup_enabled" => "BACKUP_ENABLED",
     "backup_keep" => "BACKUP_KEEP",
     "backup_interval_hours" => "BACKUP_INTERVAL_HOURS",
-    "backup_dir" => "BACKUP_DIR"
+    "backup_dir" => "BACKUP_DIR",
+    "notify_url" => "NOTIFY_URL",
+    "notify_style" => "NOTIFY_STYLE",
+    "notify_job_failures" => "NOTIFY_JOB_FAILURES",
+    "notify_health" => "NOTIFY_HEALTH",
+    "notify_backups" => "NOTIFY_BACKUPS",
+    "notify_sync" => "NOTIFY_SYNC"
   }
 
   @doc "The resolved value for a key, or nil."

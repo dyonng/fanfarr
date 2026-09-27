@@ -85,8 +85,20 @@ defmodule Fanfarr.Workers.Backup do
 
   defp snapshot do
     case Fanfarr.Backup.snapshot() do
-      {:ok, _path} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, _path} ->
+        :ok
+
+      {:error, reason} ->
+        # The log line already says so; this is for the operator who is not
+        # reading the log.
+        Fanfarr.Notify.send(
+          :backups,
+          "A database backup failed",
+          "#{inspect(reason, limit: 3)}",
+          level: :error
+        )
+
+        {:error, reason}
     end
   end
 end

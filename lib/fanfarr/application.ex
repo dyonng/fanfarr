@@ -78,6 +78,10 @@ defmodule Fanfarr.Application do
         Fanfarr.Diagnostics.Redactor.prime()
         Fanfarr.Log.Buffer.attach()
 
+        # Oban telemetry, so a job that runs out of retries can say so out loud
+        # instead of only on a page nobody has open.
+        Fanfarr.Notify.attach()
+
         # Here rather than as a child: a restore cancel works on the job table,
         # so it needs the repo, and a bare MFA child spec for a task that exits
         # normally is `restart: :permanent` -- the supervisor restarts it
