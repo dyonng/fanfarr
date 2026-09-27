@@ -95,6 +95,29 @@ defmodule FanfarrWeb.NotificationsTest do
     assert Notify.style() == "ntfy"
   end
 
+  test "the card offers the token Gotify needs, and detects the shape", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+
+    assert has_element?(view, "#notifications-card input[name='notify_token']")
+    assert has_element?(view, "#notifications-card option[value='']", "detect from the URL")
+  end
+
+  test "a token is stored, and a blank shape leaves the URL deciding", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+
+    view
+    |> element("#notifications-form")
+    |> render_submit(%{
+      "notify_url" => "https://gotify.example.com",
+      "notify_style" => "",
+      "notify_token" => "apptoken123"
+    })
+
+    assert Fanfarr.Notify.token() == "apptoken123"
+    assert Fanfarr.Notify.style() == "gotify"
+    assert Fanfarr.Notify.inferred?()
+  end
+
   test "the test button sends one, whatever the switches say", %{conn: conn} do
     Fanfarr.Settings.put_setting!("notify_url", "https://ntfy.sh/fanfarr")
     for type <- Notify.types(), do: Fanfarr.Settings.put_setting!(type.setting, "false")

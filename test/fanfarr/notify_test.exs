@@ -148,6 +148,96 @@ defmodule Fanfarr.NotifyTest do
     end
   end
 
+  describe "gotify" do
+    setup do
+      # A host that says gotify, which is what inference reads. A self-hosted
+      # one on a domain of its own needs the shape set explicitly, and that is
+      # the next describe.
+      Fanfarr.Settings.put_setting!("notify_url", "https://gotify.example.com")
+      Fanfarr.Settings.put_setting!("notify_token", "apptoken123")
+      :ok
+    end
+
+    test "posts to /message with the token in a header" do
+      assert Notify.style() == "gotify"
+      assert Notify.endpoint("gotify") == "https://gotify.example.com/message"
+
+      assert :ok = Notify.send(:job_failures, "A job gave up", "because reasons")
+
+      {conn, body} = received()
+      assert Plug.Conn.get_req_header(conn, "x-gotify-key") == ["apptoken123"]
+
+      decoded = Jason.decode!(body)
+      assert decoded["title"] == "A job gave up"
+      assert decoded["message"] == "because reasons"
+      assert decoded["priority"] == 4
+    end
+
+    test "an error is sent at a priority meant to interrupt" do
+      assert :ok = Notify.send(:backups, "T", "B", level: :error)
+      assert {_conn, body} = received()
+      assert Jason.decode!(body)["priority"] == 8
+    end
+
+    test "a URL that already names the endpoint is not doubled" do
+      Fanfarr.Settings.put_setting!("notify_url", "https://gotify.example.com/message")
+
+      assert Notify.endpoint("gotify") == "https://gotify.example.com/message"
+      # And the trailing slash people paste does not become a double slash.
+      Fanfarr.Settings.put_setting!("notify_url", "https://gotify.example.com/")
+      assert Notify.endpoint("gotify") == "https://gotify.example.com/message"
+    end
+
+    test "with no token it says so rather than sending" do
+      Fanfarr.Settings.put_setting!("notify_token", "")
+
+      assert {:error, :gotify_needs_a_token} = Notify.send(:job_failures, "T", "B")
+      assert received() == :nothing
+    end
+
+    test "a gotify server on its own domain needs the shape said out loud" do
+      # What inference cannot know: nothing about this host says gotify.
+      Fanfarr.Settings.put_setting!("notify_url", "https://push.example.com")
+      assert Notify.style() == "ntfy"
+
+      Fanfarr.Settings.put_setting!("notify_style", "gotify")
+      assert Notify.style() == "gotify"
+      refute Notify.inferred?()
+
+      assert :ok = Notify.send(:job_failures, "T", "B")
+      assert {conn, _body} = received()
+      assert Plug.Conn.get_req_header(conn, "x-gotify-key") == ["apptoken123"]
+    end
+  end
+
+  describe "reading the shape from the URL" do
+    test "the addresses the services hand out are recognised" do
+      assert Notify.infer("https://discord.com/api/webhooks/123/abc") == "discord"
+      assert Notify.infer("https://discordapp.com/api/webhooks/123/abc") == "discord"
+      assert Notify.infer("https://hooks.slack.com/services/T/B/X") == "slack"
+      assert Notify.infer("https://ntfy.sh/my-topic") == "ntfy"
+      assert Notify.infer("https://ntfy.mydomain.com/my-topic") == "ntfy"
+      assert Notify.infer("https://gotify.example.com") == "gotify"
+      # Nothing recognisable, and plain text is what a dumb receiver reads.
+      assert Notify.infer("https://hooks.example.com/abc") == "ntfy"
+      assert Notify.infer(nil) == "ntfy"
+    end
+
+    test "the URL decides until somebody says otherwise" do
+      Fanfarr.Settings.put_setting!("notify_url", "https://discord.com/api/webhooks/1/a")
+      assert Notify.style() == "discord"
+      assert Notify.inferred?()
+
+      Fanfarr.Settings.put_setting!("notify_style", "json")
+      assert Notify.style() == "json"
+      refute Notify.inferred?()
+
+      # Blank goes back to reading the URL, rather than meaning ntfy.
+      Fanfarr.Settings.put_setting!("notify_style", "")
+      assert Notify.style() == "discord"
+    end
+  end
+
   describe "delivery never fails the work" do
     test "a rejection is returned, not raised" do
       Req.Test.stub(Fanfarr.NotifyReq, fn conn -> Plug.Conn.send_resp(conn, 500, "") end)

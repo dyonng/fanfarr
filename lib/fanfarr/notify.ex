@@ -7,12 +7,18 @@ defmodule Fanfarr.Notify do
   an appliance: the failure and the discovery of it are separated by however long
   it takes somebody to log in.
 
-  ## One URL, four shapes
+  ## One URL, and the shape is read from it
 
-  A webhook URL and a style, because the services people actually run disagree
-  about what a notification is: `ntfy` wants plain text with a title header,
-  Discord and Slack each want a JSON field of their own, and anything else gets
-  the generic object. No SDK, no vendor client -- one POST.
+  A webhook URL, because the services people actually run disagree about what a
+  notification is: `ntfy` wants plain text with a title header, Discord and Slack
+  each want a JSON field of their own, Gotify wants a token in a header, and
+  anything else gets the generic object. No SDK, no vendor client -- one POST.
+
+  The shape is **inferred from the URL**, so pasting a Discord webhook address is
+  the whole of the setup and there is no "which service is this" question to get
+  wrong. A host nobody recognises falls back to plain text, which a dumb receiver
+  understands where JSON would need a parser, and the explicit setting overrides
+  the guess -- for a self-hosted Gotify, or an ntfy on its own domain.
 
   ## A switch per type
 
@@ -62,7 +68,7 @@ defmodule Fanfarr.Notify do
     }
   ]
 
-  @styles ~w(ntfy discord slack json)
+  @styles ~w(ntfy discord slack gotify json)
 
   @doc "Every kind of notification, with the settings that switch it."
   @spec types() :: [map()]
@@ -92,10 +98,67 @@ defmodule Fanfarr.Notify do
   def style do
     case Fanfarr.Config.get("notify_style") do
       value when is_binary(value) ->
-        if String.trim(value) in @styles, do: String.trim(value), else: "ntfy"
+        case String.trim(value) do
+          "" -> infer(url())
+          explicit -> if explicit in @styles, do: explicit, else: infer(url())
+        end
 
       _ ->
-        "ntfy"
+        infer(url())
+    end
+  end
+
+  @doc """
+  Whether the shape was read from the URL rather than chosen.
+
+  The settings form says so: a select showing a value nobody picked is otherwise
+  a small lie, and it is the value people would blame for a wrong payload.
+  """
+  @spec inferred?() :: boolean()
+  def inferred? do
+    case Fanfarr.Config.get("notify_style") do
+      value when is_binary(value) -> String.trim(value) not in @styles
+      _ -> true
+    end
+  end
+
+  @doc """
+  The shape an address implies.
+
+  Substring matching rather than a parser: these are the addresses the services
+  hand out, and the setting is there for everything else. Plain text is the
+  fallback because a dumb receiver understands anything, where JSON needs a
+  parser on the other end to have been written for it.
+  """
+  @spec infer(String.t() | nil) :: String.t()
+  def infer(nil), do: "ntfy"
+
+  def infer(address) do
+    lowered = String.downcase(address)
+
+    cond do
+      String.contains?(lowered, "discord") -> "discord"
+      String.contains?(lowered, "slack") -> "slack"
+      String.contains?(lowered, "gotify") -> "gotify"
+      # ntfy topics are usually on a subdomain of the word; ntfy.sh is the hosted
+      # one.
+      String.contains?(lowered, "ntfy") -> "ntfy"
+      true -> "ntfy"
+    end
+  end
+
+  @doc "The Gotify application token, which only that shape needs."
+  @spec token() :: String.t() | nil
+  def token do
+    case Fanfarr.Config.get("notify_token") do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
     end
   end
 
@@ -236,21 +299,50 @@ defmodule Fanfarr.Notify do
   end
 
   defp deliver(title, message, opts) do
-    {headers, body} = payload(style(), title, message, opts)
+    style = style()
 
-    case Req.post(client(), url: url(), headers: headers, body: body) do
-      {:ok, %{status: status}} when status in 200..299 ->
-        :ok
+    with :ok <- check_token(style) do
+      {headers, body} = payload(style, title, message, opts)
 
-      {:ok, %{status: status}} ->
-        Logger.warning("[fanfarr] the notification endpoint answered #{status}")
-        {:error, {:status, status}}
+      case Req.post(client(), url: endpoint(style), headers: headers, body: body) do
+        {:ok, %{status: status}} when status in 200..299 ->
+          :ok
 
-      {:error, reason} ->
-        Logger.warning("[fanfarr] could not send a notification: #{inspect(reason, limit: 3)}")
-        {:error, reason}
+        {:ok, %{status: status}} ->
+          Logger.warning("[fanfarr] the notification endpoint answered #{status}")
+          {:error, {:status, status}}
+
+        {:error, reason} ->
+          Logger.warning("[fanfarr] could not send a notification: #{inspect(reason, limit: 3)}")
+          {:error, reason}
+      end
     end
   end
+
+  # A clear answer beats a 401 from somebody else's server. Gotify is the one
+  # shape needing a second field, so forgetting it is the likely mistake.
+  defp check_token("gotify") do
+    if token(), do: :ok, else: {:error, :gotify_needs_a_token}
+  end
+
+  defp check_token(_style), do: :ok
+
+  @doc """
+  Where a notification is posted.
+
+  Gotify is posted to an endpoint on the server the operator names; everything
+  else is the address itself. Public because it is a rule worth testing without
+  a request, and a `Req.Test` connection does not carry the path back to the
+  caller.
+  """
+  @spec endpoint(String.t()) :: String.t() | nil
+  def endpoint("gotify") do
+    base = String.trim_trailing(url() || "", "/")
+
+    if String.ends_with?(base, "/message"), do: base, else: base <> "/message"
+  end
+
+  def endpoint(_style), do: url()
 
   # Short and without retries: a notification is worth one attempt. Retrying it
   # in the background is how one failing endpoint turns into a queue of them.
@@ -275,6 +367,18 @@ defmodule Fanfarr.Notify do
 
   defp payload("slack", title, message, _opts) do
     {json_headers(), Jason.encode!(%{"text" => "*#{title}*\n#{message}"})}
+  end
+
+  defp payload("gotify", title, message, opts) do
+    body = %{
+      "title" => title,
+      "message" => message,
+      # Gotify's own scale: 0 is silent, 10 is a shout. An error is meant to
+      # interrupt; the rest is for reading later.
+      "priority" => if(level(opts) == "error", do: 8, else: 4)
+    }
+
+    {[{"x-gotify-key", token()} | json_headers()], Jason.encode!(body)}
   end
 
   defp payload("json", title, message, opts) do

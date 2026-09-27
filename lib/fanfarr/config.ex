@@ -29,6 +29,7 @@ defmodule Fanfarr.Config do
     "backup_dir" => "BACKUP_DIR",
     "notify_url" => "NOTIFY_URL",
     "notify_style" => "NOTIFY_STYLE",
+    "notify_token" => "NOTIFY_TOKEN",
     "notify_job_failures" => "NOTIFY_JOB_FAILURES",
     "notify_health" => "NOTIFY_HEALTH",
     "notify_backups" => "NOTIFY_BACKUPS",

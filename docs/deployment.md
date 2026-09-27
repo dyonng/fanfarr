@@ -249,20 +249,35 @@ environment:
 | What | Setting | Env | Default |
 | --- | --- | --- | --- |
 | The webhook | `notify_url` | `NOTIFY_URL` | unset, which means off |
-| Payload shape | `notify_style` | `NOTIFY_STYLE` | `ntfy` |
+| Payload shape | `notify_style` | `NOTIFY_STYLE` | read from the URL |
+| Gotify application token | `notify_token` | `NOTIFY_TOKEN` | unset |
 | A job gives up | `notify_job_failures` | `NOTIFY_JOB_FAILURES` | on |
 | A health check starts failing | `notify_health` | `NOTIFY_HEALTH` | on |
 | A backup fails | `notify_backups` | `NOTIFY_BACKUPS` | on |
 | A sync finishes | `notify_sync` | `NOTIFY_SYNC` | off |
+
+**The shape is read from the URL**, so pasting an address is the whole of the
+setup: `discord.com` and `discordapp.com` are Discord, `hooks.slack.com` is
+Slack, `gotify` in the host is Gotify, `ntfy` in the host is ntfy. Anything else
+is sent as plain text, because a dumb receiver understands anything where JSON
+needs a parser written for it. Set the shape explicitly to override the guess --
+for a self-hosted Gotify on a domain of its own, or an ntfy topic that does not
+say ntfy.
+
+Gotify is the one shape needing a second field: paste the server URL and its
+application token. Without a token the send fails with a reason rather than a
+401 from somebody else's server.
 
 All of it is also on the **Notifications** card in Settings, which has a switch
 per kind of event and a **Send a test** button. The test ignores the switches:
 the point of it is to find out whether the URL and the shape are right.
 
 `ntfy` gets plain text with the title in a header and failures at high priority.
-Discord gets `content`, Slack gets `text`, and anything else gets a JSON object
-with `title`, `message`, `level`, `source` and the version. A URL that is neither
-of those shapes is still sent -- one POST, and you can see what arrives.
+Discord gets `content`, Slack gets `text`, Gotify gets `title`/`message`/
+`priority` with the token in an `X-Gotify-Key` header, and anything else gets a
+JSON object with `title`, `message`, `level`, `source` and the version. A URL
+that is none of those shapes is still sent -- one POST, and you can see what
+arrives.
 
 Three things worth knowing about how it behaves:
 

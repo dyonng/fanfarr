@@ -70,6 +70,15 @@ defmodule FanfarrWeb.SettingsLive.Index do
     end
   end
 
+  # Blank clears the setting, which is how a field goes back to its default --
+  # and for the shape, blank is what lets the URL decide.
+  defp blank_to_nil(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
   # Each kind of notification with its switch as set. Built from the module's own
   # list rather than written out here, so a new kind appears on the card the
   # moment it exists -- and a switch that saves a setting nothing reads cannot.
@@ -153,7 +162,9 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:restore_pending, Fanfarr.Backup.Restore.pending())
     |> assign(:notify_url, Fanfarr.Config.get("notify_url") || "")
     |> assign(:notify_style, Fanfarr.Notify.style())
+    |> assign(:notify_inferred, Fanfarr.Notify.inferred?())
     |> assign(:notify_styles, Fanfarr.Notify.styles())
+    |> assign(:notify_token, Fanfarr.Config.get("notify_token") || "")
     |> assign(:notify_configured, Fanfarr.Notify.enabled?())
     |> assign(:notify_types, notify_types())
     |> assign(:schedules, schedules())
@@ -483,20 +494,23 @@ defmodule FanfarrWeb.SettingsLive.Index do
 
   def handle_event("save_notifications", params, socket) do
     url = String.trim(params["notify_url"] || "")
-    style = String.trim(params["notify_style"] || "ntfy")
+    # Blank is "read it from the URL", which is the default and the reason there
+    # is usually no question to answer here at all.
+    style = String.trim(params["notify_style"] || "")
 
     cond do
       url != "" and not String.starts_with?(url, ["http://", "https://"]) ->
         {:noreply,
          put_flash(socket, :error, "The webhook URL has to start with http:// or https://")}
 
-      style not in Fanfarr.Notify.styles() ->
+      style != "" and style not in Fanfarr.Notify.styles() ->
         {:noreply,
          put_flash(socket, :error, "Pick one of: #{Enum.join(Fanfarr.Notify.styles(), ", ")}")}
 
       true ->
         Fanfarr.Settings.put_setting!("notify_url", url)
-        Fanfarr.Settings.put_setting!("notify_style", style)
+        Fanfarr.Settings.put_setting!("notify_style", blank_to_nil(style))
+        Fanfarr.Settings.put_setting!("notify_token", String.trim(params["notify_token"] || ""))
 
         for type <- Fanfarr.Notify.types() do
           Fanfarr.Settings.put_setting!(type.setting, checkbox_choice(params, type.setting))
@@ -1243,18 +1257,35 @@ defmodule FanfarrWeb.SettingsLive.Index do
                   name="notify_style"
                   class="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                 >
+                  <option value="" selected={@notify_inferred}>detect from the URL</option>
                   <option
                     :for={style <- @notify_styles}
                     value={style}
-                    selected={@notify_style == style}
+                    selected={not @notify_inferred and @notify_style == style}
                   >
                     {style}
                   </option>
                 </select>
                 <p class="text-xs text-muted-foreground">
-                  ntfy, Discord, Slack, or a generic object.
+                  Read from the URL by default: ntfy, Discord, Slack, Gotify, or a generic object.
                 </p>
               </div>
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-xs font-medium text-muted-foreground">
+                Gotify application token
+              </label>
+              <input
+                type="text"
+                name="notify_token"
+                value={@notify_token}
+                autocomplete="off"
+                class="h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
+              />
+              <p class="text-xs text-muted-foreground">
+                Only Gotify needs this, and only when the shape is Gotify.
+              </p>
             </div>
 
             <div class="space-y-2 border-t border-border pt-3">
