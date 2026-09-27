@@ -110,14 +110,23 @@ defmodule Fanfarr.Notify do
   somebody asks for it.
   """
   @spec enabled?(atom()) :: boolean()
-  def enabled?(key) do
-    enabled?() and
-      case Enum.find(@types, &(&1.key == key)) do
-        # A key with no type behind it is off, not on: a typo in a call site
-        # should send nothing rather than everything.
-        nil -> false
-        type -> enabled_setting?(type)
-      end
+  def enabled?(key), do: enabled?() and switched_on?(key)
+
+  @doc """
+  The switch as it is set, ignoring whether a URL exists.
+
+  The settings form needs this rather than `enabled?/1`: with no URL set every
+  box would render unticked, and the next save would persist that as "off" -- a
+  setting nobody chose.
+  """
+  @spec switched_on?(atom()) :: boolean()
+  def switched_on?(key) do
+    case Enum.find(@types, &(&1.key == key)) do
+      # A key with no type behind it is off, not on: a typo at a call site should
+      # send nothing rather than everything.
+      nil -> false
+      type -> enabled_setting?(type)
+    end
   end
 
   @doc """
@@ -183,6 +192,40 @@ defmodule Fanfarr.Notify do
       %{"error" => error} when is_binary(error) -> String.slice(error, 0, 400)
       other -> inspect(other, limit: 3)
     end
+  end
+
+  @doc """
+  Sends a health notification when the checks have just gone bad.
+
+  Public, and here rather than in the monitor, because it is the whole rule and
+  the rule is worth a test that does not depend on which checks happen to fail on
+  the machine running it. The monitor's own state is a single process for the
+  life of the application, so a test of the transition through it would be at the
+  mercy of whatever ran before.
+
+  A check that has been broken for an hour is not news, and an appliance that
+  repeats itself is one people stop reading. Recovering is not news either: the
+  switch is about failures.
+  """
+  @spec notify_transition(map() | nil, map()) :: :ok | :skipped | {:error, term()}
+  def notify_transition(previous, snapshot) do
+    if transition?(previous, snapshot) do
+      failing = Enum.filter(snapshot.results, &(&1.level == :error))
+
+      send(
+        :health,
+        "#{length(failing)} health check(s) failing",
+        Enum.map_join(failing, "\n", &"#{&1.name}: #{&1.message}"),
+        level: :error
+      )
+    else
+      :skipped
+    end
+  end
+
+  defp transition?(previous, snapshot) do
+    Fanfarr.Health.worst(snapshot.results) == :error and
+      (previous == nil or Fanfarr.Health.worst(previous.results) != :error)
   end
 
   defp enabled_setting?(type) do

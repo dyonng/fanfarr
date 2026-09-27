@@ -50,6 +50,7 @@ downloads, and appearance, all in one place.
 - **Login from the environment** — `AUTH_USERNAME` and `AUTH_PASSWORD`, an optional "remember me" and a local-address bypass. Unset, the dashboard is open, as the *arrs ship.
 - **Safe by default** — libraries are opt-in, a written theme is one file you can delete, and posters are proxied so your Plex token never reaches a browser.
 - **Database backups** — a snapshot into `<config>/backups/` on a schedule, newest seven kept, taken with SQLite's own `VACUUM INTO` so it is safe while the app is running. All of it is on the **Backups** card in Settings: the switch, the interval, how many to keep, what they cost in disk, **Back up now**, a download per snapshot so a copy can live on another machine, and **Restore**. Off means not automatically — by hand still works. Restoring stages the choice, restarts, and applies the swap before anything opens the database, keeping the state it replaced.
+- **Notifications** — one webhook, and a switch for each kind of event: a job that gives up, a health check on the way into failure, a backup that could not be written, a sync finishing. ntfy, Discord, Slack or a generic JSON object. Failures are on by default, the routine one off, and delivery is best-effort so a dead endpoint cannot fail the work it was reporting on.
 - **One container, one volume** — SQLite, secrets generated on first boot, `PUID`/`PGID` respected, port 7373.
 
 ## Tech stack

@@ -236,6 +236,44 @@ order:
 3. Neither being decisive, it still picks one but marks the item **ambiguous**,
  and the dashboard says so rather than choosing silently.
 
+## Notifications
+
+Fanfarr runs on its own, so a failure is only news if something says so. Point it
+at a webhook and it will tell you:
+
+```yaml
+environment:
+  - NOTIFY_URL=https://ntfy.sh/my-fanfarr-topic
+```
+
+| What | Setting | Env | Default |
+| --- | --- | --- | --- |
+| The webhook | `notify_url` | `NOTIFY_URL` | unset, which means off |
+| Payload shape | `notify_style` | `NOTIFY_STYLE` | `ntfy` |
+| A job gives up | `notify_job_failures` | `NOTIFY_JOB_FAILURES` | on |
+| A health check starts failing | `notify_health` | `NOTIFY_HEALTH` | on |
+| A backup fails | `notify_backups` | `NOTIFY_BACKUPS` | on |
+| A sync finishes | `notify_sync` | `NOTIFY_SYNC` | off |
+
+All of it is also on the **Notifications** card in Settings, which has a switch
+per kind of event and a **Send a test** button. The test ignores the switches:
+the point of it is to find out whether the URL and the shape are right.
+
+`ntfy` gets plain text with the title in a header and failures at high priority.
+Discord gets `content`, Slack gets `text`, and anything else gets a JSON object
+with `title`, `message`, `level`, `source` and the version. A URL that is neither
+of those shapes is still sent -- one POST, and you can see what arrives.
+
+Three things worth knowing about how it behaves:
+
+- **A health check notifies on the transition**, not on every run that finds it
+  still broken. An appliance that repeats itself is one people stop reading.
+- **A job notifies when it runs out of retries**, not on every attempt, so a job
+  that fails and is retried does not announce itself five times.
+- **Delivery is best-effort.** A timeout or a 500 is logged and swallowed: a job
+  that did its work and then failed because the notification *about* it could not
+  be delivered would be worse than silence.
+
 ## Network: do not route yt-dlp through a VPN by default
 
 Fanfarr resolves themes from YouTube with yt-dlp, and the obvious instinct in an

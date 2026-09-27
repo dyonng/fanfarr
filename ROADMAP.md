@@ -32,6 +32,11 @@ day-to-day decision record, see`AGENTS.md`.
  Clear button.
 - Auth: env-var login only, no sign-up/reset/mailer; optional and off by
  default, matching the *arr stack.
+- Excluding a title: one flag that takes it out of everything unattended without
+ taking it out of the library, set from the library's bulk bar or an item page.
+- Notifications: one webhook, a switch per kind of event — a job giving up, a
+ health check failing, a backup failing, a sync finishing — sent as ntfy,
+ Discord, Slack or a generic JSON object.
 
 ## Known gaps
 
@@ -46,10 +51,7 @@ day-to-day decision record, see`AGENTS.md`.
 - **Codec handling.** Everything is written as MP3. Fine today; would matter
  if a source ever yielded Opus, which does not play on Apple TV.
 - **No notifications.** No webhook/Discord/etc. on sync completion or apply
- failure — Activity and the sidebar badge are the only signal right now.
-- **No per-library or per-item exclude list.** An enabled library syncs
- everything in it; there's no way to skip a title without removing the whole
- library.
+failure — Activity and the sidebar badge are the only signal right now.
 - **Single operator account.** One username/password pair, not a user list —
  fine for a homelab, not for a household with separate logins.
 - **No import of a previous Themerr-plex state.** Anyone migrating starts

@@ -44,7 +44,7 @@ defmodule Fanfarr.Health.Monitor do
 
   def handle_call(:refresh, _from, state) do
     snapshot = take()
-    notify_transition(state.latest, snapshot)
+    Fanfarr.Notify.notify_transition(state.latest, snapshot)
     {:reply, snapshot, %{state | latest: snapshot}}
   end
 
@@ -52,25 +52,8 @@ defmodule Fanfarr.Health.Monitor do
   def handle_info(:tick, state) do
     Process.send_after(self(), :tick, @interval)
     snapshot = take()
-    notify_transition(state.latest, snapshot)
+    Fanfarr.Notify.notify_transition(state.latest, snapshot)
     {:noreply, %{state | latest: snapshot}}
-  end
-
-  # On the transition into failure, not on every check that finds it still
-  # failing: a check broken for an hour is not news, and an appliance that
-  # repeats itself is one people stop reading.
-  defp notify_transition(previous, snapshot) do
-    if Fanfarr.Health.worst(snapshot.results) == :error and
-         (previous == nil or Fanfarr.Health.worst(previous.results) != :error) do
-      failing = Enum.filter(snapshot.results, &(&1.level == :error))
-
-      Fanfarr.Notify.send(
-        :health,
-        "#{length(failing)} health check(s) failing",
-        Enum.map_join(failing, "\n", &"#{&1.name}: #{&1.message}"),
-        level: :error
-      )
-    end
   end
 
   defp take do

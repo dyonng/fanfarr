@@ -9,11 +9,6 @@ defmodule Fanfarr.NotifyTest do
   """
   use Fanfarr.DataCase, async: false
 
-  import Mox
-
-  setup :set_mox_global
-  setup :verify_on_exit!
-
   alias Fanfarr.Notify
 
   setup do
@@ -206,24 +201,29 @@ defmodule Fanfarr.NotifyTest do
 
   describe "health" do
     test "notifies on the way into failure, and not again while it stays there" do
-      # No Plex configured is a failing check, and it is the cheapest one to
-      # arrange -- the point here is the transition, not which check failed.
-      Fanfarr.Settings.list_settings!() |> Enum.each(&Fanfarr.Settings.delete_setting!/1)
-      Fanfarr.Settings.put_setting!("notify_url", "http://ntfy.test/fanfarr")
-      stub(Fanfarr.ThemeDownloaderMock, :version, fn -> {:ok, "x"} end)
+      error = %{id: :plex, name: "Plex", level: :error, message: "Not configured", detail: nil}
+      fine = %{id: :plex, name: "Plex", level: :ok, message: "Connected", detail: nil}
 
-      assert %{results: results} = Fanfarr.Health.Monitor.refresh()
-      assert Fanfarr.Health.worst(results) == :error
-
-      # The title says what happened; the body names the failing checks, since
-      # "1 health check(s) failing" on its own is not actionable.
+      # No snapshot yet counts as a transition: the first thing an operator
+      # should hear about is the state, not the change.
+      assert :ok = Notify.notify_transition(nil, %{results: [error]})
       assert {conn, body} = received()
       assert Plug.Conn.get_req_header(conn, "title") == ["1 health check(s) failing"]
-      assert body =~ "Not configured"
+      assert body =~ "Plex: Not configured"
 
-      # Still failing, and the point is that it says nothing this time.
-      assert %{results: results} = Fanfarr.Health.Monitor.refresh()
-      assert Fanfarr.Health.worst(results) == :error
+      # Already failing, and the point is that it says nothing this time.
+      assert :skipped = Notify.notify_transition(%{results: [error]}, %{results: [error]})
+      assert received() == :nothing
+
+      # Recovering is not a notification either: the switch is about failures.
+      assert :skipped = Notify.notify_transition(%{results: [error]}, %{results: [fine]})
+      assert received() == :nothing
+    end
+
+    test "a warning is not a failure" do
+      warning = %{id: :ffmpeg, name: "ffmpeg", level: :warning, message: "Slow", detail: nil}
+
+      assert :skipped = Notify.notify_transition(nil, %{results: [warning]})
       assert received() == :nothing
     end
   end

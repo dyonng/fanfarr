@@ -22,6 +22,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
      |> assign(:browser, nil)
      |> assign(:backing_up, false)
      |> assign(:restore_target, nil)
+     |> assign(:testing_notification, false)
      |> allow_upload(:snapshot,
        # `:any`, deliberately. Naming extensions requires a *known* MIME type
        # for each one, and a filter that hides the file someone actually needs
@@ -67,6 +68,15 @@ defmodule FanfarrWeb.SettingsLive.Index do
       {ms, ""} when ms > 0 -> Integer.to_string(div(ms, 1000))
       _ -> ""
     end
+  end
+
+  # Each kind of notification with its switch as set. Built from the module's own
+  # list rather than written out here, so a new kind appears on the card the
+  # moment it exists -- and a switch that saves a setting nothing reads cannot.
+  defp notify_types do
+    Enum.map(Fanfarr.Notify.types(), fn type ->
+      Map.put(type, :switched_on, Fanfarr.Notify.switched_on?(type.key))
+    end)
   end
 
   # 0 is stored rather than treated as blank, because for an interval it means
@@ -141,6 +151,11 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:backups_usage, Fanfarr.Backup.usage())
     |> assign(:backups_list, Fanfarr.Backup.list())
     |> assign(:restore_pending, Fanfarr.Backup.Restore.pending())
+    |> assign(:notify_url, Fanfarr.Config.get("notify_url") || "")
+    |> assign(:notify_style, Fanfarr.Notify.style())
+    |> assign(:notify_styles, Fanfarr.Notify.styles())
+    |> assign(:notify_configured, Fanfarr.Notify.enabled?())
+    |> assign(:notify_types, notify_types())
     |> assign(:schedules, schedules())
   end
 
@@ -466,6 +481,40 @@ defmodule FanfarrWeb.SettingsLive.Index do
     end
   end
 
+  def handle_event("save_notifications", params, socket) do
+    url = String.trim(params["notify_url"] || "")
+    style = String.trim(params["notify_style"] || "ntfy")
+
+    cond do
+      url != "" and not String.starts_with?(url, ["http://", "https://"]) ->
+        {:noreply,
+         put_flash(socket, :error, "The webhook URL has to start with http:// or https://")}
+
+      style not in Fanfarr.Notify.styles() ->
+        {:noreply,
+         put_flash(socket, :error, "Pick one of: #{Enum.join(Fanfarr.Notify.styles(), ", ")}")}
+
+      true ->
+        Fanfarr.Settings.put_setting!("notify_url", url)
+        Fanfarr.Settings.put_setting!("notify_style", style)
+
+        for type <- Fanfarr.Notify.types() do
+          Fanfarr.Settings.put_setting!(type.setting, checkbox_choice(params, type.setting))
+        end
+
+        {:noreply, socket |> load() |> put_flash(:info, "Notification settings saved")}
+    end
+  end
+
+  # Through `start_async`: it is a round trip to somebody else's server, and a
+  # slow or dead endpoint must not hold the page.
+  def handle_event("test_notification", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:testing_notification, true)
+     |> start_async(:notify_test, fn -> Fanfarr.Notify.test() end)}
+  end
+
   def handle_event("toggle_section", %{"id" => id}, socket) do
     section = Fanfarr.Library.get_section!(id)
     Fanfarr.Library.set_section_enabled!(section, !section.enabled)
@@ -564,6 +613,27 @@ defmodule FanfarrWeb.SettingsLive.Index do
      socket
      |> assign(:backing_up, false)
      |> put_flash(:error, "Could not queue a backup: #{inspect(reason, limit: 3)}")}
+  end
+
+  def handle_async(:notify_test, {:ok, :ok}, socket) do
+    {:noreply,
+     socket
+     |> assign(:testing_notification, false)
+     |> put_flash(:info, "Sent. Look wherever the webhook points.")}
+  end
+
+  def handle_async(:notify_test, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:testing_notification, false)
+     |> put_flash(:error, "Could not send it: #{inspect(reason, limit: 3)}")}
+  end
+
+  def handle_async(:notify_test, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:testing_notification, false)
+     |> put_flash(:error, "Could not send it: #{inspect(reason, limit: 3)}")}
   end
 
   def handle_async(:plex_test, {:ok, result}, socket) do
@@ -1141,6 +1211,88 @@ defmodule FanfarrWeb.SettingsLive.Index do
             <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               Save
             </button>
+          </form>
+        </section>
+        <section id="notifications-card" class="rounded-lg border border-border bg-card p-4">
+          <h2 class="text-sm font-semibold text-card-foreground">Notifications</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            Fanfarr runs on its own, so a failure is only news if something says so. One
+            webhook, and a switch for each kind of event. With no URL set, nothing is sent at
+            all.
+          </p>
+
+          <form id="notifications-form" phx-submit="save_notifications" class="mt-4 space-y-4">
+            <div class="grid gap-4 sm:grid-cols-[1fr_10rem]">
+              <div class="space-y-1">
+                <label class="text-xs font-medium text-muted-foreground">Webhook URL</label>
+                <input
+                  type="text"
+                  name="notify_url"
+                  value={@notify_url}
+                  placeholder="https://ntfy.sh/my-fanfarr-topic"
+                  class="h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+                <p class="text-xs text-muted-foreground">
+                  Overrides NOTIFY_URL. Blank switches notifications off entirely.
+                </p>
+              </div>
+
+              <div class="space-y-1">
+                <label class="text-xs font-medium text-muted-foreground">Shape</label>
+                <select
+                  name="notify_style"
+                  class="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  <option
+                    :for={style <- @notify_styles}
+                    value={style}
+                    selected={@notify_style == style}
+                  >
+                    {style}
+                  </option>
+                </select>
+                <p class="text-xs text-muted-foreground">
+                  ntfy, Discord, Slack, or a generic object.
+                </p>
+              </div>
+            </div>
+
+            <div class="space-y-2 border-t border-border pt-3">
+              <p class="text-xs font-medium text-muted-foreground">What to be told about</p>
+              <label :for={type <- @notify_types} class="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name={type.setting}
+                  value="true"
+                  checked={type.switched_on}
+                  class="mt-0.5 size-4 rounded border-input"
+                />
+                <span>
+                  <span class="font-medium">{type.label}</span>
+                  <span class="block text-xs text-muted-foreground">{type.description}</span>
+                </span>
+              </label>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Save
+              </button>
+              <button
+                type="button"
+                phx-click="test_notification"
+                disabled={@testing_notification}
+                class="h-9 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+              >
+                {if @testing_notification, do: "Sending…", else: "Send a test"}
+              </button>
+              <span
+                :if={not @notify_configured}
+                class="text-xs text-amber-600 dark:text-amber-400"
+              >
+                No URL set, so nothing is being sent.
+              </span>
+            </div>
           </form>
         </section>
         <section id="backups-card" class="rounded-lg border border-border bg-card p-4">
