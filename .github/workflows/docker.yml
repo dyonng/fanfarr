@@ -151,6 +151,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Build metadata anyone can check rather than take on faith: an SBOM
+          # listing what went into the image, and provenance describing how it
+          # was built and from which commit. Two lines, and it is the
+          # difference between "trust this image" and "here is what is in it".
+          sbom: true
+          provenance: true
 
       - name: Smoke test the published image
         # Catches the class of failure a build cannot: a release that compiles

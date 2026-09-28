@@ -50,8 +50,6 @@ day-to-day decision record, see`AGENTS.md`.
  anything but Plex.
 - **Codec handling.** Everything is written as MP3. Fine today; would matter
  if a source ever yielded Opus, which does not play on Apple TV.
-- **No notifications.** No webhook/Discord/etc. on sync completion or apply
-failure — Activity and the sidebar badge are the only signal right now.
 - **Single operator account.** One username/password pair, not a user list —
  fine for a homelab, not for a household with separate logins.
 - **No import of a previous Themerr-plex state.** Anyone migrating starts
