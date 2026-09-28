@@ -1252,12 +1252,12 @@ defmodule FanfarrWeb.SettingsLive.Index do
               </div>
 
               <div class="space-y-1">
-                <label class="text-xs font-medium text-muted-foreground">Shape</label>
+                <label class="text-xs font-medium text-muted-foreground">Webhook Type</label>
                 <select
                   name="notify_style"
                   class="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                 >
-                  <option value="" selected={@notify_inferred}>detect from the URL</option>
+                  <option value="" selected={@notify_inferred}>Auto</option>
                   <option
                     :for={style <- @notify_styles}
                     value={style}

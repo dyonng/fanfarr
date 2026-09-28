@@ -99,7 +99,7 @@ defmodule FanfarrWeb.NotificationsTest do
     {:ok, view, _html} = live(conn, "/settings")
 
     assert has_element?(view, "#notifications-card input[name='notify_token']")
-    assert has_element?(view, "#notifications-card option[value='']", "detect from the URL")
+    assert has_element?(view, "#notifications-card option[value='']", "Auto")
   end
 
   test "a token is stored, and a blank shape leaves the URL deciding", %{conn: conn} do

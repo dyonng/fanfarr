@@ -102,11 +102,35 @@ jobs:
           echo "could not bump the version after 3 attempts" >&2
           exit 1
 
-  build-and-push:
+  # One native runner per platform, rather than one runner building both under
+  # emulation. ffmpeg is compiled from source here (see the Dockerfile), and a
+  # from-source build under QEMU is five to ten times slower -- an hour or two
+  # instead of fifteen minutes. GitHub's standard runners include arm64
+  # (`ubuntu-24.04-arm`), and standard runners are free on public repositories,
+  # so the honest comparison is: same wall-clock, double the (free) minutes.
+  #
+  # 64-bit only, deliberately. `hexpm/elixir` publishes amd64 and arm64 and
+  # nothing else, so 32-bit ARM would mean changing the base image this whole
+  # appliance is built on, for hardware Plex has largely left behind.
+  #
+  # Each platform is pushed by digest and assembled into a manifest list by the
+  # merge job below. Pushing a tag from both jobs would have the second one
+  # overwrite the first.
+  build:
     needs: version
     # A tag push skips the bump job entirely; the build still has to run.
     if: always() && needs.version.result != 'failure'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -126,29 +150,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=sha-
-            type=semver,pattern={{version}}
-            type=raw,value=${{ needs.version.outputs.version }},enable=${{ needs.version.outputs.version != '' }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build and push
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
+          # The runner *is* the platform, so nothing is emulated.
+          platforms: ${{ matrix.platform }}
+          # By digest, not by tag: the merge job is what gives these names.
+          outputs: >-
+            type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             BUILD_REF=${{ needs.version.outputs.sha || github.sha }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # Build metadata anyone can check rather than take on faith: an SBOM
@@ -160,16 +176,15 @@ jobs:
 
       - name: Smoke test the published image
         # Catches the class of failure a build cannot: a release that compiles
-        # but will not boot. Runs the real image, waits for the healthcheck to
-        # report the app up and its database reachable, then tears it down.
+        # but will not boot. This pulls the digest that was just published --
+        # not a local build -- so it tests the artifact people will get, and on
+        # this runner that artifact is this machine's architecture. The amd64
+        # image was the only one ever booted before this; now both are.
         env:
-          # The same rule as the bump above: an expression belongs in the
-          # environment, not inside the script.
-          TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
-          IMAGE="$(echo "$TAGS" | head -n1)"
-          echo "Smoke testing $IMAGE"
+          echo "Smoke testing $IMAGE on $(uname -m)"
           docker run -d --name fanfarr-smoke -p 7373:7373 \
             -v "$PWD/smoke-config:/config" "$IMAGE"
           for i in $(seq 1 30); do
@@ -182,5 +197,83 @@ jobs:
           done
           echo "Image failed to become healthy. Logs:"
           docker logs fanfarr-smoke
-          docker rm -f fanfarr-smoke
           exit 1
+
+      - name: Export the digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${{ steps.build.outputs.digest }}"
+
+      - name: Upload the digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # The manifest list: one tag that resolves to whichever platform the machine
+  # pulling it happens to be. Registry storage roughly doubles; what a user
+  # downloads does not change at all, because they only ever receive their own
+  # platform's layers.
+  merge:
+    needs: [version, build]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=raw,value=${{ needs.version.outputs.version }},enable=${{ needs.version.outputs.version != '' }}
+
+      - name: Download the digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Create the manifest list
+        env:
+          # Every tag the metadata action worked out for this ref, one per line.
+          TAGS: ${{ steps.meta.outputs.tags }}
+        working-directory: /tmp/digests
+        run: |
+          set -euo pipefail
+
+          tag_args=$(echo "$TAGS" | sed 's/^/-t /')
+
+          # shellcheck disable=SC2046
+          docker buildx imagetools create $tag_args \
+            $(printf "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@%s " *)
+
+      - name: Show what was published
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          for tag in $TAGS; do
+            echo "=== $tag ==="
+            docker buildx imagetools inspect "$tag" | head -20
+          done
