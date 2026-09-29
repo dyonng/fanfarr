@@ -156,12 +156,24 @@ COPY --from=ffmpeg /usr/src/ffmpeg/COPYING.LGPLv2.1 /usr/share/doc/ffmpeg/COPYIN
 # through Python. YouTube breaks yt-dlp often enough that its version wants to
 # move independently of ours: override YTDLP_VERSION at build time, or mount a
 # newer binary over /usr/local/bin/yt-dlp, without rebuilding the app.
+#
+# One binary per architecture, and the wrong one fails by not executing -- which
+# is how the first arm64 build died, at `--version`, with exit 126. An
+# architecture yt-dlp has no build for stops the build rather than quietly
+# getting an x86 binary that only fails later, on somebody's server.
 ARG YTDLP_VERSION=latest
+ARG TARGETARCH
 RUN set -eux; \
+  arch="${TARGETARCH:-$(uname -m)}"; \
+  case "$arch" in \
+    amd64|x86_64) asset="yt-dlp_linux" ;; \
+    arm64|aarch64) asset="yt-dlp_linux_aarch64" ;; \
+    *) echo "yt-dlp publishes no binary for $arch" >&2; exit 1 ;; \
+  esac; \
   if [ "$YTDLP_VERSION" = "latest" ]; then \
-    url="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"; \
+    url="https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}"; \
   else \
-    url="https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp_linux"; \
+    url="https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/${asset}"; \
   fi; \
   curl -fsSL -o /usr/local/bin/yt-dlp "$url"; \
   chmod +x /usr/local/bin/yt-dlp; \

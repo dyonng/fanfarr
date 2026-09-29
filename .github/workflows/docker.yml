@@ -200,10 +200,17 @@ jobs:
           exit 1
 
       - name: Export the digest
+        # The prefix is stripped for the filename: `actions/upload-artifact`
+        # rejects colons in paths, and a digest is `sha256:...`. The merge job
+        # puts it back when it assembles the reference. This is the step that
+        # failed the first multi-arch run -- the build and the smoke test on
+        # both platforms had already passed.
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/digests
-          touch "/tmp/digests/${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
 
       - name: Upload the digest
         uses: actions/upload-artifact@v4
@@ -262,11 +269,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag_args=$(echo "$TAGS" | sed 's/^/-t /')
+          tag_args=$(echo "$TAGS" | sed 's/^-t /-t /')
 
           # shellcheck disable=SC2046
           docker buildx imagetools create $tag_args \
-            $(printf "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@%s " *)
+            $(printf "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s " *)
 
       - name: Show what was published
         env:
