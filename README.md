@@ -83,6 +83,10 @@ services:
     restart: unless-stopped
 ```
 
+Published for `linux/amd64` and `linux/arm64` under the same tag, and Docker
+pulls the one that matches the host. 32-bit ARM is not built for: the Elixir
+base image publishes no such variant.
+
 Open `http://<host>:7373`, create the operator account, set the Plex URL and
 token under Settings, enable the libraries you want managed, and Sync.
 

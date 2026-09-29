@@ -153,15 +153,19 @@ COPY --from=ffmpeg /usr/src/ffmpeg/LICENSE.md /usr/share/doc/ffmpeg/LICENSE.md
 COPY --from=ffmpeg /usr/src/ffmpeg/COPYING.LGPLv2.1 /usr/share/doc/ffmpeg/COPYING.LGPLv2.1
 
 # yt-dlp ships a self-contained binary, so it is installed directly rather than
-# through Python. YouTube breaks yt-dlp often enough that its version wants to
-# move independently of ours: override YTDLP_VERSION at build time, or mount a
-# newer binary over /usr/local/bin/yt-dlp, without rebuilding the app.
+# through Python. Pinned, because `latest` meant the same commit could build two
+# different images a month apart; bump it deliberately. YouTube breaks yt-dlp
+# often enough that its version wants to move independently of ours, so both
+# escape hatches stay: --build-arg YTDLP_VERSION=..., or mount a newer binary
+# over /usr/local/bin/yt-dlp, without rebuilding the app. The System page
+# reports the version it finds, so a pin that has gone stale is visible rather
+# than hidden.
 #
 # One binary per architecture, and the wrong one fails by not executing -- which
 # is how the first arm64 build died, at `--version`, with exit 126. An
 # architecture yt-dlp has no build for stops the build rather than quietly
 # getting an x86 binary that only fails later, on somebody's server.
-ARG YTDLP_VERSION=latest
+ARG YTDLP_VERSION=2026.08.19
 ARG TARGETARCH
 RUN set -eux; \
   arch="${TARGETARCH:-$(uname -m)}"; \
