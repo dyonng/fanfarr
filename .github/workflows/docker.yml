@@ -269,7 +269,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag_args=$(echo "$TAGS" | sed 's/^-t /-t /')
+          tag_args=$(echo "$TAGS" | sed 's/^/-t /')
 
           # shellcheck disable=SC2046
           docker buildx imagetools create $tag_args \

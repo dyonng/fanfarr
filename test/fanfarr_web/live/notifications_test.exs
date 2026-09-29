@@ -99,6 +99,7 @@ defmodule FanfarrWeb.NotificationsTest do
     {:ok, view, _html} = live(conn, "/settings")
 
     assert has_element?(view, "#notifications-card input[name='notify_token']")
+    assert has_element?(view, "#notifications-card", "Webhook Type")
     assert has_element?(view, "#notifications-card option[value='']", "Auto")
   end
 
