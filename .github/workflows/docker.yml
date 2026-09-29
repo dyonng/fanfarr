@@ -282,5 +282,8 @@ jobs:
           set -euo pipefail
           for tag in $TAGS; do
             echo "=== $tag ==="
-            docker buildx imagetools inspect "$tag" | head -20
+            # Not `| head`: under `set -o pipefail` that fails when head exits
+            # first and docker takes SIGPIPE. That is how this step turned the
+            # merge job red after it had already published a correct list.
+            docker buildx imagetools inspect "$tag"
           done
