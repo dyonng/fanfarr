@@ -213,7 +213,7 @@ jobs:
           touch "/tmp/digests/${DIGEST#sha256:}"
 
       - name: Upload the digest
-        uses: actions/upload-artifact@v5 # v5 is the first that runs on Node 24
+        uses: actions/upload-artifact@v7 # v5 and v6 still declared Node 20
         with:
           name: digests-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -252,7 +252,7 @@ jobs:
             type=raw,value=${{ needs.version.outputs.version }},enable=${{ needs.version.outputs.version != '' }}
 
       - name: Download the digests
-        uses: actions/download-artifact@v6 # v6 is the first that runs on Node 24
+        uses: actions/download-artifact@v8 # v6 still declared Node 20
         with:
           path: /tmp/digests
           pattern: digests-*
