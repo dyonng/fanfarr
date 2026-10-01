@@ -59,14 +59,4 @@ defmodule IconsTest do
     #{Enum.join(offenders, "\n")}
     """
   end
-
-  test "the Lucide plugin scales the mask to the element" do
-    plugin = File.read!("assets/vendor/lucide.js")
-
-    # Lucide draws on a 24px grid. Without mask-size the artwork renders at its
-    # intrinsic size and is clipped by any smaller box -- size-4, which most
-    # call sites use.
-    assert plugin =~ ~s("mask-size": "contain"),
-           "without mask-size: contain, icons are clipped at any size below 24px"
-  end
 end

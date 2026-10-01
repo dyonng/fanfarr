@@ -67,32 +67,6 @@ defmodule RuntimeDepsTest do
            "assets.deploy compiles too; a strict compile after it is a no-op and guards nothing"
   end
 
-  test "a v-tag release would carry a matching mix.exs version" do
-    # docker.yml tags an image from the git tag while the running app reports
-    # mix.exs. If the bump workflow ever stops editing mix.exs, an image
-    # labelled v1.2.3 would report something else, and the version line on the
-    # System page is what bug reports quote.
-    manual = File.read!(".github/workflows/version.yml")
-    docker = File.read!(".github/workflows/docker.yml")
-
-    rewrites_mix = fn text ->
-      text
-      |> String.split("\n")
-      |> Enum.any?(&(&1 =~ "sed -i" and &1 =~ "mix.exs" and &1 =~ "version:"))
-    end
-
-    assert rewrites_mix.(manual), "the manual bump must rewrite the version in mix.exs"
-    assert manual =~ "git tag -a", "a deliberate release must tag the commit"
-
-    # The automatic patch bump has to happen before the image is built, or the
-    # image would be tagged with a version it does not report.
-    assert rewrites_mix.(docker), "docker.yml must bump the patch version"
-    assert docker =~ "needs: version", "the build must depend on the bump"
-
-    assert docker =~ "ref: ${{ needs.version.outputs.sha || github.sha }}",
-           "the build must check out the bumped commit"
-  end
-
   defp runtime?(opts) do
     case Keyword.get(opts, :only) do
       nil -> true

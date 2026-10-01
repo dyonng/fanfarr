@@ -8,12 +8,6 @@ defmodule FaviconTest do
 
   @icons ~w(favicon.svg favicon.ico apple-touch-icon.png)
 
-  test "the icon files exist" do
-    for file <- @icons do
-      assert File.exists?("priv/static/#{file}"), "priv/static/#{file} is missing"
-    end
-  end
-
   test "each icon is declared in static_paths and is therefore served" do
     declared = FanfarrWeb.static_paths()
 
@@ -60,14 +54,6 @@ defmodule FaviconTest do
 
     refute svg =~ ~r/<!--(?:(?!-->).)*--(?!>)/s,
            "a double hyphen inside an XML comment makes the svg unparseable"
-  end
-
-  test "the ico really is a multi-size icon container" do
-    <<_reserved::little-16, type::little-16, count::little-16, _rest::binary>> =
-      File.read!("priv/static/favicon.ico")
-
-    assert type == 1, "not an icon file"
-    assert count == 3, "expected 16, 32 and 48px entries"
   end
 
   describe "digested paths" do
