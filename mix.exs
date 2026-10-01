@@ -121,7 +121,21 @@ defmodule Fanfarr.MixProject do
         "esbuild fanfarr --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      # `hex.audit` belongs here, not only in CI: a gate that checks
+      # dependencies but not their advisories reports green while CI is red,
+      # which is how three advisories in a shipped HTTP client went unnoticed
+      # for three runs.
+      #
+      # Through `cmd`, because an alias cannot invoke an archive task -- plain
+      # "hex.audit" here fails with "The task could not be found" -- and `cmd`
+      # still propagates a non-zero exit, which is the whole point of a gate.
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "cmd mix hex.audit",
+        "format",
+        "test"
+      ],
       "ash.setup": ["ash.setup", "run priv/repo/seeds.exs"]
     ]
   end
