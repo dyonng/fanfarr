@@ -40,11 +40,6 @@ day-to-day decision record, see`AGENTS.md`.
 
 ## Known gaps
 
-- **No real JSON API.**`AshJsonApi.Domain` is wired into the domains and
-`/api/json` is routed, but no resource declares a`json_api do` block, so
- there are zero actual routes today — it's inert scaffolding. Worth building
- out if a companion app or automation ever needs one; otherwise worth
- removing rather than leaving as a half-finished promise.
 - **Jellyfin.**`Fanfarr.Plex.Client` is a behaviour specifically so a second
  implementation is possible, but nothing above it has been exercised against
  anything but Plex.
