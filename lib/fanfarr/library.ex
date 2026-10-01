@@ -12,7 +12,7 @@ defmodule Fanfarr.Library do
   is authoritative. Plex owns the library; these rows are a fast copy of what it
   said last time we asked.
   """
-  use Ash.Domain, otp_app: :fanfarr, extensions: [AshJsonApi.Domain]
+  use Ash.Domain, otp_app: :fanfarr
 
   @doc """
   The enabled root folder paths that may hold an item of this kind, in the

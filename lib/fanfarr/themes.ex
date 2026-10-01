@@ -7,7 +7,7 @@ defmodule Fanfarr.Themes do
   not be: theme uploads cannot be undone through Plex's API, so the log is the
   only record of what we did to someone's server.
   """
-  use Ash.Domain, otp_app: :fanfarr, extensions: [AshJsonApi.Domain]
+  use Ash.Domain, otp_app: :fanfarr
 
   resources do
     resource Fanfarr.Themes.ThemerrEntry do

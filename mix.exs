@@ -52,9 +52,7 @@ defmodule Fanfarr.MixProject do
       {:ash_authentication, "~> 4.0"},
       {:ash_authentication_phoenix, "~> 2.0"},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
-      {:open_api_spex, "~> 3.0"},
       {:oban, "~> 2.0"},
-      {:ash_json_api, "~> 1.0"},
       {:ash_oban, "~> 0.8"},
       {:ash_phoenix, "~> 2.0"},
       {:ash_sqlite, "~> 0.2"},
@@ -107,6 +105,9 @@ defmodule Fanfarr.MixProject do
       setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      # `scripts/test-parallel.sh` runs this same suite in several processes,
+      # one database each. The alias stays single-process so a plain `mix test`
+      # behaves exactly as it always has.
       test: ["ash.setup --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind fanfarr", "esbuild fanfarr"],

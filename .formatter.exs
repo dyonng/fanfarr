@@ -2,7 +2,6 @@
   import_deps: [
     :ash_authentication,
     :ash_authentication_phoenix,
-    :ash_json_api,
     :ash_oban,
     :oban,
     :ash_phoenix,

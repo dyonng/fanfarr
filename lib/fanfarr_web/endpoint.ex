@@ -68,7 +68,7 @@ defmodule FanfarrWeb.Endpoint do
     log: {FanfarrWeb.RequestLogLevel, :for_conn, []}
 
   plug Plug.Parsers,
-    parsers: [:urlencoded, :multipart, :json, AshJsonApi.Plug.Parser],
+    parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
     json_decoder: Phoenix.json_library()
 

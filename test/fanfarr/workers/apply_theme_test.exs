@@ -669,7 +669,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       {_out, 0} =
         System.cmd(
           "ffmpeg",
-          ~w(-hide_banner -loglevel error -y -f lavfi -i sine=frequency=440:duration=#{seconds} -c:a libmp3lame) ++
+          ~w(-hide_banner -loglevel error -y -f lavfi -i sine=frequency=440:duration=#{seconds}:sample_rate=8000 -c:a libmp3lame) ++
             [path],
           stderr_to_stdout: true
         )
@@ -792,7 +792,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         "-f",
         "lavfi",
         "-i",
-        "sine=frequency=440:duration=#{seconds}",
+        "sine=frequency=440:duration=#{seconds}:sample_rate=8000",
         "-af",
         "volume='if(between(t,#{loud_from},#{loud_to}),1,0.05)':eval=frame",
         "-c:a",

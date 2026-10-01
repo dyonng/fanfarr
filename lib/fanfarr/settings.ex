@@ -7,7 +7,7 @@ defmodule Fanfarr.Settings do
   That keeps a container runnable with no configuration at all while not
   forcing a restart to change a sync interval.
   """
-  use Ash.Domain, otp_app: :fanfarr, extensions: [AshJsonApi.Domain]
+  use Ash.Domain, otp_app: :fanfarr
 
   resources do
     resource Fanfarr.Settings.Setting do

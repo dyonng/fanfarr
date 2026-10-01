@@ -10,8 +10,15 @@ config :fanfarr, restart_on_restore: false
 
 # Where a staged restore waits. Beside the database in production, because
 # applying one renames that file and a rename across filesystems fails; in the
-# suite it is a temp path so nothing is ever staged next to the repo.
-config :fanfarr, restore_staging_dir: Path.join(System.tmp_dir!(), "fanfarr-restore-tests")
+# suite it is a temp path so nothing is ever staged next to the repo. Per
+# partition, because `scripts/test-parallel.sh` runs several VMs at once and a
+# fixed path would have them stage over each other.
+config :fanfarr,
+  restore_staging_dir:
+    Path.join(
+      System.tmp_dir!(),
+      "fanfarr-restore-tests#{System.get_env("MIX_TEST_PARTITION", "")}"
+    )
 
 # Notifications get their own stub key, not the shared one: `req_options` above
 # already points at `Fanfarr.PlexReq`, and a notification test that hit the Plex
@@ -24,8 +31,12 @@ config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
+# One database file per test partition. `mix test --partitions N` runs N separate
+# VMs, and SQLite allows a single writer per file -- sharing one file across them
+# is why 391 database tests had to be serial, and why trying to make them
+# concurrent produced hundreds of failures.
 config :fanfarr, Fanfarr.Repo,
-  database: Path.expand("../fanfarr_test.db", __DIR__),
+  database: Path.expand("../fanfarr_test#{System.get_env("MIX_TEST_PARTITION", "")}.db", __DIR__),
   # Raised for the async tests, which own a connection each.
   pool_size: 10,
   # A non-async test shares one connection with every process in it -- see
