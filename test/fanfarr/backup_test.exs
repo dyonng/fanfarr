@@ -188,6 +188,92 @@ defmodule Fanfarr.BackupTest do
     end
   end
 
+  describe "the size ceiling" do
+    # 1 MB apiece, so the arithmetic is the test's rather than the file
+    # system's. The setting is in MB, so a ceiling cannot be smaller than one.
+    defp megabytes(n), do: String.duplicate("x", n * 1024 * 1024)
+
+    test "the oldest are deleted until what is left fits", %{dir: dir} do
+      for n <- 1..5, do: write(dir, "fanfarr-2026010#{n}-120000.sqlite", megabytes(1))
+
+      Fanfarr.Settings.put_setting!("backup_max_mb", "2")
+      assert Backup.max_bytes() == 2 * 1024 * 1024
+
+      # keep 5, so the ceiling is the only thing that can delete anything.
+      assert Backup.prune(dir, 5) == %{deleted: 3, failed: 0}
+
+      names = Backup.list(dir) |> Enum.map(& &1.name)
+      assert names == ["fanfarr-20260105-120000.sqlite", "fanfarr-20260104-120000.sqlite"]
+    end
+
+    test "with no ceiling set, nothing extra is deleted", %{dir: dir} do
+      for n <- 1..3, do: write(dir, "fanfarr-2026010#{n}-120000.sqlite", megabytes(1))
+
+      assert Backup.max_bytes() == nil
+      assert Backup.prune(dir, 3) == %{deleted: 0, failed: 0}
+      assert length(Backup.list(dir)) == 3
+    end
+
+    test "the ceiling never takes the undo, and never empties the directory", %{dir: dir} do
+      pre = write(dir, "pre-restore-20260101-120000.sqlite", megabytes(1))
+      write(dir, "fanfarr-20260102-120000.sqlite", megabytes(1))
+
+      Fanfarr.Settings.put_setting!("backup_max_mb", "1")
+
+      # The scheduled snapshot goes, because the ceiling is over. The
+      # pre-restore one stays: it is the undo button for a restore just made,
+      # and it has a cap of its own.
+      assert Backup.prune(dir, 5) == %{deleted: 1, failed: 0}
+      assert File.exists?(pre)
+      assert Backup.list(dir) |> Enum.map(& &1.name) == ["pre-restore-20260101-120000.sqlite"]
+    end
+
+    test "a single snapshot larger than the ceiling is kept", %{dir: dir} do
+      only = write(dir, "fanfarr-20260101-120000.sqlite", megabytes(2))
+      Fanfarr.Settings.put_setting!("backup_max_mb", "1")
+
+      # Deleting it would satisfy the ceiling and lose the only backup there
+      # is, which is the worse of the two outcomes.
+      assert Backup.prune(dir, 5) == %{deleted: 0, failed: 0}
+      assert File.exists?(only)
+    end
+
+    test "a file Fanfarr did not write is neither deleted nor counted", %{dir: dir} do
+      theirs = write(dir, "mydatabase.sqlite", megabytes(5))
+      write(dir, "fanfarr-20260101-120000.sqlite", megabytes(1))
+      write(dir, "fanfarr-20260102-120000.sqlite", megabytes(1))
+
+      Fanfarr.Settings.put_setting!("backup_max_mb", "1")
+
+      # Their 5 MB would dominate any total, so counting it would delete both
+      # of ours to satisfy a ceiling it alone breaks.
+      assert Backup.prune(dir, 5) == %{deleted: 1, failed: 0}
+      assert File.exists?(theirs)
+
+      assert Backup.list(dir) |> Enum.map(& &1.name) == [
+               "mydatabase.sqlite",
+               "fanfarr-20260102-120000.sqlite"
+             ]
+    end
+
+    test "a ceiling of 0 or nonsense means no ceiling", %{dir: dir} do
+      write(dir, "fanfarr-20260101-120000.sqlite", megabytes(1))
+      assert Backup.max_bytes() == nil
+
+      Fanfarr.Settings.put_setting!("backup_max_mb", "0")
+      assert Backup.max_bytes() == nil
+
+      Fanfarr.Settings.put_setting!("backup_max_mb", "a lot")
+      assert Backup.max_bytes() == nil
+
+      Fanfarr.Settings.put_setting!("backup_max_mb", "512")
+      assert Backup.max_bytes() == 512 * 1024 * 1024
+
+      # And a snapshot well under a ceiling is left where it is.
+      assert Backup.prune(dir, 5) == %{deleted: 0, failed: 0}
+    end
+  end
+
   describe "the listing" do
     test "reads the time out of the name", %{dir: dir} do
       {:ok, path} = Backup.snapshot(dir)

@@ -114,6 +114,57 @@ defmodule FanfarrWeb.BackupsTest do
       assert has_element?(view, "#backups-form")
     end
 
+    test "the size cap is stored, and 0 means off rather than blank", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      view
+      |> form("#backups-form",
+        backup_interval_hours: "24",
+        backup_keep: "7",
+        backup_max_mb: "2048"
+      )
+      |> render_submit()
+
+      assert Fanfarr.Config.get("backup_max_mb") == "2048"
+      assert Fanfarr.Backup.max_bytes() == 2048 * 1024 * 1024
+
+      view
+      |> form("#backups-form",
+        backup_interval_hours: "24",
+        backup_keep: "7",
+        backup_max_mb: "0"
+      )
+      |> render_submit()
+
+      assert Fanfarr.Config.get("backup_max_mb") == "0"
+      assert Fanfarr.Backup.max_bytes() == nil
+    end
+
+    test "a nonsense size cap is refused rather than stored", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      html =
+        view
+        |> form("#backups-form",
+          backup_interval_hours: "24",
+          backup_keep: "7",
+          backup_max_mb: "-5"
+        )
+        |> render_submit()
+
+      assert html =~ "Size cap must be"
+      assert Fanfarr.Config.get("backup_max_mb") == nil
+    end
+
+    test "the card says how much room is used against the cap", %{conn: conn, dir: dir} do
+      snapshot_in(dir, "fanfarr-20260101-120000.sqlite")
+      Fanfarr.Settings.put_setting!("backup_max_mb", "10")
+
+      {:ok, _view, html} = live(conn, "/settings")
+
+      assert html =~ "of 10.0 MB"
+    end
+
     test "the switch is stored, and off does not stop a manual snapshot", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/settings")
 

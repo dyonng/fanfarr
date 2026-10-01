@@ -25,6 +25,7 @@ defmodule Fanfarr.Config do
     "auto_crop_enabled" => "AUTO_CROP_ENABLED",
     "backup_enabled" => "BACKUP_ENABLED",
     "backup_keep" => "BACKUP_KEEP",
+    "backup_max_mb" => "BACKUP_MAX_MB",
     "backup_interval_hours" => "BACKUP_INTERVAL_HOURS",
     "backup_dir" => "BACKUP_DIR",
     "notify_url" => "NOTIFY_URL",

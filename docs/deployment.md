@@ -350,6 +350,7 @@ half-written one. Nothing needs stopping, and no `sqlite3` binary is involved.
 | --- | --- | --- | --- |
 | Snapshots | `backup_enabled` | `BACKUP_ENABLED` | on |
 | How many to keep | `backup_keep` | `BACKUP_KEEP` | 7 |
+| Size ceiling | `backup_max_mb` | `BACKUP_MAX_MB` | 0 (off) |
 | How far apart | `backup_interval_hours` | `BACKUP_INTERVAL_HOURS` | 24 (`0` is off) |
 | Where they go | `backup_dir` | `BACKUP_DIR` | beside the database |
 
@@ -358,7 +359,13 @@ full disk is deleted rather than listed -- and only files Fanfarr wrote are
 ever deleted by the rotation. A database you copied in yourself is left
 alone, which matters because that is the one you probably want back.
 
-All four settings are on the **Backups** card in Settings, which also shows what
+A count is not a size, so there is also an optional ceiling: set a size cap and
+the oldest snapshots are deleted once they add up to more than it. The newest is
+never deleted, and neither is a pre-restore snapshot, so a ceiling smaller than
+one snapshot is exceeded rather than obeyed -- an empty directory is the one
+outcome worse than a directory that is too big.
+
+All five settings are on the **Backups** card in Settings, which also shows what
 the snapshots cost in disk and how old the newest one is, and offers **Back up
 now**. With the schedule off, that button still works: the switch is about what
 happens unattended, not about what an operator is allowed to do.

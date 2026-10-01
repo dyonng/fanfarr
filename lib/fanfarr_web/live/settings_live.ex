@@ -117,6 +117,22 @@ defmodule FanfarrWeb.SettingsLive.Index do
     end
   end
 
+  # 0 is stored rather than treated as blank, the same as the interval: blank
+  # means "use the default", and for a ceiling 0 means "none".
+  defp backup_megabytes(value) do
+    case value |> to_string() |> String.trim() do
+      "" ->
+        {:ok, nil}
+
+      typed ->
+        case Integer.parse(typed) do
+          {0, ""} -> {:ok, "0"}
+          {mb, ""} when mb in 1..100_000 -> {:ok, Integer.to_string(mb)}
+          _ -> {:error, "Size cap must be 0 to turn it off, or 1 to 100000 MB"}
+        end
+    end
+  end
+
   # The restart is what applies a staged restore, so the reply goes out first:
   # stopping the VM inside the event would drop the flash the operator is owed.
   # Off in the suite, where the staging itself is what gets asserted.
@@ -156,6 +172,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:backups_enabled, Fanfarr.Backup.enabled?())
     |> assign(:backups_interval_hours, Fanfarr.Config.get("backup_interval_hours") || "")
     |> assign(:backups_keep, Fanfarr.Config.get("backup_keep") || "")
+    |> assign(:backups_max_mb, Fanfarr.Config.get("backup_max_mb") || "")
+    |> assign(:backups_cap_bytes, Fanfarr.Backup.max_bytes())
     |> assign(:backups_dir, Fanfarr.Backup.dir())
     |> assign(:backups_usage, Fanfarr.Backup.usage())
     |> assign(:backups_list, Fanfarr.Backup.list())
@@ -362,10 +380,12 @@ defmodule FanfarrWeb.SettingsLive.Index do
 
   def handle_event("save_backups", params, socket) do
     with {:ok, hours} <- backup_hours(params["backup_interval_hours"] || ""),
-         {:ok, keep} <- backup_count(params["backup_keep"] || "") do
+         {:ok, keep} <- backup_count(params["backup_keep"] || ""),
+         {:ok, max_mb} <- backup_megabytes(params["backup_max_mb"] || "") do
       Fanfarr.Settings.put_setting!("backup_enabled", checkbox_choice(params, "backup_enabled"))
       Fanfarr.Settings.put_setting!("backup_interval_hours", hours)
       Fanfarr.Settings.put_setting!("backup_keep", keep)
+      Fanfarr.Settings.put_setting!("backup_max_mb", max_mb)
 
       {:noreply, socket |> load() |> put_flash(:info, "Backup settings saved")}
     else
@@ -1341,7 +1361,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
               {@backups_usage.count} snapshot{if @backups_usage.count != 1, do: "s"}
             </span>
             <span class="text-muted-foreground">
-              {FanfarrWeb.Format.bytes(@backups_usage.bytes)}
+              {FanfarrWeb.Format.bytes(@backups_usage.bytes)}{if @backups_cap_bytes,
+                do: " of #{FanfarrWeb.Format.bytes(@backups_cap_bytes)}"}
             </span>
             <span
               :if={@backups_usage.newest && @backups_usage.newest.taken_at}
@@ -1416,7 +1437,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
               /> Take a snapshot automatically
             </label>
 
-            <div class={["grid gap-4 sm:grid-cols-2", not @backups_enabled && "opacity-60"]}>
+            <div class={["grid gap-4 sm:grid-cols-3", not @backups_enabled && "opacity-60"]}>
               <div class="space-y-1">
                 <label class="text-xs font-medium text-muted-foreground">Every (hours)</label>
                 <input
@@ -1447,6 +1468,22 @@ defmodule FanfarrWeb.SettingsLive.Index do
                 <p class="text-xs text-muted-foreground">
                   Older ones are deleted after each new snapshot. Only files Fanfarr wrote are
                   ever deleted.
+                </p>
+              </div>
+
+              <div class="space-y-1">
+                <label class="text-xs font-medium text-muted-foreground">Size cap (MB)</label>
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  name="backup_max_mb"
+                  value={@backups_max_mb}
+                  placeholder="0"
+                  class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+                <p class="text-xs text-muted-foreground">
+                  The oldest are deleted once the snapshots add up to more than this. 0 or blank
+                  means no cap, and the newest is never deleted.
                 </p>
               </div>
             </div>

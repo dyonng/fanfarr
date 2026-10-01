@@ -128,6 +128,34 @@ defmodule Fanfarr.Backup do
     end
   end
 
+  @doc """
+  A ceiling on the total size of the snapshots, in bytes, or nil for none.
+
+  A count is not a size. Seven snapshots of a library that keeps growing are not
+  seven snapshots of a fixed amount of disk, and the directory is on the same
+  volume as the database. `0` means no ceiling, the same as every other "off"
+  here, and anything unparseable falls back to that rather than to a limit
+  nobody asked for: a typo must not start deleting backups.
+  """
+  @spec max_bytes() :: pos_integer() | nil
+  def max_bytes do
+    case Fanfarr.Config.get("backup_max_mb") do
+      value when is_binary(value) -> megabytes(value)
+      _ -> nil
+    end
+  end
+
+  # Its own parser, like the interval's, because 0 here means "off" rather than
+  # "use the default" -- sharing `positive/2` would turn a deliberate 0 into a
+  # limit, which is the same bug as the interval that quietly became 24 hours.
+  defp megabytes(value) do
+    case Integer.parse(String.trim(value)) do
+      {0, ""} -> nil
+      {mb, ""} when mb > 0 -> mb * 1024 * 1024
+      _ -> nil
+    end
+  end
+
   # 0 is a deliberate "off" for the interval, the same as every other interval
   # in this application. Anything unparseable falls back instead of failing: a
   # typo in a setting must not stop the backups.
@@ -294,8 +322,9 @@ defmodule Fanfarr.Backup do
   end
 
   @doc """
-  Deletes managed snapshots beyond the newest `keep`, and pre-restore snapshots
-  beyond their own smaller cap.
+  Deletes managed snapshots beyond the newest `keep`, pre-restore snapshots
+  beyond their own smaller cap, and -- when a size ceiling is set -- the oldest
+  of what is left until the total fits under it.
 
   Only files this module wrote are touched. Returns what was deleted and what
   could not be, because a snapshot that cannot be removed accumulates forever
@@ -309,13 +338,18 @@ defmodule Fanfarr.Backup do
     exclude = Keyword.get(opts, :exclude)
     snapshots = list(directory)
 
-    doomed =
+    by_count =
       snapshots
       |> Enum.filter(&(&1.kind == :auto and &1.path != exclude))
       |> Enum.drop(keep)
-      |> Enum.concat(
-        Enum.drop(Enum.filter(snapshots, &(&1.kind == :pre_restore)), @pre_restore_keep)
-      )
+
+    by_age =
+      Enum.drop(Enum.filter(snapshots, &(&1.kind == :pre_restore)), @pre_restore_keep)
+
+    doomed =
+      by_count
+      |> Enum.concat(by_age)
+      |> Enum.concat(by_size(snapshots, by_count ++ by_age, exclude))
 
     Enum.reduce(doomed, %{deleted: 0, failed: 0}, fn snapshot, acc ->
       case remove(snapshot.path) do
@@ -331,6 +365,56 @@ defmodule Fanfarr.Backup do
       end
     end)
   end
+
+  # The size ceiling, applied to what the count rules left alone.
+  #
+  # Three things it will not do. It will not touch a pre-restore snapshot, which
+  # is the undo button for a restore just made and has a cap of its own. It will
+  # not touch a file this module did not write. And it will not delete the last
+  # snapshot: a ceiling that empties the directory to satisfy itself is worse
+  # than one that is exceeded, and a database larger than the ceiling is exactly
+  # the case that would do it.
+  defp by_size(snapshots, already_doomed, exclude) do
+    case max_bytes() do
+      nil ->
+        []
+
+      ceiling ->
+        doomed_paths = MapSet.new(already_doomed, & &1.path)
+        survivors = Enum.reject(snapshots, &MapSet.member?(doomed_paths, &1.path))
+
+        # What the ceiling measures: everything of ours still in the directory.
+        # Files we did not write are left out rather than counted -- counting
+        # them would spend our snapshots to satisfy a total they dominate.
+        managed = Enum.filter(survivors, &(&1.kind != :foreign))
+
+        # Oldest first, because `list/1` is newest first, and scheduled
+        # snapshots only.
+        candidates =
+          survivors
+          |> Enum.filter(&(&1.kind == :auto and &1.path != exclude))
+          |> Enum.reverse()
+
+        {_bytes, _count, doomed} =
+          Enum.reduce_while(candidates, {total_bytes(managed), length(managed), []}, fn
+            snapshot, {bytes, count, acc} ->
+              if bytes > ceiling and count > 1 do
+                {:cont, {bytes - bytes_of(snapshot), count - 1, [snapshot | acc]}}
+              else
+                {:halt, {bytes, count, acc}}
+              end
+          end)
+
+        Enum.reverse(doomed)
+    end
+  end
+
+  defp total_bytes(snapshots), do: snapshots |> Enum.map(&bytes_of/1) |> Enum.sum()
+
+  # A file that cannot be read has no size, and an unreadable snapshot must not
+  # make the ceiling arithmetic raise inside a backup.
+  defp bytes_of(%{bytes: nil}), do: 0
+  defp bytes_of(%{bytes: bytes}), do: bytes
 
   @doc """
   A snapshot taken immediately before a restore, so the restore is undoable.
