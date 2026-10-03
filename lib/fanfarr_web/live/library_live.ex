@@ -250,7 +250,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
         q -> Ash.Query.filter(query, contains(string_downcase(title), ^String.downcase(q)))
       end
 
-    items = Ash.read!(query, authorize?: false)
+    items = Ash.read!(query, actor: socket.assigns.current_user)
 
     items =
       case filters.status do
@@ -281,7 +281,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
     socket
     |> assign(:items, visible)
-    |> assign(facets())
+    |> assign(facets(socket.assigns.current_user))
     |> assign(:all_ids, Enum.map(items, & &1.id))
     |> assign(:total, total)
     |> assign(:page, page)
@@ -296,11 +296,11 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # and the filter would be a one-way door. Its own query rather than a reuse
   # of the items above for the same reason -- that one is already filtered.
   # Two columns wide over a table the page has just read anyway.
-  defp facets do
+  defp facets(actor) do
     rows =
       MediaItem
       |> Ash.Query.select([:studio, :collections])
-      |> Ash.read!(authorize?: false)
+      |> Ash.read!(actor: actor)
 
     %{
       studios: rows |> Enum.map(& &1.studio) |> names(),

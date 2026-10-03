@@ -53,7 +53,7 @@ defmodule Fanfarr.Themes.ApplicationFacts do
     |> Ash.Query.filter(media_item_id in ^item_ids)
     |> Ash.Query.select([:media_item_id, :status, :bytes, :duration_ms, :inserted_at])
     |> Ash.Query.sort(inserted_at: :asc)
-    |> Ash.read!(authorize?: false)
+    |> Ash.read!(actor: Fanfarr.SystemActor.new(:themes))
     # Ascending order, so a later row overwrites an earlier one.
     |> Enum.reduce(%{}, fn row, acc ->
       Map.update(acc, row.media_item_id, from_row(row), &after_row(&1, row))

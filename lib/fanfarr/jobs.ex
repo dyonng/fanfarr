@@ -638,7 +638,7 @@ defmodule Fanfarr.Jobs do
       Fanfarr.Library.MediaItem
       |> Ash.Query.filter(id in ^ids)
       |> Ash.Query.select([:id, :title])
-      |> Ash.read!(authorize?: false)
+      |> Ash.read!(actor: Fanfarr.SystemActor.new(:scheduler))
       |> Map.new(&{&1.id, &1.title})
     end
   end

@@ -42,7 +42,7 @@ defmodule Fanfarr.Accounts.AuthMode do
   def bypass_enabled? do
     case Fanfarr.Settings.Setting
          |> Ash.Query.filter(key == ^@setting_key)
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: Fanfarr.SystemActor.new(:auth)) do
       {:ok, %{value: "true"}} -> true
       _ -> false
     end
@@ -54,7 +54,7 @@ defmodule Fanfarr.Accounts.AuthMode do
   end
 
   defp account_exists? do
-    case Ash.read(Fanfarr.Accounts.User, authorize?: false) do
+    case Ash.read(Fanfarr.Accounts.User, actor: Fanfarr.SystemActor.new(:auth)) do
       {:ok, [_ | _]} -> true
       _ -> false
     end

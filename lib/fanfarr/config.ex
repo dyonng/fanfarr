@@ -91,7 +91,7 @@ defmodule Fanfarr.Config do
   defp override(key) do
     case Fanfarr.Settings.Setting
          |> Ash.Query.filter(key == ^key)
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: Fanfarr.SystemActor.new(:config)) do
       {:ok, %{value: value}} when value not in [nil, ""] -> value
       _ -> nil
     end

@@ -231,6 +231,15 @@ defmodule Fanfarr.Accounts.User do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
       authorize_if always()
     end
+
+    # Work the application does on its own behalf -- seeding the operator
+    # account at boot above all -- acts as the system rather than as a person.
+    # Written as a policy rather than bypassed with `authorize?: false` so the
+    # exemption is visible in the file that states the other rules: a call site
+    # cannot opt out of authorization silently, and this line can be reviewed.
+    bypass expr(not is_nil(^actor(:system))) do
+      authorize_if always()
+    end
   end
 
   attributes do

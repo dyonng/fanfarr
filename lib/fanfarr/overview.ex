@@ -166,7 +166,7 @@ defmodule Fanfarr.Overview do
         |> Ash.Query.for_read(:by_external_ids, %{external_ids: ids})
         |> Ash.Query.filter(not is_nil(youtube_theme_url) and youtube_theme_url != "")
         |> Ash.Query.select([:external_id])
-        |> Ash.read!(authorize?: false)
+        |> Ash.read!(actor: Fanfarr.SystemActor.new(:overview))
         |> MapSet.new(& &1.external_id)
 
       Enum.count(missing, fn item ->
@@ -201,7 +201,7 @@ defmodule Fanfarr.Overview do
           |> Ash.Query.for_read(:by_external_ids, %{external_ids: ids})
           |> Ash.Query.filter(not is_nil(youtube_theme_url) and youtube_theme_url != "")
           |> Ash.Query.select([:external_id])
-          |> Ash.read!(authorize?: false)
+          |> Ash.read!(actor: Fanfarr.SystemActor.new(:overview))
           |> MapSet.new(& &1.external_id)
 
         missing

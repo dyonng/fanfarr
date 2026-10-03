@@ -137,7 +137,7 @@ defmodule Fanfarr.Themes.EditSource do
     |> Ash.Query.filter(media_item_id == ^item_id and status == :succeeded)
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.Query.limit(1)
-    |> Ash.read!(authorize?: false)
+    |> Ash.read!(actor: Fanfarr.SystemActor.new(:themes))
     |> List.first()
   end
 end

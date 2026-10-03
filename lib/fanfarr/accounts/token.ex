@@ -79,6 +79,14 @@ defmodule Fanfarr.Accounts.Token do
       description "AshAuthentication can interact with the token resource"
       authorize_if always()
     end
+
+    # An expired-token sweep and the boot-time cleanup of a removed account are
+    # the application tidying up after itself, with no user to name. See
+    # `Fanfarr.SystemActor` for why this is a policy rather than
+    # `authorize?: false`.
+    bypass expr(not is_nil(^actor(:system))) do
+      authorize_if always()
+    end
   end
 
   attributes do

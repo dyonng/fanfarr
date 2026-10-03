@@ -40,7 +40,7 @@ defmodule Fanfarr.Accounts.Seed do
           password: password,
           password_confirmation: password
         })
-        |> Ash.create!(authorize?: false)
+        |> Ash.create!(actor: Fanfarr.SystemActor.new(:seed))
 
         Logger.info("[fanfarr] created operator account #{username}")
 
@@ -50,7 +50,7 @@ defmodule Fanfarr.Accounts.Seed do
         # the whole recovery story.
         user
         |> Ash.Changeset.for_update(:set_password, %{password: password})
-        |> Ash.update!(authorize?: false)
+        |> Ash.update!(actor: Fanfarr.SystemActor.new(:seed))
 
         Logger.info("[fanfarr] operator account #{username} is up to date")
     end
@@ -58,10 +58,10 @@ defmodule Fanfarr.Accounts.Seed do
     # Any account other than the declared one is stale -- a renamed
     # AUTH_USERNAME would otherwise leave the old login working forever.
     Fanfarr.Accounts.User
-    |> Ash.read!(authorize?: false)
+    |> Ash.read!(actor: Fanfarr.SystemActor.new(:seed))
     |> Enum.reject(&(to_string(&1.username) == username))
     |> Enum.each(fn stale ->
-      Ash.destroy!(stale, authorize?: false)
+      Ash.destroy!(stale, actor: Fanfarr.SystemActor.new(:seed))
       Logger.info("[fanfarr] removed stale account #{stale.username}")
     end)
   rescue
@@ -83,7 +83,7 @@ defmodule Fanfarr.Accounts.Seed do
 
   defp existing(username) do
     Fanfarr.Accounts.User
-    |> Ash.read!(authorize?: false)
+    |> Ash.read!(actor: Fanfarr.SystemActor.new(:seed))
     |> Enum.find(&(String.downcase(to_string(&1.username)) == String.downcase(username)))
   end
 
@@ -91,9 +91,9 @@ defmodule Fanfarr.Accounts.Seed do
     # Remove any account left from a previous configuration, so deleting the
     # env vars actually turns authentication off rather than stranding a
     # login nobody has the password for.
-    case Ash.read(Fanfarr.Accounts.User, authorize?: false) do
+    case Ash.read(Fanfarr.Accounts.User, actor: Fanfarr.SystemActor.new(:seed)) do
       {:ok, [_ | _] = users} ->
-        Enum.each(users, &Ash.destroy!(&1, authorize?: false))
+        Enum.each(users, &Ash.destroy!(&1, actor: Fanfarr.SystemActor.new(:seed)))
 
         Logger.warning(
           "[fanfarr] AUTH_USERNAME/AUTH_PASSWORD unset; removed the previous account"

@@ -43,7 +43,7 @@ defmodule Fanfarr.Library.MediaItem.ThemeStatus do
     |> Ash.Query.filter(media_item_id in ^item_ids)
     |> Ash.Query.select([:media_item_id, :status, :inserted_at])
     |> Ash.Query.sort(inserted_at: :asc)
-    |> Ash.read!(authorize?: false)
+    |> Ash.read!(actor: Fanfarr.SystemActor.new(:library))
     # Ascending sort means a later row overwrites an earlier one, leaving the
     # most recent application per item.
     |> Map.new(&{&1.media_item_id, &1.status})
