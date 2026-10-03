@@ -1466,8 +1466,8 @@ defmodule FanfarrWeb.SettingsLive.Index do
                   class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
                 />
                 <p class="text-xs text-muted-foreground">
-                  Older ones are deleted after each new snapshot. Only files Fanfarr wrote are
-                  ever deleted.
+                  Blank keeps 7. Older ones are deleted after each new snapshot; only files
+                  Fanfarr wrote are ever deleted.
                 </p>
               </div>
 

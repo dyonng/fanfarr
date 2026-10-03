@@ -138,6 +138,42 @@ defmodule Fanfarr.BackupTest do
     end
   end
 
+  describe "with the fields left blank" do
+    test "the defaults apply and a backup is still due", %{dir: dir} do
+      # A fresh install has no settings rows at all: the switch is on by default,
+      # every field is blank, and backups still have to happen. Each of these
+      # reads through Config.get/1, so an absent row has to resolve to the
+      # documented default rather than to nothing -- "on, and silently doing
+      # nothing" is the worst version of this feature.
+      Fanfarr.Settings.put_setting!("backup_dir", dir)
+
+      assert Fanfarr.Backup.enabled?()
+      assert Fanfarr.Backup.interval_hours() == 24
+      assert Fanfarr.Backup.keep() == 7
+      assert Fanfarr.Backup.max_bytes() == nil
+      assert Fanfarr.Backup.due?(dir)
+
+      # And the schedule actually enqueues, which is what "make the backups"
+      # means: resolving the defaults is only half of it.
+      assert {:ok, job} = Fanfarr.Workers.Backup.enqueue_if_due()
+      assert job.worker == "Fanfarr.Workers.Backup"
+
+      # Reloaded rather than inspected in memory: args reach the database as
+      # JSON, so the struct that was just inserted still holds atom keys while
+      # the job the worker actually runs has string keys.
+      assert Fanfarr.Repo.get!(Oban.Job, job.id).args["trigger"] == "auto"
+    end
+
+    test "0 still means off, and off is not the same as blank", %{dir: dir} do
+      Fanfarr.Settings.put_setting!("backup_dir", dir)
+      Fanfarr.Settings.put_setting!("backup_interval_hours", "0")
+
+      assert Fanfarr.Backup.interval_hours() == nil
+      refute Fanfarr.Backup.due?(dir)
+      assert Fanfarr.Workers.Backup.enqueue_if_due() == :ok
+    end
+  end
+
   describe "pruning" do
     test "keeps the newest and deletes the rest of ours", %{dir: dir} do
       for n <- 1..4, do: write(dir, "fanfarr-2026010#{n}-120000.sqlite")

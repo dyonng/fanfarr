@@ -90,6 +90,30 @@ defmodule FanfarrWeb.BackupsTest do
       assert Fanfarr.Backup.keep() == 3
     end
 
+    test "blank fields with the switch on leave the defaults doing the work",
+         %{conn: conn, dir: dir} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      html =
+        view
+        |> form("#backups-form",
+          backup_enabled: "true",
+          backup_interval_hours: "",
+          backup_keep: "",
+          backup_max_mb: ""
+        )
+        |> render_submit()
+
+      # Blank is not an error, and it is not a disabled feature either: the
+      # switch is on, so the defaults have to carry it.
+      refute html =~ "must be"
+      assert Fanfarr.Backup.enabled?()
+      assert Fanfarr.Config.get("backup_interval_hours") == nil
+      assert Fanfarr.Backup.interval_hours() == 24
+      assert Fanfarr.Backup.keep() == 7
+      assert Fanfarr.Backup.due?(dir)
+    end
+
     test "0 is stored as off, not as blank", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/settings")
 
