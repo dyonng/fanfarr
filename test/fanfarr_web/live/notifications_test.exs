@@ -119,6 +119,18 @@ defmodule FanfarrWeb.NotificationsTest do
     assert Fanfarr.Notify.inferred?()
   end
 
+  # `start_async` hands the work to a task and the result comes back as a
+  # message, so anything it produced is one render later than the click that
+  # started it. Asserting it in the render right after the click passed locally
+  # and failed on CI, which is the difference this wait exists for.
+  defp eventually(check, attempts \\ 40) do
+    cond do
+      check.() -> true
+      attempts == 0 -> false
+      true -> Process.sleep(50) && eventually(check, attempts - 1)
+    end
+  end
+
   test "the test button sends one, whatever the switches say", %{conn: conn} do
     Fanfarr.Settings.put_setting!("notify_url", "https://ntfy.sh/fanfarr")
     for type <- Notify.types(), do: Fanfarr.Settings.put_setting!(type.setting, "false")
@@ -129,6 +141,6 @@ defmodule FanfarrWeb.NotificationsTest do
 
     assert_receive {:notified, body}, 2_000
     assert body =~ "notifications are set up"
-    assert render(view) =~ "Sent."
+    assert eventually(fn -> render(view) =~ "Sent." end)
   end
 end
