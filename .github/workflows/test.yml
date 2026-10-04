@@ -67,5 +67,10 @@ jobs:
       - name: Compile
         run: mix compile --warnings-as-errors
 
+      # The same suite, in four processes with a database each. SQLite has a
+      # single writer, so the database tests cannot run concurrently inside one
+      # process: they collide rather than queue.
       - name: Tests
-        run: mix test
+        env:
+          TEST_PARTITIONS: "4"
+        run: bash scripts/test-parallel.sh

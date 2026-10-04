@@ -128,7 +128,10 @@ defmodule Fanfarr.MixProject do
         "deps.unlock --unused",
         "cmd mix hex.audit",
         "format",
-        "test"
+        # The same suite, in four processes with a database each. The alias
+        # above stays single-process; this is the gate's path, and
+        # `scripts/test-parallel.sh` explains why one process cannot do it.
+        "cmd scripts/test-parallel.sh"
       ],
       "ash.setup": ["ash.setup", "run priv/repo/seeds.exs"]
     ]
