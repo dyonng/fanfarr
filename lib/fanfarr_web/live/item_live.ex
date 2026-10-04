@@ -817,7 +817,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                 class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:h-8"
                 title="Delete the theme.mp3 Fanfarr wrote. Anything already uploaded into Plex itself stays -- Plex has no API to remove that."
               >
-                <.icon name="lucide-trash-2" class="size-3.5" /> Remove theme
+                <.icon name="lucide-trash" class="size-3.5" /> Remove theme
               </button>
             </div>
           </div>

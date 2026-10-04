@@ -331,7 +331,7 @@ defmodule FanfarrWeb.LogsLive.Index do
               phx-click="clear_logs"
               class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent hover:text-accent-foreground"
             >
-              <.icon name="lucide-trash-2" class="size-3.5" /> Clear
+              <.icon name="lucide-trash" class="size-3.5" /> Clear
             </button>
           </:actions>
         </Layouts.page_header>
