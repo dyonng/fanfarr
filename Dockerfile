@@ -2,7 +2,11 @@
 # commit produces the same image. The two must stay in step: a release built
 # against one glibc will not run on another, so bump them together.
 ARG ELIXIR_IMAGE=hexpm/elixir:1.19.6-erlang-27.3.4.16-debian-bookworm-20260824-slim
-ARG RUNNER_IMAGE=debian:bookworm-20260824-slim
+# Runner moves to the post-eMudhra snapshot on its own: hexpm has not published
+# a bookworm-20261020 builder image for this Elixir/OTP combo, and both snapshots
+# are bookworm (same glibc line), so the pair stays compatible. Builder and
+# runner stages apt-install ca-certificates fresh at build time regardless.
+ARG RUNNER_IMAGE=debian:bookworm-20261020-slim
 
 # Declared before the first FROM, so it reaches the ffmpeg stage below; a build
 # argument is only global if it is written above every stage.
