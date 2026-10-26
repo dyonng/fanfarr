@@ -188,6 +188,19 @@ defmodule Fanfarr.HealthTest do
       assert detail =~ "keeping 7"
     end
 
+    test "a fresh automatic snapshot outranks an older pre-restore one", %{dir: dir} do
+      # The reported bug, in one test: a `pre-restore-` file from September sat
+      # beside current `fanfarr-` snapshots, ordering by name put it first, and
+      # the System page called a working schedule overdue. `due?` was spared
+      # because it looks only at automatic snapshots -- which is why backups
+      # kept arriving while the page said none had.
+      File.write!(Path.join(dir, "pre-restore-20260926-213724.sqlite"), "old")
+      {:ok, _path} = Fanfarr.Backup.snapshot(dir)
+
+      assert %{level: :ok, message: message} = Health.backups()
+      assert message =~ "Last snapshot"
+    end
+
     test "overdue warns, and long overdue is an error", %{dir: dir} do
       # Past the 24-hour interval but under twice it.
       old = snapshot_named(dir, 30)

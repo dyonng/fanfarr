@@ -180,8 +180,14 @@ defmodule Fanfarr.Backup do
   Existing snapshots, newest first, with whatever metadata was written beside
   them.
 
-  Ordered by name rather than modification time: the name carries the
-  timestamp, so it sorts correctly even when several land in the same second.
+  Ordered by the time in the name, not by the name itself. Sorting by name
+  looked equivalent and was not: it only holds while every file shares a prefix.
+  Once `pre-restore-` snapshots existed beside `fanfarr-` ones, "p" sorted above
+  "f", so a September pre-restore outranked an October automatic snapshot -- and
+  the health check reported a working schedule as overdue while seven recent
+  snapshots sat in the directory. The name still breaks ties, so several
+  snapshots in the same second keep a stable order.
+
   Nothing here raises -- a file that cannot be read is listed as unreadable
   rather than taking down the caller, which in one case is the scheduler.
   """
@@ -190,9 +196,15 @@ defmodule Fanfarr.Backup do
     directory
     |> Path.join("*#{@extension}")
     |> Path.wildcard()
-    |> Enum.sort(:desc)
     |> Enum.map(&info/1)
+    |> Enum.sort_by(&{sort_time(&1), &1.name}, :desc)
   end
+
+  # Microseconds, because two snapshots can land in the same second and their
+  # order should still be stable. A name with no readable time sorts last: an
+  # unknown age is never the newest thing in the directory.
+  defp sort_time(%{taken_at: %DateTime{} = at}), do: DateTime.to_unix(at, :microsecond)
+  defp sort_time(_snapshot), do: 0
 
   @doc "The newest snapshot, or nil when there are none."
   @spec newest(String.t()) :: snapshot() | nil

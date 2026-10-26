@@ -311,6 +311,21 @@ defmodule Fanfarr.BackupTest do
   end
 
   describe "the listing" do
+    test "a pre-restore snapshot does not outrank a newer automatic one", %{dir: dir} do
+      # Ordering by filename held only while every file shared a prefix. Once a
+      # `pre-restore-` file sat beside `fanfarr-` ones, "p" sorted above "f" and
+      # a snapshot from weeks earlier became "the newest" -- which the System
+      # page then reported as an overdue schedule.
+      write(dir, "pre-restore-20260926-213724.sqlite")
+      write(dir, "fanfarr-20261019-210500.sqlite")
+      write(dir, "fanfarr-20261018-210500.sqlite")
+
+      expected = "fanfarr-20261019-210500.sqlite"
+      assert Backup.list(dir) |> List.first() |> Map.fetch!(:name) == expected
+      assert Backup.newest(dir).name == expected
+      assert Backup.usage(dir).newest.name == expected
+    end
+
     test "reads the time out of the name", %{dir: dir} do
       {:ok, path} = Backup.snapshot(dir)
 
