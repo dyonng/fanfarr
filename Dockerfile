@@ -206,6 +206,20 @@ RUN set -eux; \
   chmod +x /usr/local/bin/yt-dlp; \
   /usr/local/bin/yt-dlp --version
 
+# Known limitation, deliberately accepted: this binary carries its own certifi
+# bundle and loads it explicitly, so the system trust store patched above does
+# not apply to it. Measured, not assumed -- 2026.10.21 reports
+# `certifi-2026.10.19`, the bundle from the day before the eMudhra roots were
+# dropped, and setting SSL_CERT_FILE, REQUESTS_CA_BUNDLE or CURL_CA_BUNDLE
+# changes nothing (tested). It therefore still trusts those two roots.
+#
+# Why that is tolerable here: yt-dlp sends no credentials on that path, so a
+# forged certificate buys an attacker the ability to serve different audio, not
+# to read a Plex token or anything else. Everything Fanfarr itself talks to --
+# Plex, ThemerrDB, posters -- goes through Erlang, which uses the patched system
+# store. Revisit when a yt-dlp release bundles certifi 2026.10.23 or newer;
+# `yt-dlp -v` names the version, so a stale one is visible rather than assumed.
+
 # C.UTF-8 rather than a generated en_US.UTF-8. The locales package is 15.8 MB
 # of data for languages this app never renders, and glibc has shipped C.UTF-8
 # built in since 2.35. Elixir needs *a* UTF-8 locale -- the latin1 warning it

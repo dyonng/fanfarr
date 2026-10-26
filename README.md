@@ -112,6 +112,20 @@ is exposed, and warned about in the logs on every boot.
 "Disable authentication for local addresses" — checked against the actual TCP
 connection, not a header, so it cannot be spoofed from outside.
 
+## Known limitation: yt-dlp's own certificate bundle
+
+yt-dlp is a self-contained binary that carries its own CA bundle and loads it
+explicitly, so the trust store the rest of the image uses does not apply to it.
+As of yt-dlp 2026.10.21 that bundle predates the removal of the two eMudhra
+roots compromised in October 2026, and it ignores `SSL_CERT_FILE`,
+`REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE`.
+
+Accepting this was a judgement, not an oversight: yt-dlp sends no credentials
+on that path, so the reachable impact is a substituted audio file, while
+everything else Fanfarr talks to — Plex, ThemerrDB, posters — goes through
+Erlang's TLS stack against the system store, which the image build does patch.
+The Dockerfile carries the full note and the condition for revisiting it.
+
 ## Development
 
 Elixir 1.19 / OTP 27 (pinned in `.tool-versions`), Phoenix LiveView, Ash on
