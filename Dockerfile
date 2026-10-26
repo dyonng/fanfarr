@@ -143,10 +143,29 @@ FROM ${RUNNER_IMAGE} AS runner
 #   nothing -- so without this, TZ=America/Toronto in the compose file is a
 #   silent four-hour error on every timestamp in the dashboard. Fanfarr logs
 #   the zone it resolved at boot so that failure is visible if it ever recurs.
+# The eMudhra intermediate CA compromise (October 2026): eight of its
+# intermediates had private keys recoverable from their public certificates, so
+# anyone could mint certificates that validate against the roots those
+# intermediates chain to. Clients that do not consume revocation or Certificate
+# Transparency data have no other protection -- the root simply has to be gone
+# from the trust store. Every TLS client here is such a client, Erlang included.
+#
+# Two of the affected roots are in this store, and Debian bookworm has no fixed
+# package yet (the tracker carries a fix for trixie only), so they are removed
+# here. G1 stays: eMudhra states it is not being removed. G3 and the AAA
+# cross-sign are not in this image's store at all.
+#
+# The grep fails the build rather than silently doing nothing if a future
+# ca-certificates package renames these files and the patterns stop matching.
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends \
      ca-certificates libmp3lame0 libstdc++6 libgcc-s1 openssl gosu curl tzdata \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && sed -i -e 's|^mozilla/emSign_ECC_Root_CA_-_C3.crt|!&|' \
+            -e 's|^mozilla/emSign_Root_CA_-_C1.crt|!&|' \
+            /etc/ca-certificates.conf \
+  && update-ca-certificates \
+  && ! grep -qE '^mozilla/emSign_(ECC_Root_CA_-_C3|Root_CA_-_C1)\.crt' /etc/ca-certificates.conf
 
 # The two binaries built above, and the licence they carry: this is an LGPL
 # ffmpeg now, so its notice ships with it -- which is also why the usual
@@ -169,7 +188,7 @@ COPY --from=ffmpeg /usr/src/ffmpeg/COPYING.LGPLv2.1 /usr/share/doc/ffmpeg/COPYIN
 # is how the first arm64 build died, at `--version`, with exit 126. An
 # architecture yt-dlp has no build for stops the build rather than quietly
 # getting an x86 binary that only fails later, on somebody's server.
-ARG YTDLP_VERSION=2026.08.19
+ARG YTDLP_VERSION=2026.10.21
 ARG TARGETARCH
 RUN set -eux; \
   arch="${TARGETARCH:-$(uname -m)}"; \

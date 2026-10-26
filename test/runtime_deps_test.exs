@@ -67,6 +67,30 @@ defmodule RuntimeDepsTest do
            "assets.deploy compiles too; a strict compile after it is a no-op and guards nothing"
   end
 
+  test "the image removes the roots affected by the eMudhra compromise" do
+    dockerfile = File.read!("Dockerfile")
+
+    # Why this needs a test rather than a comment: the removal is a sed against
+    # filenames Debian owns. If a future ca-certificates package renames them,
+    # the sed matches nothing, the build succeeds, and the image ships trusting
+    # a root whose intermediates were compromised. Erlang's TLS client does not
+    # consult revocation or CT data, so losing the root is the only protection
+    # there is -- and Debian bookworm has no fixed package to inherit it from.
+    for root <- ["emSign_ECC_Root_CA_-_C3", "emSign_Root_CA_-_C1"] do
+      assert dockerfile =~ "s|^mozilla/#{root}.crt|!&|",
+             "#{root} is compromised and still trusted by the image build"
+    end
+
+    assert dockerfile =~ "update-ca-certificates",
+           "disabling a root in ca-certificates.conf does nothing until the bundle is rebuilt"
+
+    refute dockerfile =~ "emSign_Root_CA_-_G1",
+           "eMudhra states G1 is not being removed; dropping it breaks sites that use it"
+
+    assert dockerfile =~ "! grep -qE '^mozilla/emSign_",
+           "the build should fail, not pass quietly, when these patterns stop matching"
+  end
+
   defp runtime?(opts) do
     case Keyword.get(opts, :only) do
       nil -> true
