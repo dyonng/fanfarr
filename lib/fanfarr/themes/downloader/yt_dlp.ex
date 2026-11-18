@@ -257,12 +257,12 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
   end
 
   @impl true
-  def download(url, dir), do: fetch(url, dir, :mp3)
+  def download(url, dir, opts \\ []), do: fetch(url, dir, :mp3, opts)
 
   @impl true
-  def download_source(url, dir), do: fetch(url, dir, :original)
+  def download_source(url, dir, opts \\ []), do: fetch(url, dir, :original, opts)
 
-  defp fetch(url, dir, format) do
+  defp fetch(url, dir, format, opts) do
     with :ok <- validate_url(url),
          :ok <- ensure_dir(dir) do
       # A private subdirectory means the glob afterwards cannot pick up an
@@ -271,7 +271,7 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
       File.mkdir_p!(work)
 
       try do
-        do_download(url, work, dir, format)
+        do_download(url, work, dir, format, opts)
       after
         File.rm_rf(work)
       end
@@ -284,18 +284,26 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
 
   defp audio_args(:original), do: ["--format", "bestaudio/best"]
 
-  defp do_download(url, work, dir, format) do
+  defp do_download(url, work, dir, format, opts) do
+    # A title with the override set skips the duration check: the operator
+    # pointed at this source on purpose. The size cap always stays.
+    duration_args =
+      if Keyword.get(opts, :ignore_duration_limit) do
+        []
+      else
+        ["--match-filter", "duration < #{@max_duration_seconds}"]
+      end
+
     args =
       [
         "--no-playlist",
         "--no-progress",
         "--no-warnings",
         # Reject before downloading rather than after.
-        "--match-filter",
-        "duration < #{@max_duration_seconds}",
         "--max-filesize",
         "#{@max_bytes}"
       ] ++
+        duration_args ++
         audio_args(format) ++
         [
           "--restrict-filenames",

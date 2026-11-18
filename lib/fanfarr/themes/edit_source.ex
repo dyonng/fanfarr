@@ -73,16 +73,18 @@ defmodule Fanfarr.Themes.EditSource do
         end
 
       :no ->
-        download(url)
+        download(item, url)
     end
   end
 
-  defp download(url) do
+  defp download(item, url) do
     tmp = Path.join(System.tmp_dir!(), "fanfarr-edit-#{:erlang.unique_integer([:positive])}")
     File.mkdir_p!(tmp)
 
     try do
-      case Themes.Downloader.impl().download_source(url, tmp) do
+      case Themes.Downloader.impl().download_source(url, tmp,
+             ignore_duration_limit: item.ignore_duration_limit
+           ) do
         {:ok, %{path: path}} ->
           with {:ok, entry} <- SourceCache.put(url, path, :source) do
             {:ok, Map.put(entry, :url, url)}

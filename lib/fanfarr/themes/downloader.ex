@@ -43,8 +43,13 @@ defmodule Fanfarr.Themes.Downloader do
 
   `dir` must already exist and be writable. The implementation is responsible
   for leaving nothing behind on failure.
+
+  `ignore_duration_limit: true` drops the duration match-filter for this
+  call only -- the per-title escape hatch for a theme that lives in a long
+  source. The size cap always stays.
   """
-  @callback download(url :: String.t(), dir :: Path.t()) :: {:ok, result()} | {:error, error()}
+  @callback download(url :: String.t(), dir :: Path.t(), opts :: keyword()) ::
+              {:ok, result()} | {:error, error()}
 
   @doc """
   The audio stream as the site serves it, with no transcode.
@@ -58,8 +63,12 @@ defmodule Fanfarr.Themes.Downloader do
 
   The extension is whatever the container turns out to be, so callers must
   take it from the returned path rather than assuming one.
+
+  Same `ignore_duration_limit` option as `download/3`: the trim editor
+  resolves the same long source the apply would, so it needs the same
+  escape hatch.
   """
-  @callback download_source(url :: String.t(), dir :: Path.t()) ::
+  @callback download_source(url :: String.t(), dir :: Path.t(), opts :: keyword()) ::
               {:ok, result()} | {:error, error()}
 
   @doc """

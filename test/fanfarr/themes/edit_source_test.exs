@@ -111,7 +111,7 @@ defmodule Fanfarr.Themes.EditSourceTest do
     # be impossible and the editor would offer a range it could not honour.
     item = applied(item, media, %{start_ms: 5_000, end_ms: 20_000})
 
-    expect(Fanfarr.ThemeDownloaderMock, :download_source, fn @url, dir ->
+    expect(Fanfarr.ThemeDownloaderMock, :download_source, fn @url, dir, _opts ->
       path = audio(dir, "fresh.webm")
       {:ok, %{path: path, bytes: 1, codec: "webm", duration: 1.0}}
     end)
@@ -121,7 +121,7 @@ defmodule Fanfarr.Themes.EditSourceTest do
   end
 
   test "with nothing to reuse it downloads the original stream", %{item: item} do
-    expect(Fanfarr.ThemeDownloaderMock, :download_source, fn @url, dir ->
+    expect(Fanfarr.ThemeDownloaderMock, :download_source, fn @url, dir, _opts ->
       path = audio(dir, "fresh.webm")
       {:ok, %{path: path, bytes: 1, codec: "webm", duration: 1.0}}
     end)
@@ -142,11 +142,24 @@ defmodule Fanfarr.Themes.EditSourceTest do
   end
 
   test "a download failure is reported, not swallowed", %{item: item} do
-    expect(Fanfarr.ThemeDownloaderMock, :download_source, fn _url, _dir ->
+    expect(Fanfarr.ThemeDownloaderMock, :download_source, fn _url, _dir, _opts ->
       {:error, :unavailable}
     end)
 
     assert {:error, :unavailable} = EditSource.resolve(item)
+  end
+
+  test "the duration override travels to the download", %{item: item} do
+    {:ok, item} = Library.set_ignore_duration_limit(item, %{ignore_duration_limit: true})
+
+    expect(Fanfarr.ThemeDownloaderMock, :download_source, fn @url, dir, opts ->
+      assert opts[:ignore_duration_limit]
+      path = audio(dir, "fresh.webm")
+      {:ok, %{path: path, bytes: 1, codec: "webm", duration: 1.0}}
+    end)
+
+    assert {:ok, resolved} = EditSource.resolve(item)
+    assert resolved.kind == :source
   end
 
   describe "reusable_render/2" do

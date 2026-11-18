@@ -906,6 +906,20 @@ defmodule FanfarrWeb.FeaturesTest do
       assert is_nil(Fanfarr.Library.get_media_item!(item.id).crop_target_ms)
     end
 
+    test "the duration cap lifts per title, from beside Refresh",
+         %{conn: conn, item: item} do
+      {:ok, view, html} = live(conn, "/library/#{item.id}")
+      assert html =~ "Length cap on"
+
+      html = render_click(view, "toggle_duration_limit", %{})
+      assert html =~ "No length cap"
+      assert Fanfarr.Library.get_media_item!(item.id).ignore_duration_limit
+
+      html = render_click(view, "toggle_duration_limit", %{})
+      assert html =~ "Length cap on"
+      refute Fanfarr.Library.get_media_item!(item.id).ignore_duration_limit
+    end
+
     test "the editor renders every control the hook reaches for", %{conn: conn, item: item} do
       # Everything inside the editor is phx-update="ignore", so the server
       # renders this markup once and then never hears about it again. A

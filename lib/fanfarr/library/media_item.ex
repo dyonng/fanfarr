@@ -188,6 +188,11 @@ defmodule Fanfarr.Library.MediaItem do
       require_atomic? false
     end
 
+    update :set_ignore_duration_limit do
+      accept [:ignore_duration_limit]
+      require_atomic? false
+    end
+
     # The crop length for this title alone, set from the trim panel.
     #
     # nil clears back to the global target. The bounds match the settings page
@@ -418,6 +423,12 @@ defmodule Fanfarr.Library.MediaItem do
     # Needed because disabling a whole library is the only other way to leave a
     # title alone, and nobody wants to disable a library over one show.
     attribute :excluded, :boolean, default: false, public?: true
+
+    # Skip the downloader's duration cap for this title. Long sources are
+    # rejected before downloading -- a full concert, a compilation video --
+    # and this is the per-title escape hatch, for the series whose theme
+    # lives in one. The size cap stays: this ignores length, not disk.
+    attribute :ignore_duration_limit, :boolean, default: false, public?: true
 
     timestamps()
   end

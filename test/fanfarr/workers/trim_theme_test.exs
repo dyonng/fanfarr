@@ -143,7 +143,7 @@ defmodule Fanfarr.Workers.TrimThemeTest do
     # that at the file already beside the media keeps the test offline; the
     # source cache it lands in is shared per run and has to be cleared, or the
     # next test inherits this one's file.
-    stub(Fanfarr.ThemeDownloaderMock, :download_source, fn _url, _dir ->
+    stub(Fanfarr.ThemeDownloaderMock, :download_source, fn _url, _dir, _opts ->
       {:ok, %{path: path}}
     end)
 

@@ -50,6 +50,7 @@ defmodule Fanfarr.Library do
       define :set_theme_trim, action: :set_theme_trim
       define :set_crop_target, action: :set_crop_target
       define :set_media_item_excluded, action: :set_excluded
+      define :set_ignore_duration_limit, action: :set_ignore_duration_limit
     end
 
     resource Fanfarr.Library.RootFolder do

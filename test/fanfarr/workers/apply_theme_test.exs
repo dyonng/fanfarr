@@ -79,7 +79,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
   # For tests about planning rather than about the audio: the download is not
   # what is under test, it just has to happen for the run to reach the end.
   defp stub_download do
-    stub(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+    stub(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
       file = Path.join(dir, "theme.mp3")
       File.write!(file, "the-audio")
       {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 90.0}}
@@ -119,7 +119,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     test "an ordinary apply uses it, and does not download", ctx do
       # No stub here, so any call at all raises: this asserts the cache was
       # used rather than that it merely might have been.
-      expect(Fanfarr.ThemeDownloaderMock, :download, 0, fn _url, _dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, 0, fn _url, _dir, _opts ->
         flunk("downloaded when the source was already cached")
       end)
 
@@ -131,7 +131,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
 
     test "a forced redownload ignores it", ctx do
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         file = Path.join(dir, "fresh.mp3")
         File.write!(file, "the-fresh-audio")
         {:ok, %{path: file, bytes: 15, codec: "mp3", duration: 90.0}}
@@ -148,10 +148,28 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       assert File.read!(Path.join(ctx.media, "theme.mp3")) == "the-fresh-audio"
     end
 
+    test "the duration override reaches the download", ctx do
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, opts ->
+        assert opts[:ignore_duration_limit]
+        file = Path.join(dir, "fresh.mp3")
+        File.write!(file, "the-fresh-audio")
+        {:ok, %{path: file, bytes: 15, codec: "mp3", duration: 90.0}}
+      end)
+
+      item = item(ctx)
+
+      {:ok, item} =
+        Fanfarr.Library.set_ignore_duration_limit(item, %{ignore_duration_limit: true})
+
+      themerr_hit()
+
+      assert :ok = run(item, %{"force_download" => true})
+    end
+
     test "and the cache is left holding what it fetched", ctx do
       # Real audio, because this one goes into the cache, and an entry is only
       # stored once its peaks have been rendered.
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         file = Path.join(dir, "fresh.mp3")
 
         {_output, 0} =
@@ -179,7 +197,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
 
     test "and a different container replaces the old file rather than sitting beside it", ctx do
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         file = Path.join(dir, "fresh.m4a")
 
         {_output, 0} =
@@ -273,7 +291,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       item = item(ctx)
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir, _opts ->
         assert url == "https://www.youtube.com/watch?v=abc123"
         file = Path.join(dir, "theme.mp3")
         File.write!(file, "the-audio")
@@ -303,7 +321,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       item = item(ctx)
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, _dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, _dir, _opts ->
         {:error, :unavailable}
       end)
 
@@ -322,7 +340,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       item = item(ctx)
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, _dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, _dir, _opts ->
         {:error, :unsupported_url}
       end)
 
@@ -335,7 +353,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       parent = System.tmp_dir!()
       before = Path.wildcard(Path.join(parent, "fanfarr-dl-*"))
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         file = Path.join(dir, "theme.mp3")
         File.write!(file, "x")
         {:ok, %{path: file, bytes: 1, codec: "mp3", duration: 1.0}}
@@ -354,7 +372,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
     end
 
     defp downloads_ok do
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         file = Path.join(dir, "theme.mp3")
         File.write!(file, "the-audio")
         {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 88.0}}
@@ -621,7 +639,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
           manual_theme_title: "My pick"
         })
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir, _opts ->
         assert url == "https://youtu.be/mypick00000"
         file = Path.join(dir, "theme.mp3")
         File.write!(file, "x")
@@ -639,7 +657,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       item = item(ctx)
       Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/mypick00000"})
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir, _opts ->
         assert url == "https://youtu.be/explicit000"
         file = Path.join(dir, "theme.mp3")
         File.write!(file, "x")
@@ -696,7 +714,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         |> item()
         |> Fanfarr.Library.set_theme_trim!(%{theme_start_ms: 4_000, theme_end_ms: 14_000})
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         path = tone(dir, 30)
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 30.0}}
       end)
@@ -717,7 +735,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         |> item()
         |> Fanfarr.Library.set_theme_trim!(%{theme_start_ms: 2_000, theme_end_ms: 9_000})
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         path = tone(dir, 20)
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 20.0}}
       end)
@@ -737,7 +755,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       item = item(ctx)
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         path = tone(dir, 5)
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 5.0}}
       end)
@@ -759,7 +777,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
       item = Fanfarr.Library.set_theme_trim!(item, %{theme_start_ms: 1_000, theme_end_ms: 6_000})
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         path = tone(dir, 20)
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 20.0}}
       end)
@@ -813,7 +831,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       # ffmpeg time.
       Fanfarr.Settings.put_setting!("auto_crop_min_ms", "100000")
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         path = track(dir, 150, {20, 140})
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 150.0}}
       end)
@@ -844,7 +862,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       Fanfarr.Settings.put_setting!("auto_crop_min_ms", "60000")
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         path = tone(dir, 30)
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 30.0}}
       end)
@@ -864,7 +882,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       Fanfarr.Settings.put_setting!("auto_crop_min_ms", "30000")
       Fanfarr.Settings.put_setting!("auto_crop_target_ms", "20000")
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         path = track(dir, 100, {30, 70})
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 100.0}}
       end)
@@ -882,7 +900,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
         |> item()
         |> Fanfarr.Library.set_theme_trim!(%{theme_start_ms: 4_000, theme_end_ms: 14_000})
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         path = tone(dir, 100)
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 100.0}}
       end)
@@ -896,7 +914,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       Fanfarr.Settings.put_setting!("auto_crop_min_ms", "30000")
       Fanfarr.Settings.put_setting!("auto_crop_enabled", "false")
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         path = tone(dir, 30)
         {:ok, %{path: path, bytes: File.stat!(path).size, codec: "mp3", duration: 30.0}}
       end)
@@ -945,7 +963,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       item = item(ctx)
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         file = Path.join(dir, "theme.mp3")
         File.write!(file, "audio")
         {:ok, %{path: file, bytes: 5, codec: "mp3", duration: 90.0}}
@@ -969,7 +987,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       themerr_hit()
       item = item(ctx)
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         file = Path.join(dir, "theme.mp3")
 
         {_, 0} =
@@ -1044,7 +1062,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
       refute File.dir?(plex_path), "the premise: the reported path is not visible here"
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn url, dir, _opts ->
         assert url == "https://www.youtube.com/watch?v=VHxeuLf_eRs"
         file = Path.join(dir, "theme.mp3")
         File.write!(file, "the-audio")
@@ -1154,7 +1172,7 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
       item = item(ctx, %{kind: :movie, title: "Heat", plex_path: media})
 
-      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir ->
+      expect(Fanfarr.ThemeDownloaderMock, :download, fn _url, dir, _opts ->
         file = Path.join(dir, "theme.mp3")
         File.write!(file, "the-audio")
         {:ok, %{path: file, bytes: 9, codec: "mp3", duration: 88.0}}

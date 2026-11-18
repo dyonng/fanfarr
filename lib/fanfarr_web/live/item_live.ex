@@ -201,6 +201,22 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  # Skips the downloader's duration cap for this title. Kept beside the
+  # excluded toggle: both are per-title switches with the same shape.
+  def handle_event("toggle_duration_limit", _params, socket) do
+    item = socket.assigns.item
+
+    case Fanfarr.Library.set_ignore_duration_limit(item, %{
+           ignore_duration_limit: not item.ignore_duration_limit
+         }) do
+      {:ok, updated} ->
+        {:noreply, assign(socket, :item, updated)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not change that")}
+    end
+  end
+
   def handle_event("use_themerr", _params, socket) do
     case socket.assigns.themerr do
       %{youtube_theme_url: url} when is_binary(url) and url != "" ->
@@ -808,6 +824,14 @@ defmodule FanfarrWeb.ItemLive.Show do
                   name="lucide-refresh-cw"
                   class={["size-4", @refreshing && "animate-spin"]}
                 /> {if @refreshing, do: "Refreshing…", else: "Refresh"}
+              </button>
+              <button
+                phx-click="toggle_duration_limit"
+                class="inline-flex h-11 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground sm:h-9"
+                title="Downloads reject sources over fifteen minutes. On, the cap is skipped for this title; the size cap always stays."
+              >
+                <.icon name="lucide-timer-off" class="size-4" />
+                {if @item.ignore_duration_limit, do: "No length cap", else: "Length cap on"}
               </button>
             </div>
             <p :if={@item.kind == :movie} class="mt-2 text-xs text-muted-foreground">

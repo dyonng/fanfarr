@@ -112,7 +112,10 @@ defmodule Fanfarr.Workers.ApplyTheme do
          dir: dir,
          path: Path.join(dir, @theme_filename),
          trim: trim(item),
-         force: args["force_download"] == true
+         force: args["force_download"] == true,
+         # Same reasoning as the trim above: read off the item, so a toggle
+         # flipped after queueing still applies.
+         ignore_duration_limit: item.ignore_duration_limit
        }}
     end
   end
@@ -366,7 +369,9 @@ defmodule Fanfarr.Workers.ApplyTheme do
     File.mkdir_p!(tmp)
 
     try do
-      case obtain(plan.url, tmp, plan[:force]) do
+      case obtain(plan.url, tmp, plan[:force],
+             ignore_duration_limit: plan[:ignore_duration_limit]
+           ) do
         {:ok, %{path: downloaded} = result} ->
           # Cut BEFORE normalising, and the order is load-bearing. Normalizer
           # is two-pass: it measures integrated loudness and applies exactly
@@ -416,7 +421,7 @@ defmodule Fanfarr.Workers.ApplyTheme do
   # cache is written on the edit path alone, or a bulk apply would fill the
   # volume for a run nobody is editing -- the one exception being a forced
   # redownload, which exists precisely to replace what is in there.
-  defp obtain(url, tmp, force) do
+  defp obtain(url, tmp, force, opts) do
     # A forced redownload skips the cache. The cache holds a lossless original
     # and exists to make re-trimming cheap, but "the file on disk is a
     # generation down and I want the source again" is precisely the question it
@@ -445,11 +450,11 @@ defmodule Fanfarr.Workers.ApplyTheme do
              }}
 
           {:error, _reason} ->
-            Themes.Downloader.impl().download(url, tmp)
+            Themes.Downloader.impl().download(url, tmp, opts)
         end
 
       :miss ->
-        downloaded = Themes.Downloader.impl().download(url, tmp)
+        downloaded = Themes.Downloader.impl().download(url, tmp, opts)
         if force, do: remember(url, downloaded), else: downloaded
     end
   end
