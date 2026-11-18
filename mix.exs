@@ -50,6 +50,12 @@ defmodule Fanfarr.MixProject do
       {:req, "~> 0.5"},
       {:simple_sat, "~> 0.1"},
       {:ash_authentication, "~> 4.0"},
+      # Forced past 4.x's `< 0.3.0` cap: 0.2.x carries a CRITICAL Apple-
+      # strategy advisory fixed in 0.3.2, and 4.x never allowed the fix.
+      # Safe here because no OAuth strategy is configured -- password only --
+      # so no Assent code path runs. Revisit when ash_authentication 5
+      # final is out; its RCs already allow assent ~> 0.3.2.
+      {:assent, "~> 0.3.2", override: true},
       {:ash_authentication_phoenix, "~> 2.0"},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:oban, "~> 2.0"},
