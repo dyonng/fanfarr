@@ -34,6 +34,26 @@ defmodule FanfarrWeb.ThemeController do
   end
 
   @doc """
+  The theme Plex itself supplies, for preview on the item page.
+
+  Same range support as the written theme, so the player seeks the same way.
+  Cached by theme key -- Plex changes the key when the theme changes, so a
+  URL can be cached by the browser instead of refetched every visit.
+  """
+  def plex_theme(conn, %{"id" => id}) do
+    with {:ok, item} <- Fanfarr.Library.get_media_item(id),
+         {:ok, path} <- Fanfarr.PlexThemes.path_for(item),
+         {:ok, %{size: size}} <- regular_file(path) do
+      conn
+      |> put_resp_content_type(content_type(path))
+      |> put_resp_header("cache-control", "public, max-age=604800")
+      |> serve(path, size)
+    else
+      _ -> send_resp(conn, 404, "no Plex theme for this item")
+    end
+  end
+
+  @doc """
   The audio the trim editor scrubs, which is not the written theme.
 
   A crop has to be chosen against the *whole* source; the file next to the

@@ -184,6 +184,15 @@ defmodule Fanfarr.Plex.Client do
   @callback fetch_image(config, key :: String.t(), opts :: keyword()) ::
               {:ok, {content_type :: String.t(), binary()}} | {:error, term()}
 
+  @doc """
+  The theme audio Plex itself serves for an item, as bytes.
+
+  The browser never calls this: the token stays server-side and the bytes
+  land in `Fanfarr.PlexThemes`, the way posters land in `Fanfarr.Posters`.
+  """
+  @callback fetch_theme(config, key :: String.t()) ::
+              {:ok, {content_type :: String.t(), binary()}} | {:error, term()}
+
   @doc "The configured implementation. Tests set :plex_client to the Mox mock."
   def impl, do: Application.get_env(:fanfarr, :plex_client, Fanfarr.Plex.HTTPClient)
 end

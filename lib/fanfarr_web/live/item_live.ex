@@ -1985,6 +1985,76 @@ defmodule FanfarrWeb.ItemLive.Show do
           </script>
         </section>
 
+        <%!-- Plex's own theme, when Fanfarr wrote nothing. Same player,
+        pointed at the server-side proxy: the browser never sees Plex's URL
+        or token. Preview only -- there is no trim here, and nothing to
+        apply from. The version query busts the browser cache when Plex
+        swaps the theme, because the path itself does not change. --%>
+        <section
+          :if={
+            (!@item.local_theme_present or is_nil(@item.local_theme_path)) and
+              is_binary(@item.plex_theme_url) and @item.plex_theme_url != ""
+          }
+          class="rounded-lg border border-border bg-card p-4"
+        >
+          <div class="min-w-0">
+            <h2 class="text-sm font-semibold text-card-foreground">Plex theme</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Supplied by Plex — Fanfarr wrote nothing. Preview only.
+            </p>
+          </div>
+          <div
+            :if={is_nil(@trim)}
+            id={"plex-player-#{@item.id}"}
+            phx-hook=".AudioPlayer"
+            phx-update="ignore"
+            data-src={~p"/library/#{@item.id}/plex-theme?v=#{:erlang.phash2(@item.plex_theme_url)}"}
+            class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border bg-background px-3 py-2"
+          >
+            <button
+              type="button"
+              data-play
+              aria-label="Play"
+              class="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 sm:size-9"
+            >
+              <.icon name="lucide-play" class="size-5 sm:size-4" data-icon="play" />
+              <.icon name="lucide-pause" class="hidden size-5 sm:size-4" data-icon="pause" />
+            </button>
+            <div
+              data-track
+              role="slider"
+              aria-label="Seek"
+              tabindex="0"
+              class="relative order-last h-6 w-full shrink-0 grow cursor-pointer rounded-full py-2 sm:order-none sm:h-2 sm:w-auto sm:basis-0 sm:py-0"
+            >
+              <div class="relative h-2 w-full rounded-full bg-muted">
+                <div data-fill class="absolute inset-y-0 left-0 w-0 rounded-full bg-primary"></div>
+              </div>
+            </div>
+            <span data-time class="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+              0:00 / 0:00
+            </span>
+            <button
+              type="button"
+              data-mute
+              aria-label="Mute"
+              class="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:size-8"
+            >
+              <.icon name="lucide-volume-2" class="size-5 sm:size-4" data-icon="unmuted" />
+              <.icon name="lucide-volume-x" class="hidden size-5 sm:size-4" data-icon="muted" />
+            </button>
+            <input
+              type="range"
+              data-volume
+              min="0"
+              max="1"
+              step="0.01"
+              aria-label="Volume"
+              class="hidden h-1.5 w-20 shrink-0 cursor-pointer accent-primary sm:block"
+            />
+          </div>
+        </section>
+
         <%!-- grid-cols-1 is not redundant with the implicit single column.
         Tailwind's grid-cols-* expand to repeat(n, minmax(0, 1fr)), and it is
         the minmax(0, ...) that lets a track go narrower than its content:

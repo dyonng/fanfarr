@@ -292,6 +292,34 @@ defmodule Fanfarr.Plex.HTTPClient do
     end
   end
 
+  @impl true
+  def fetch_theme(config, key) do
+    req = build(config, path: key) |> Req.merge(headers: [{"Accept", "audio/*"}])
+
+    case Req.get(req, url: key) do
+      {:ok, %{status: status, body: body, headers: headers}}
+      when status in 200..299 and is_binary(body) ->
+        type =
+          case Map.get(headers, "content-type") do
+            [t | _] -> t |> String.split(";") |> hd() |> String.trim()
+            _ -> "audio/mpeg"
+          end
+
+        if String.starts_with?(type, "audio/"),
+          do: {:ok, {type, body}},
+          else: {:error, {:not_audio, type}}
+
+      {:ok, %{status: 401}} ->
+        {:error, :unauthorized}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:http, status, detail(body)}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp get_binary(config, path) do
     req = build(config, path: path) |> Req.merge(headers: [{"Accept", "image/*"}])
 

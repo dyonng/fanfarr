@@ -115,6 +115,7 @@ defmodule FanfarrWeb.Router do
 
     get "/posters/:id", PosterController, :show
     get "/library/:id/theme", ThemeController, :show
+    get "/library/:id/plex-theme", ThemeController, :plex_theme
 
     # Database snapshots. Behind the session gate like the media, and not as a
     # static file: a snapshot contains the Plex token and the password hash.

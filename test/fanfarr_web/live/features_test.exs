@@ -677,6 +677,28 @@ defmodule FanfarrWeb.FeaturesTest do
       assert html =~ "theme-player-"
     end
 
+    test "a Plex-supplied theme previews when Fanfarr wrote nothing",
+         %{conn: conn, item: item} do
+      Fanfarr.Library.record_local_theme!(item, %{
+        local_theme_present: false,
+        local_theme_path: nil
+      })
+
+      Fanfarr.Library.sync_media_item_from_plex!(%{
+        plex_rating_key: item.plex_rating_key,
+        section_id: item.section_id,
+        title: item.title,
+        kind: :show,
+        plex_theme_url: "/library/metadata/101/theme/9"
+      })
+
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+      assert html =~ "Plex theme"
+      assert html =~ "Preview only"
+      assert html =~ "/library/#{item.id}/plex-theme"
+      refute html =~ "Current theme"
+    end
+
     test "the player's own state is not the server's to overwrite",
          %{conn: conn, item: item} do
       # The player's state is the hook's and appears nowhere in this markup.

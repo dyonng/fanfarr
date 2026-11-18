@@ -1,6 +1,10 @@
 defmodule FanfarrWeb.ThemeControllerTest do
   use FanfarrWeb.ConnCase, async: false
 
+  import Mox
+
+  setup :verify_on_exit!
+
   setup do
     dir = Path.join(System.tmp_dir!(), "fanfarr-theme-#{:erlang.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -101,6 +105,54 @@ defmodule FanfarrWeb.ThemeControllerTest do
 
   test "404 when no theme has been written", %{conn: conn, item: item} do
     assert conn |> get(~p"/library/#{item.id}/theme") |> response(404)
+  end
+
+  describe "the Plex-supplied preview" do
+    test "proxies Plex's theme with a cacheable lifetime", %{conn: conn, item: item} do
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+
+      item =
+        Fanfarr.Library.sync_media_item_from_plex!(%{
+          plex_rating_key: "1",
+          section_id: item.section_id,
+          title: "One Pace",
+          kind: :show,
+          plex_theme_url: "/library/metadata/1/theme/9"
+        })
+
+      expect(Fanfarr.PlexClientMock, :fetch_theme, fn _config, key ->
+        assert key == "/library/metadata/1/theme/9"
+        {:ok, {"audio/mpeg", "PLEXBYTES"}}
+      end)
+
+      conn = get(conn, ~p"/library/#{item.id}/plex-theme")
+      assert response(conn, 200) == "PLEXBYTES"
+      assert response_content_type(conn, :mpeg) =~ "audio/mpeg"
+      assert get_resp_header(conn, "cache-control") == ["public, max-age=604800"]
+    end
+
+    test "404 when Plex supplies no theme", %{conn: conn, item: item} do
+      assert conn |> get(~p"/library/#{item.id}/plex-theme") |> response(404)
+    end
+
+    test "a Plex failure is a 404, not a 500", %{conn: conn, item: item} do
+      Fanfarr.Settings.put_setting!("plex_url", "http://plex.test:32400")
+      Fanfarr.Settings.put_setting!("plex_token", "t")
+
+      item =
+        Fanfarr.Library.sync_media_item_from_plex!(%{
+          plex_rating_key: "1",
+          section_id: item.section_id,
+          title: "One Pace",
+          kind: :show,
+          plex_theme_url: "/library/metadata/1/theme/9"
+        })
+
+      expect(Fanfarr.PlexClientMock, :fetch_theme, fn _c, _k -> {:error, :timeout} end)
+
+      assert conn |> get(~p"/library/#{item.id}/plex-theme") |> response(404)
+    end
   end
 
   test "404 when the recorded file has since been deleted", %{conn: conn, item: item, dir: dir} do
