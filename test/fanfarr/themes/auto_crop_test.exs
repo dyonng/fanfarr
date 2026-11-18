@@ -55,10 +55,10 @@ defmodule Fanfarr.Themes.AutoCropTest do
 
   describe "what the page quotes" do
     test "a snippet's cost, at the bitrate the writer uses" do
-      assert AutoCrop.projected_bytes(30_000) == 720_000
+      assert AutoCrop.projected_bytes(30_000) == 487_500
       assert AutoCrop.projected_bytes(30_000, 128_000) == 480_000
       # The default target, which is what the page quotes in practice.
-      assert AutoCrop.projected_bytes(90_000) == 2_160_000
+      assert AutoCrop.projected_bytes(90_000) == 1_462_500
     end
 
     test "the target length is a setting with a default" do
@@ -171,7 +171,7 @@ defmodule Fanfarr.Themes.AutoCropTest do
       # The audio has to be fetched to analyse it. Refusing the fetch is the
       # honest end of the ladder: an error value, not a crash and not a
       # silently invented window.
-      stub(Fanfarr.ThemeDownloaderMock, :download_source, fn _url, _dir ->
+      stub(Fanfarr.ThemeDownloaderMock, :download_source, fn _url, _dir, _opts ->
         {:error, :unavailable}
       end)
 

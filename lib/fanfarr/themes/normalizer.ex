@@ -158,8 +158,9 @@ defmodule Fanfarr.Themes.Normalizer do
       "48000",
       "-c:a",
       "libmp3lame",
-      "-b:a",
-      "192k",
+      # VBR V5 like the cutter: one quality for every write.
+      "-q:a",
+      "5",
       out
     ]
 

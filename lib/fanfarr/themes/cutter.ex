@@ -132,9 +132,11 @@ defmodule Fanfarr.Themes.Cutter do
   end
 
   defp args(path, out, range) do
+    # VBR V5, around 130 kbps on average: a TV theme needs no more, and the
+    # bits go where ears need them instead of being spent evenly.
     ["-hide_banner", "-nostats", "-y", "-i", path] ++
       filters(range) ++
-      ["-c:a", "libmp3lame", "-b:a", "192k", out]
+      ["-c:a", "libmp3lame", "-q:a", "5", out]
   end
 
   # One chain: cut, rebase to zero, then fade. The order is the fix described

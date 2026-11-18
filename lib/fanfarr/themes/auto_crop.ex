@@ -154,9 +154,12 @@ defmodule Fanfarr.Themes.AutoCrop do
   @doc """
   Roughly what `target_ms` of audio costs at the writer's bitrate, for the
   page to say what the saving would be before anything is written.
+
+  VBR V5 averages around 130 kbps: an average, not a promise, which is all
+  a quote needs to be.
   """
   @spec projected_bytes(pos_integer(), pos_integer()) :: non_neg_integer()
-  def projected_bytes(target_ms, bitrate \\ 192_000), do: div(target_ms * bitrate, 8000)
+  def projected_bytes(target_ms, bitrate \\ 130_000), do: div(target_ms * bitrate, 8000)
 
   @doc """
   A crop for `item`: the iconic window, or why there is not one.
