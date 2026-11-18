@@ -74,6 +74,21 @@ defmodule Fanfarr.Themes.AutoCrop do
   def target_ms, do: ms_setting("auto_crop_target_ms") || @default_target_ms
 
   @doc """
+  The crop length in force for this item, in milliseconds.
+
+  A title with an override set on the item page uses it; everything else
+  uses the global target. Explicit `target_ms:` options still win, so tests
+  and one-off callers can ask without an item in hand.
+  """
+  @spec target_for(map()) :: pos_integer()
+  def target_for(item) do
+    case Map.get(item, :crop_target_ms) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> target_ms()
+    end
+  end
+
+  @doc """
   The shortest a theme may be and still be worth cropping, as configured.
 
   What the settings page shows and what a plain call resolves to. A call that
@@ -154,7 +169,7 @@ defmodule Fanfarr.Themes.AutoCrop do
   @spec suggest(Fanfarr.Library.MediaItem.t(), keyword()) ::
           {:ok, suggestion()} | {:error, term()} | :too_short | :no_suggestion
   def suggest(item, opts \\ []) do
-    target = Keyword.get(opts, :target_ms, target_ms())
+    target = Keyword.get(opts, :target_ms) || target_for(item)
     floor = floor_for(target, opts)
 
     # Asked here rather than only in the page that draws the button, so a

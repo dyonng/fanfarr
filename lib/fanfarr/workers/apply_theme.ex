@@ -126,7 +126,8 @@ defmodule Fanfarr.Workers.ApplyTheme do
       start_ms: item.theme_start_ms,
       end_ms: item.theme_end_ms,
       fade_in_ms: item.theme_fade_in_ms,
-      fade_out_ms: item.theme_fade_out_ms
+      fade_out_ms: item.theme_fade_out_ms,
+      crop_target_ms: item.crop_target_ms
     }
   end
 
@@ -503,6 +504,12 @@ defmodule Fanfarr.Workers.ApplyTheme do
   # Asking YouTube's graph here would be a second network call for an answer
   # this file can give.
   defp auto_trim(path, trim) do
+    # An override set on the item page is an explicit length for this title,
+    # so it is both the aim and its own floor -- the global floor is a policy
+    # for what is worth doing unattended, and this title has been told.
+    target = trim[:crop_target_ms] || Themes.AutoCrop.target_ms()
+    floor = trim[:crop_target_ms] || Themes.AutoCrop.min_ms()
+
     fades = %{
       fade_in_ms: trim[:fade_in_ms] || Themes.Cutter.default_fade_in_ms(),
       fade_out_ms: trim[:fade_out_ms] || Themes.Cutter.default_fade_out_ms()
@@ -510,12 +517,12 @@ defmodule Fanfarr.Workers.ApplyTheme do
 
     with true <- Themes.AutoCrop.enabled?(),
          {:ok, suggestion} <-
-           Themes.AutoCrop.suggest_from_audio(path, min_ms: Themes.AutoCrop.min_ms()) do
+           Themes.AutoCrop.suggest_from_audio(path, target_ms: target, min_ms: floor) do
       # Announced, because a theme that arrives shorter than the one that was
       # downloaded is otherwise a mystery the operator has to go and read the
       # settings to explain.
       Logger.info(
-        "[fanfarr] cropping the download to #{div(Themes.AutoCrop.target_ms(), 1000)}s, " <>
+        "[fanfarr] cropping the download to #{div(target, 1000)}s, " <>
           "starting at #{div(suggestion.start_ms, 1000)}s " <>
           "(source: #{suggestion.source})"
       )

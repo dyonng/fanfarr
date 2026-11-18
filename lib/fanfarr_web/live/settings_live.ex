@@ -1165,7 +1165,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
           <p class="mt-1 text-xs text-muted-foreground">
             A theme loops in a detail page rather than being listened to, so eleven
             minutes of music is a lot of library disk to play ninety seconds of. This
-            is the length the item page suggests when you press <span class="font-medium">Suggest a crop</span>; it proposes, and you decide.
+            is the length the item page suggests when you press the Suggest button; it proposes, and you decide. A title with its own crop length set on its page aims at that instead.
           </p>
           <form id="crop-form" phx-submit="save_crop" class="mt-4 space-y-4">
             <div class="space-y-1">

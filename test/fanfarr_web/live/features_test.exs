@@ -813,7 +813,7 @@ defmodule FanfarrWeb.FeaturesTest do
 
       # The button is there to be pressed, which the disabled case refutes:
       # between the two, both states are pinned rather than just one.
-      assert html =~ "Suggest a crop"
+      assert html =~ "Suggest a 2s crop"
 
       # The claim is named, because "the part people watch" and "the part our
       # own analysis picked" are different things to trust.
@@ -850,8 +850,38 @@ defmodule FanfarrWeb.FeaturesTest do
 
       # Gone rather than greyed out, and the panel says where it went, so a
       # missing button is an answer rather than a mystery.
-      refute html =~ "Suggest a crop"
+      refute html =~ "Suggest a "
       assert html =~ "Crop suggestions are off in Settings"
+    end
+
+    test "a per-title crop length is set from the trim panel, and reset",
+         %{conn: conn, item: item} do
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      render_async(view, 10_000)
+
+      html = render_change(view, "crop_target", %{"seconds" => "45"})
+      assert html =~ "Custom"
+      assert Fanfarr.Library.get_media_item!(item.id).crop_target_ms == 45_000
+
+      # The Suggest button aims at the override now, not the global target.
+      assert html =~ "Suggest a 45s crop"
+
+      html = render_click(view, "crop_target_reset", %{})
+      refute html =~ "Custom"
+      assert html =~ "Using global"
+      assert is_nil(Fanfarr.Library.get_media_item!(item.id).crop_target_ms)
+    end
+
+    test "a nonsense length is refused with the old value kept",
+         %{conn: conn, item: item} do
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      render_async(view, 10_000)
+
+      html = render_change(view, "crop_target", %{"seconds" => "2"})
+      assert html =~ "from 5 to 900"
+      assert is_nil(Fanfarr.Library.get_media_item!(item.id).crop_target_ms)
     end
 
     test "the editor renders every control the hook reaches for", %{conn: conn, item: item} do

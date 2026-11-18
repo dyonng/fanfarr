@@ -48,6 +48,7 @@ defmodule Fanfarr.Library do
       define :record_plex_theme, action: :record_plex_theme
       define :set_manual_theme, action: :set_manual_theme
       define :set_theme_trim, action: :set_theme_trim
+      define :set_crop_target, action: :set_crop_target
       define :set_media_item_excluded, action: :set_excluded
     end
 

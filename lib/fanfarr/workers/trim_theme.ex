@@ -111,9 +111,11 @@ defmodule Fanfarr.Workers.TrimTheme do
     # The configured floor is a policy for what is worth doing on its own. This
     # is not that: the operator picked these rows and pressed the button, so the
     # crop length is the only length that can veto -- a theme too short to hold
-    # ninety seconds is declined, and one long enough is cropped whatever the
-    # floor says.
-    case AutoCrop.suggest(item, min_ms: AutoCrop.target_ms()) do
+    # it is declined, and one long enough is cropped whatever the floor says.
+    # A title with its own crop length aims at that instead.
+    target = AutoCrop.target_for(item)
+
+    case AutoCrop.suggest(item, min_ms: target) do
       {:ok, suggestion} -> {:ok, trim_from(suggestion)}
       :too_short -> {:cancel, :too_short}
       :no_suggestion -> {:cancel, :no_suggestion}

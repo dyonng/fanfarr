@@ -188,6 +188,16 @@ defmodule Fanfarr.Library.MediaItem do
       require_atomic? false
     end
 
+    # The crop length for this title alone, set from the trim panel.
+    #
+    # nil clears back to the global target. The bounds match the settings page
+    # below and the downloader ceiling above: shorter than five seconds is not
+    # a theme, and longer than fifteen minutes never survives the download.
+    update :set_crop_target do
+      accept [:crop_target_ms]
+      require_atomic? false
+    end
+
     read :by_section do
       argument :section_id, :uuid, allow_nil?: false
       filter expr(section_id == ^arg(:section_id))
@@ -368,6 +378,18 @@ defmodule Fanfarr.Library.MediaItem do
       default 500
       public? true
       constraints min: 0, max: 10_000
+    end
+
+    # A per-title override of the crop length, in milliseconds. nil means the
+    # global target -- the settings value, or the default under that. Set from
+    # the trim panel on the item page, for the series whose theme wants more
+    # (or less) room than every other title. The trim handles stay final: this
+    # moves the suggestion's starting point and what the unattended paths aim
+    # for, not what the operator may drag the handles to.
+    attribute :crop_target_ms, :integer do
+      public? true
+      constraints min: 5_000, max: 900_000
+      description "Crop length for this title alone. nil means the global target."
     end
 
     attribute :local_theme_present, :boolean do

@@ -315,7 +315,7 @@ defmodule FanfarrWeb.ItemLive.Show do
   # panel says it is working.
   def handle_event("suggest_crop", _params, socket) do
     item = socket.assigns.item
-    target = Fanfarr.Themes.AutoCrop.target_ms()
+    target = Fanfarr.Themes.AutoCrop.target_for(item)
 
     {:noreply,
      socket
@@ -340,6 +340,35 @@ defmodule FanfarrWeb.ItemLive.Show do
   def handle_event("trim_reset", _params, socket) do
     trim = socket.assigns.trim
     {:noreply, assign(socket, :trim, %{trim | start_ms: nil, end_ms: nil})}
+  end
+
+  # Saved at once rather than staged in the draft: a length preference is not
+  # audio, so there is nothing to preview before committing. Blank clears
+  # back to the global target.
+  def handle_event("crop_target", %{"seconds" => raw}, socket) do
+    item = socket.assigns.item
+
+    case parse_crop_seconds(raw) do
+      {:ok, ms} ->
+        updated = Library.set_crop_target!(item, %{crop_target_ms: ms})
+
+        {:noreply,
+         socket
+         |> assign(:item, updated)
+         |> put_flash(:info, crop_target_flash(ms))}
+
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
+    end
+  end
+
+  def handle_event("crop_target_reset", _params, socket) do
+    updated = Library.set_crop_target!(socket.assigns.item, %{crop_target_ms: nil})
+
+    {:noreply,
+     socket
+     |> assign(:item, updated)
+     |> put_flash(:info, "Crop length back to the global target.")}
   end
 
   # Trim then Apply is one action from here: the page's grammar is that
@@ -591,6 +620,33 @@ defmodule FanfarrWeb.ItemLive.Show do
 
   # The draft starts from what is already stored, so re-opening the editor
   # shows the crop that is on disk rather than a blank slate.
+  defp crop_target_flash(nil), do: "Crop length back to the global target."
+  defp crop_target_flash(ms), do: "Crop length for this title: #{div(ms, 1000)}s."
+
+  # Seconds, because the input speaks seconds. Bounds match the settings page
+  # below and the downloader ceiling above.
+  defp parse_crop_seconds(raw) do
+    case raw |> to_string() |> String.trim() do
+      "" ->
+        {:ok, nil}
+
+      typed ->
+        case Integer.parse(typed) do
+          {seconds, ""} when seconds >= 5 and seconds <= 900 ->
+            {:ok, seconds * 1000}
+
+          _ ->
+            {:error, "Crop length must be a whole number of seconds, from 5 to 900."}
+        end
+    end
+  end
+
+  # The length the suggestion aims at for this title: its own when set, the
+  # global target otherwise.
+  defp crop_seconds(item) do
+    div(Fanfarr.Themes.AutoCrop.target_for(item), 1000)
+  end
+
   defp draft(item) do
     %{
       url: nil,
@@ -856,6 +912,49 @@ defmodule FanfarrWeb.ItemLive.Show do
             <%!-- The suggestion fills the handles; it does not decide. Where
             it came from is named, because "the part people watch" and "the
             part our own analysis picked" are different claims. --%>
+            <%!-- Per-title crop length, set before suggesting. Blank means the
+            global target, and the placeholder names it so blank never reads
+            as zero. Saved at once: a length is a preference, not audio. --%>
+            <form
+              :if={!@trim_loading}
+              id="crop-target-form"
+              phx-change="crop_target"
+              phx-submit="crop_target"
+              class="flex flex-wrap items-center gap-2"
+            >
+              <label for="crop-target" class="text-xs font-medium">Crop length</label>
+              <div class="flex items-center gap-1">
+                <input
+                  id="crop-target"
+                  name="seconds"
+                  type="number"
+                  min="5"
+                  max="900"
+                  value={@item.crop_target_ms && div(@item.crop_target_ms, 1000)}
+                  placeholder={to_string(div(Fanfarr.Themes.AutoCrop.target_ms(), 1000))}
+                  class="h-10 w-20 rounded-md border border-border bg-background px-2 text-xs sm:h-8"
+                />
+                <span class="text-xs text-muted-foreground">s</span>
+              </div>
+              <span :if={@item.crop_target_ms} class="text-xs text-muted-foreground">
+                Custom — global is {div(Fanfarr.Themes.AutoCrop.target_ms(), 1000)}s
+              </span>
+              <span
+                :if={!@item.crop_target_ms}
+                class="text-xs text-muted-foreground"
+              >
+                Using global {div(Fanfarr.Themes.AutoCrop.target_ms(), 1000)}s
+              </span>
+              <button
+                :if={@item.crop_target_ms}
+                type="button"
+                phx-click="crop_target_reset"
+                class="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:underline sm:min-h-0"
+              >
+                Reset
+              </button>
+            </form>
+
             <div :if={!@trim_loading && @crop_enabled} class="flex flex-wrap items-center gap-2">
               <button
                 phx-click="suggest_crop"
@@ -866,7 +965,9 @@ defmodule FanfarrWeb.ItemLive.Show do
                   name={if @suggesting, do: "lucide-loader-circle", else: "lucide-sparkles"}
                   class={["size-3.5", @suggesting && "animate-spin"]}
                 />
-                {if @suggesting, do: "Finding the hook…", else: "Suggest a crop"}
+                {if @suggesting,
+                  do: "Finding the hook…",
+                  else: "Suggest a #{crop_seconds(@item)}s crop"}
               </button>
               <span :if={@suggestion_note} class="text-xs text-muted-foreground">
                 {@suggestion_note}
