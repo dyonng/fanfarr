@@ -614,7 +614,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
         >
           <div class="absolute inset-0 bg-black/50" phx-click="close_columns"></div>
 
-          <div class="relative mx-auto mt-20 w-full max-w-md rounded-lg border border-border bg-card p-4 shadow-lg">
+          <div class="relative mx-auto mt-20 w-[calc(100%-2rem)] max-w-md rounded-lg border border-border bg-card p-4 shadow-lg">
             <h2 class="text-sm font-semibold text-card-foreground">Columns</h2>
             <p class="mt-1 text-xs text-muted-foreground">
               Saved for this library. A <code>?cols=</code>
@@ -665,7 +665,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
         >
           <div class="absolute inset-0 bg-black/50" phx-click="close_lengths"></div>
 
-          <div class="relative mx-auto mt-20 w-full max-w-md rounded-lg border border-border bg-card p-4 shadow-lg">
+          <div class="relative mx-auto mt-20 w-[calc(100%-2rem)] max-w-md rounded-lg border border-border bg-card p-4 shadow-lg">
             <h2 class="text-sm font-semibold text-card-foreground">Crop length & duration cap</h2>
             <p class="mt-1 text-xs text-muted-foreground">
               For {MapSet.size(@selected)} selected titles. Blank and "leave unchanged"
