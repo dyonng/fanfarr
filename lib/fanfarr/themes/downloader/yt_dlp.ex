@@ -247,12 +247,18 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
   # "not available in your country" the first pattern demanded.
   @blocked ~r/available\sin\syour\s(country|location|region)|geo[-\s]?block|blocked\sit\son\scopyright/i
 
+  # yt-dlp narrates first and fails last: the progress lines fill the head
+  # and the ERROR that says why sits at the tail. A head slice showed the
+  # user a download in progress that then stopped for no reason; the tail
+  # carries the reason, and the patterns above match against it.
+  @tail_chars 500
+
   def classify_failure(output) do
     cond do
       output =~ @gone -> :unavailable
       output =~ @restricted -> :age_restricted
       output =~ @blocked -> :geo_blocked
-      true -> {:exit, 1, String.slice(output, 0, 300)}
+      true -> {:exit, 1, String.slice(output, -@tail_chars, @tail_chars)}
     end
   end
 
@@ -420,10 +426,21 @@ defmodule Fanfarr.Themes.Downloader.YtDlp do
       end)
 
     case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:spawn_failed, reason}} -> {:error, reason}
-      {:ok, {output, 0}} -> {:ok, output}
-      {:ok, {output, code}} -> {:error, {:exit, code, String.slice(output, 0, 500)}}
-      nil -> {:error, :timeout}
+      {:ok, {:spawn_failed, reason}} ->
+        {:error, reason}
+
+      {:ok, {output, 0}} ->
+        {:ok, output}
+
+      {:ok, {output, code}} ->
+        # Logged whole-ish here because this is the only place the full
+        # transcript exists; the caller only gets the tail.
+        Logger.warning("[fanfarr] yt-dlp exited #{code}: #{String.slice(output, -2000, 2000)}")
+
+        {:error, {:exit, code, String.slice(output, -@tail_chars, @tail_chars)}}
+
+      nil ->
+        {:error, :timeout}
     end
   end
 end

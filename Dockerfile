@@ -188,7 +188,7 @@ COPY --from=ffmpeg /usr/src/ffmpeg/COPYING.LGPLv2.1 /usr/share/doc/ffmpeg/COPYIN
 # is how the first arm64 build died, at `--version`, with exit 126. An
 # architecture yt-dlp has no build for stops the build rather than quietly
 # getting an x86 binary that only fails later, on somebody's server.
-ARG YTDLP_VERSION=2026.10.21
+ARG YTDLP_VERSION=2026.10.26
 ARG TARGETARCH
 RUN set -eux; \
   arch="${TARGETARCH:-$(uname -m)}"; \

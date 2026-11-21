@@ -48,6 +48,20 @@ defmodule Fanfarr.Themes.DownloaderTest do
       assert {:exit, 1, output} = YtDlp.classify_failure("ERROR: something new and strange")
       assert output =~ "something new and strange"
     end
+
+    test "a long transcript classifies by its tail, not its head" do
+      # yt-dlp narrates first and fails last. The old head slice showed the
+      # user progress lines and cut the ERROR; worse, the patterns matched
+      # against the head, so a restriction at the end read as unknown.
+      head = "MARKER-START\n" <> String.duplicate("[info] Downloading webpage\n", 1000)
+
+      assert YtDlp.classify_failure(head <> "ERROR: Sign in to confirm your age") ==
+               :age_restricted
+
+      assert {:exit, 1, tail} = YtDlp.classify_failure(head <> "ERROR: something new")
+      refute tail =~ "MARKER-START"
+      assert tail =~ "something new"
+    end
   end
 
   describe "youtube_url?/1" do
