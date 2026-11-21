@@ -906,6 +906,12 @@ defmodule FanfarrWeb.FeaturesTest do
       assert is_nil(Fanfarr.Library.get_media_item!(item.id).crop_target_ms)
     end
 
+    test "a custom length is badged by the title", %{conn: conn, item: item} do
+      {:ok, _} = Fanfarr.Library.set_crop_target(item, %{crop_target_ms: 45_000})
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+      assert html =~ "Custom 45s"
+    end
+
     test "the duration cap lifts per title, from beside Refresh",
          %{conn: conn, item: item} do
       {:ok, view, html} = live(conn, "/library/#{item.id}")
@@ -1056,9 +1062,10 @@ defmodule FanfarrWeb.FeaturesTest do
       html = render_click(view, "select_page", %{})
       assert html =~ "2 selected"
 
-      # No rehearsal action, and no confirmation in the way.
+      # No rehearsal action. Applying is confirmed, because a Plex upload
+      # cannot be undone -- one native dialog, then the queue.
       refute has_element?(view, ~s([phx-value-action="preview"]))
-      refute has_element?(view, ~s([phx-value-action="apply"][data-confirm]))
+      assert has_element?(view, ~s([phx-value-action="apply"][data-confirm]))
 
       render_click(view, "bulk", %{"action" => "apply"})
 

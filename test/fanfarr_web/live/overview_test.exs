@@ -123,6 +123,9 @@ defmodule FanfarrWeb.OverviewTest do
       assert html =~ "Apply all 1"
       assert html =~ "missing a theme that ThemerrDB has an answer for"
 
+      # Irreversible, so it asks first.
+      assert html =~ "cannot be undone"
+
       # And acting on it queues exactly that one.
       render_click(view, "apply_ready", %{})
 
@@ -147,6 +150,16 @@ defmodule FanfarrWeb.OverviewTest do
 
       refute html =~ "Apply all"
       assert html =~ "Nothing waiting"
+    end
+
+    test "coverage bars expose their values to assistive tech", %{conn: conn} do
+      tv = section()
+      item(tv, %{title: "Nothing"})
+      {:ok, _view, html} = live(conn, "/")
+
+      assert html =~ ~s(role="progressbar")
+      assert html =~ ~s(aria-valuemin="0")
+      assert html =~ ~s(aria-valuemax="100")
     end
 
     test "failures get their own row into the failed filter", %{conn: conn} do

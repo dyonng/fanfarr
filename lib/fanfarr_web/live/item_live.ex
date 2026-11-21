@@ -796,6 +796,17 @@ defmodule FanfarrWeb.ItemLive.Show do
                   <span :if={@item.year} class="ml-1 font-normal text-muted-foreground">
                     ({@item.year})
                   </span>
+                  <%!-- A custom length is set inside the trim panel, so without
+                  this nothing on the page says it exists -- and the Suggest
+                  button quietly aiming at 45s instead of the global is
+                  exactly the kind of surprise worth one small badge. --%>
+                  <span
+                    :if={@item.crop_target_ms}
+                    title="This title uses its own crop length instead of the global target. Set in the trim panel."
+                    class="ml-2 rounded-md border border-border px-1.5 py-0.5 align-middle text-xs font-normal text-muted-foreground"
+                  >
+                    Custom {div(@item.crop_target_ms, 1000)}s
+                  </span>
                 </:title_suffix>
                 <:subtitle>
                   {if @item.kind == :show, do: "Series", else: "Movie"}

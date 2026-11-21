@@ -52,6 +52,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
      socket
      |> assign(:selected, MapSet.new())
      |> assign(:show_columns, false)
+     |> assign(:show_lengths, false)
      |> assign(:columns, @columns)
      |> assign(:visible_columns, @default_columns)
      # Gates the bulk trim, which is the auto-crop feature wearing a different
@@ -100,6 +101,53 @@ defmodule FanfarrWeb.LibraryLive.Index do
 
   def handle_event("close_columns", _params, socket) do
     {:noreply, assign(socket, :show_columns, false)}
+  end
+
+  def handle_event("open_lengths", _params, socket) do
+    {:noreply, assign(socket, :show_lengths, true)}
+  end
+
+  def handle_event("close_lengths", _params, socket) do
+    {:noreply, assign(socket, :show_lengths, false)}
+  end
+
+  # The dialog cannot express clearing: a blank field means "leave", so
+  # going back to the global target gets its own button beside Save.
+  def handle_event("bulk_clear_crop", _params, socket) do
+    ids = MapSet.to_list(socket.assigns.selected)
+    n = Enum.count(ids, &clear_crop/1)
+
+    {:noreply,
+     socket
+     |> assign(:show_lengths, false)
+     |> assign(:selected, MapSet.new())
+     |> load_items()
+     |> put_flash(:info, "Cleared #{n} titles back to the global target")}
+  end
+
+  # One dialog for the two lengths a selection can carry: a crop in seconds
+  # and the duration cap. Blank and "leave unchanged" are ordinary answers,
+  # not edges -- most of the time only one of the two is being set.
+  #
+  # Synchronous like the excluded toggle: these are fields, and whoever
+  # ticked twenty rows expects the badges to change rather than to read
+  # "queued" and wonder when.
+  def handle_event("bulk_lengths", params, socket) do
+    case parse_bulk_seconds(params["seconds"]) do
+      {:ok, ms} ->
+        ids = MapSet.to_list(socket.assigns.selected)
+        n = Enum.count(ids, &apply_length(&1, ms, params["duration"]))
+
+        {:noreply,
+         socket
+         |> assign(:show_lengths, false)
+         |> assign(:selected, MapSet.new())
+         |> load_items()
+         |> put_flash(:info, "Updated #{n} titles")}
+
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
+    end
   end
 
   # A form with nothing ticked sends no parameter at all, so "nothing chosen"
@@ -211,6 +259,56 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # a hundred decodes cannot happen inside a click.
   defp enqueue_trim(id) do
     match?({:ok, _}, %{media_item_id: id} |> Fanfarr.Workers.TrimTheme.new() |> Oban.insert())
+  end
+
+  defp parse_bulk_seconds(raw) do
+    case raw |> to_string() |> String.trim() do
+      "" ->
+        {:ok, nil}
+
+      typed ->
+        case Integer.parse(typed) do
+          {seconds, ""} when seconds >= 5 and seconds <= 900 ->
+            {:ok, seconds * 1000}
+
+          _ ->
+            {:error, "Crop length must be a whole number of seconds, from 5 to 900."}
+        end
+    end
+  end
+
+  defp apply_length(id, ms, duration) do
+    with {:ok, item} <- Fanfarr.Library.get_media_item(id),
+         {:ok, item} <- maybe_set_crop(item, ms),
+         {:ok, _} <- maybe_set_duration(item, duration) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp maybe_set_crop(item, nil), do: {:ok, item}
+  defp maybe_set_crop(item, ms), do: Fanfarr.Library.set_crop_target(item, %{crop_target_ms: ms})
+
+  defp maybe_set_duration(item, duration) when duration in [nil, "", "leave"], do: {:ok, item}
+
+  defp maybe_set_duration(item, "ignore") do
+    Fanfarr.Library.set_ignore_duration_limit(item, %{ignore_duration_limit: true})
+  end
+
+  defp maybe_set_duration(item, "respect") do
+    Fanfarr.Library.set_ignore_duration_limit(item, %{ignore_duration_limit: false})
+  end
+
+  defp maybe_set_duration(item, _), do: {:ok, item}
+
+  defp clear_crop(id) do
+    with {:ok, item} <- Fanfarr.Library.get_media_item(id),
+         {:ok, _} <- Fanfarr.Library.set_crop_target(item, %{crop_target_ms: nil}) do
+      true
+    else
+      _ -> false
+    end
   end
 
   @impl true
@@ -506,7 +604,14 @@ defmodule FanfarrWeb.LibraryLive.Index do
         the buttons on this page are hand-rolled throughout, and this way the
         whole thing is server-rendered -- nothing to load, and no hook that can
         be missing on a page that otherwise works. --%>
-        <div :if={@show_columns} class="fixed inset-0 z-50" role="dialog" aria-modal="true">
+        <div
+          :if={@show_columns}
+          class="fixed inset-0 z-50"
+          role="dialog"
+          aria-modal="true"
+          phx-window-keydown="close_columns"
+          phx-key="Escape"
+        >
           <div class="absolute inset-0 bg-black/50" phx-click="close_columns"></div>
 
           <div class="relative mx-auto mt-20 w-full max-w-md rounded-lg border border-border bg-card p-4 shadow-lg">
@@ -541,6 +646,78 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   class="inline-flex h-11 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
                 >
                   Save columns
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <%!-- Bulk lengths: a crop in seconds and the duration cap, for the
+        whole selection at once. Blank and "leave unchanged" leave titles
+        as they are, so setting one does not disturb the other. --%>
+        <div
+          :if={@show_lengths}
+          class="fixed inset-0 z-50"
+          role="dialog"
+          aria-modal="true"
+          phx-window-keydown="close_lengths"
+          phx-key="Escape"
+        >
+          <div class="absolute inset-0 bg-black/50" phx-click="close_lengths"></div>
+
+          <div class="relative mx-auto mt-20 w-full max-w-md rounded-lg border border-border bg-card p-4 shadow-lg">
+            <h2 class="text-sm font-semibold text-card-foreground">Crop length & duration cap</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+              For {MapSet.size(@selected)} selected titles. Blank and "leave unchanged"
+              keep titles as they are.
+            </p>
+
+            <form id="library-lengths" phx-submit="bulk_lengths" class="mt-3 space-y-3">
+              <div class="space-y-1">
+                <label for="bulk-seconds" class="text-sm">Crop length (seconds)</label>
+                <input
+                  id="bulk-seconds"
+                  name="seconds"
+                  type="number"
+                  min="5"
+                  max="900"
+                  placeholder="Leave unchanged"
+                  class="h-11 w-full rounded-md border border-input bg-background px-3 text-sm sm:h-9"
+                />
+              </div>
+              <div class="space-y-1">
+                <label for="bulk-duration" class="text-sm">Fifteen-minute download cap</label>
+                <select
+                  id="bulk-duration"
+                  name="duration"
+                  class="h-11 w-full rounded-md border border-input bg-background px-2 text-sm sm:h-9"
+                >
+                  <option value="leave">Leave unchanged</option>
+                  <option value="ignore">Ignore the cap for these titles</option>
+                  <option value="respect">Enforce the cap for these titles</option>
+                </select>
+              </div>
+              <div class="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  phx-click="close_lengths"
+                  class="inline-flex h-11 items-center rounded-md border border-border px-3 text-sm hover:bg-accent sm:h-9"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  phx-click="bulk_clear_crop"
+                  title="Back to the global target for every selected title"
+                  class="inline-flex h-11 items-center rounded-md border border-border px-3 text-sm hover:bg-accent sm:h-9"
+                >
+                  Clear to global
+                </button>
+                <button
+                  type="submit"
+                  class="inline-flex h-11 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
+                >
+                  Update titles
                 </button>
               </div>
             </form>
@@ -643,6 +820,13 @@ defmodule FanfarrWeb.LibraryLive.Index do
             <.icon name="lucide-scissors" class="size-3.5" /> Trim current themes
           </button>
           <button
+            phx-click="open_lengths"
+            title="Set the crop length and the duration cap for the selection"
+            class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8"
+          >
+            <.icon name="lucide-timer" class="size-3.5" /> Lengths
+          </button>
+          <button
             phx-click="bulk"
             phx-value-action="exclude"
             class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-accent hover:text-accent-foreground sm:h-8"
@@ -660,6 +844,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <button
             phx-click="bulk"
             phx-value-action="apply"
+            data-confirm={"Apply themes to #{MapSet.size(@selected)} selected titles? Plex uploads cannot be undone."}
             class="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 sm:h-8"
           >
             <.icon name="lucide-music" class="size-3.5" /> Apply themes

@@ -127,7 +127,14 @@ defmodule FanfarrWeb.OverviewLive.Index do
                   </p>
                 </div>
                 <div class="flex min-w-0 flex-1 items-center gap-3">
-                  <div class="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    class="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+                    role="progressbar"
+                    aria-valuenow={section.percent}
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-label={"#{section.title} theme coverage"}
+                  >
                     <div
                       class={[
                         "h-full rounded-full",
@@ -186,6 +193,7 @@ defmodule FanfarrWeb.OverviewLive.Index do
               <button
                 :if={@overview.ready > 0}
                 phx-click="apply_ready"
+                data-confirm={"Apply #{@overview.ready} themes? Plex uploads cannot be undone."}
                 class="mt-4 inline-flex h-11 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
               >
                 <.icon name="lucide-music" class="size-4" /> Apply all {@overview.ready}

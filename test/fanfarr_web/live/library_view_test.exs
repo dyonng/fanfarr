@@ -104,6 +104,16 @@ defmodule FanfarrWeb.LibraryViewTest do
       refute drawn?(view, "Seasons")
     end
 
+    test "escape closes the dialog", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+      view |> element("button", "Columns") |> render_click()
+
+      assert has_element?(
+               view,
+               ~s(div[phx-window-keydown="close_columns"][phx-key="Escape"])
+             )
+    end
+
     test "title is kept whatever else is chosen", %{conn: conn} do
       # Title is the floor: a table with no columns is not a view anyone can
       # read, so it stays even when it was not the thing ticked.
@@ -226,6 +236,90 @@ defmodule FanfarrWeb.LibraryViewTest do
       refute has_element?(view, ~s(a[href*="imdb.com"]))
       refute has_element?(view, ~s(a[href*="themoviedb.org"]))
       refute has_element?(view, ~s(a[href*="thetvdb.com"]))
+    end
+  end
+
+  describe "bulk lengths" do
+    test "sets the crop length for the whole selection", %{conn: conn, item: item} do
+      a = item.(%{title: "A"})
+      b = item.(%{title: "B"})
+      {:ok, view, _html} = live(conn, "/library")
+
+      view |> element(~s(input[phx-value-id="#{a.id}"])) |> render_click()
+      view |> element(~s(input[phx-value-id="#{b.id}"])) |> render_click()
+      view |> element("button", "Lengths") |> render_click()
+
+      html =
+        view
+        |> form("#library-lengths", %{"seconds" => "45", "duration" => "leave"})
+        |> render_submit()
+
+      assert html =~ "Updated 2 titles"
+      assert Fanfarr.Library.get_media_item!(a.id).crop_target_ms == 45_000
+      assert Fanfarr.Library.get_media_item!(b.id).crop_target_ms == 45_000
+    end
+
+    test "blank seconds leaves the crop, the duration tri-state applies",
+         %{conn: conn, item: item} do
+      a = item.(%{title: "A"})
+      {:ok, view, _html} = live(conn, "/library")
+
+      view |> element(~s(input[phx-value-id="#{a.id}"])) |> render_click()
+      view |> element("button", "Lengths") |> render_click()
+
+      view
+      |> form("#library-lengths", %{"seconds" => "", "duration" => "ignore"})
+      |> render_submit()
+
+      reloaded = Fanfarr.Library.get_media_item!(a.id)
+      assert is_nil(reloaded.crop_target_ms)
+      assert reloaded.ignore_duration_limit
+
+      view |> element(~s(input[phx-value-id="#{a.id}"])) |> render_click()
+      view |> element("button", "Lengths") |> render_click()
+
+      view
+      |> form("#library-lengths", %{"seconds" => "", "duration" => "respect"})
+      |> render_submit()
+
+      refute Fanfarr.Library.get_media_item!(a.id).ignore_duration_limit
+    end
+
+    test "nonsense seconds are refused", %{conn: conn, item: item} do
+      a = item.(%{title: "A"})
+      {:ok, view, _html} = live(conn, "/library")
+
+      view |> element(~s(input[phx-value-id="#{a.id}"])) |> render_click()
+      view |> element("button", "Lengths") |> render_click()
+
+      html =
+        view
+        |> form("#library-lengths", %{"seconds" => "2", "duration" => "leave"})
+        |> render_submit()
+
+      assert html =~ "from 5 to 900"
+      assert is_nil(Fanfarr.Library.get_media_item!(a.id).crop_target_ms)
+    end
+
+    test "clear to global unsets the override", %{conn: conn, item: item} do
+      a = item.(%{title: "A"})
+      {:ok, _} = Fanfarr.Library.set_crop_target(a, %{crop_target_ms: 45_000})
+      {:ok, view, _html} = live(conn, "/library")
+
+      view |> element(~s(input[phx-value-id="#{a.id}"])) |> render_click()
+      view |> element("button", "Lengths") |> render_click()
+
+      html = view |> element("button", "Clear to global") |> render_click()
+      assert html =~ "Cleared 1 titles"
+      assert is_nil(Fanfarr.Library.get_media_item!(a.id).crop_target_ms)
+    end
+
+    test "bulk apply asks first", %{conn: conn, item: item} do
+      a = item.(%{title: "A"})
+      {:ok, view, _html} = live(conn, "/library")
+
+      view |> element(~s(input[phx-value-id="#{a.id}"])) |> render_click()
+      assert has_element?(view, ~s(button[data-confirm*="cannot be undone"]))
     end
   end
 end
