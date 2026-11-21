@@ -92,7 +92,9 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
       # are separate OS processes on the same box, and this describe
       # clears the cache on exit -- with the shared dir that pulls the
       # ground from under another partition's run of these same tests.
-      cache = Path.join(System.tmp_dir!(), "fanfarr-apply-cache-#{System.unique_integer([:positive])}")
+      cache =
+        Path.join(System.tmp_dir!(), "fanfarr-apply-cache-#{System.unique_integer([:positive])}")
+
       previous = Application.get_env(:fanfarr, :cache_dir)
       Application.put_env(:fanfarr, :cache_dir, cache)
 
