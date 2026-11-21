@@ -465,7 +465,8 @@ defmodule Fanfarr.Plex.HTTPClientTest do
       {"MediaContainer":{"Metadata":[
         {"ratingKey":1,"title":"Iron Man","year":2008,"type":"movie","theme":null,
          "studio":"Paramount Pictures",
-         "Collection":[{"tag":"Marvel Cinematic Universe"},{"tag":"Phase One"}]}
+         "Collection":[{"tag":"Marvel Cinematic Universe"},{"tag":"Phase One"}],
+         "Director":[{"tag":"Jon Favreau"}]}
       ]}}
       """
 
@@ -478,6 +479,7 @@ defmodule Fanfarr.Plex.HTTPClientTest do
 
       assert item.studio == "Paramount Pictures"
       assert item.collections == ["Marvel Cinematic Universe", "Phase One"]
+      assert item.directors == ["Jon Favreau"]
     end
 
     test "an item in no collection, from an unnamed studio, syncs with neither" do

@@ -286,6 +286,7 @@ defmodule FanfarrWeb.FeaturesTest do
            audience_score_source: "rottentomatoes",
            studio: "Toei Animation",
            collections: ["Shonen Jump"],
+           directors: [],
            added_at: nil,
            season_count: 3
          }}
@@ -910,6 +911,20 @@ defmodule FanfarrWeb.FeaturesTest do
       {:ok, _} = Fanfarr.Library.set_crop_target(item, %{crop_target_ms: 45_000})
       {:ok, _view, html} = live(conn, "/library/#{item.id}")
       assert html =~ "Custom 45s"
+    end
+
+    test "a pick and the ThemerrDB suggestion share one Theme source card",
+         %{conn: conn, item: item} do
+      Fanfarr.Library.set_manual_theme!(item, %{
+        manual_theme_url: "https://youtu.be/abcdef",
+        manual_theme_title: "Mine"
+      })
+
+      {:ok, _view, html} = live(conn, "/library/#{item.id}")
+      assert html =~ "Theme source"
+      assert html =~ "Mine"
+      refute html =~ "Your pick"
+      refute html =~ ">ThemerrDB<"
     end
 
     test "the duration cap lifts per title, from beside Refresh",

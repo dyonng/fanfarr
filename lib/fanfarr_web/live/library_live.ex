@@ -68,6 +68,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
       kind: params["kind"],
       studio: params["studio"],
       collection: params["collection"],
+      director: params["director"],
       q: params["q"],
       sort: params["sort"],
       page: max(String.to_integer(params["page"] || "1"), 1),
@@ -88,7 +89,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   def handle_event("filter", params, socket) do
     # Only the form's own fields: a phx-change payload also carries _target,
     # which would end up in the URL.
-    overrides = Map.take(params, ["status", "kind", "studio", "collection", "q"])
+    overrides = Map.take(params, ["status", "kind", "studio", "collection", "director", "q"])
 
     {:noreply, push_patch(socket, to: ~p"/library?#{query_params(socket, overrides)}")}
   end
@@ -369,6 +370,16 @@ defmodule FanfarrWeb.LibraryLive.Index do
         collection -> Enum.filter(items, &(collection in &1.collections))
       end
 
+    # Directors ride the same array through SQLite, so the same post-load
+    # membership test as collections.
+    items =
+      case filters.director do
+        nil -> items
+        "" -> items
+        "all" -> items
+        director -> Enum.filter(items, &(director in &1.directors))
+      end
+
     items = sort(items, filters.sort)
 
     total = length(items)
@@ -397,12 +408,13 @@ defmodule FanfarrWeb.LibraryLive.Index do
   defp facets(actor) do
     rows =
       MediaItem
-      |> Ash.Query.select([:studio, :collections])
+      |> Ash.Query.select([:studio, :collections, :directors])
       |> Ash.read!(actor: actor)
 
     %{
       studios: rows |> Enum.map(& &1.studio) |> names(),
-      collections: rows |> Enum.flat_map(& &1.collections) |> names()
+      collections: rows |> Enum.flat_map(& &1.collections) |> names(),
+      directors: rows |> Enum.flat_map(& &1.directors) |> names()
     }
   end
 
@@ -444,6 +456,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
       "kind" => filters.kind,
       "studio" => filters.studio,
       "collection" => filters.collection,
+      "director" => filters.director,
       "q" => filters.q,
       "sort" => filters.sort,
       "cols" => filters.columns_param
@@ -780,6 +793,22 @@ defmodule FanfarrWeb.LibraryLive.Index do
               selected={@filters.collection == collection}
             >
               {collection}
+            </option>
+          </select>
+          <select
+            :if={@directors != []}
+            name="director"
+            class="h-11 max-w-48 rounded-md border border-input bg-background px-2 text-sm sm:h-9"
+          >
+            <option value="all" selected={@filters.director in [nil, "", "all"]}>
+              Any director
+            </option>
+            <option
+              :for={director <- @directors}
+              value={director}
+              selected={@filters.director == director}
+            >
+              {director}
             </option>
           </select>
         </form>
@@ -1267,6 +1296,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
       "kind" => filters.kind,
       "studio" => filters.studio,
       "collection" => filters.collection,
+      "director" => filters.director,
       "q" => filters.q,
       "sort" => sort,
       "cols" => filters.columns_param

@@ -2094,9 +2094,9 @@ defmodule FanfarrWeb.ItemLive.Show do
         Tailwind's grid-cols-* expand to repeat(n, minmax(0, 1fr)), and it is
         the minmax(0, ...) that lets a track go narrower than its content:
         an implicit auto track keeps a grid item's min-width: auto floor, so
-        these three cards each measured 337px inside a 302px column and the
+        these two cards each measured 337px inside a 302px column and the
         page carried the difference. --%>
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <section class="rounded-lg border border-border bg-card p-4">
             <h2 class="text-sm font-semibold text-card-foreground">Plex</h2>
             <dl class="mt-3 space-y-2 text-sm">
@@ -2145,6 +2145,24 @@ defmodule FanfarrWeb.ItemLive.Show do
                       class="underline decoration-dotted underline-offset-4 hover:text-primary"
                       title={"Everything in #{collection}"}
                     >{collection}</.link><span :if={index < length(@item.collections) - 1}>,</span>
+                  </span>
+                </dd>
+              </div>
+              <%!-- Directors link the same way studios and collections do:
+              the question a name raises is always "what else did they make".
+              Usually one on a film; Plex rarely reports any on a show, and
+              then the row reads like the others -- a dash, not an absence
+              pretending to be information. --%>
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Director</dt>
+                <dd class="text-right">
+                  <span :if={@item.directors == []}>—</span>
+                  <span :for={{director, index} <- Enum.with_index(@item.directors)}>
+                    <.link
+                      navigate={~p"/library?#{%{"director" => director}}"}
+                      class="underline decoration-dotted underline-offset-4 hover:text-primary"
+                      title={"Everything by #{director}"}
+                    >{director}</.link><span :if={index < length(@item.directors) - 1}>,</span>
                   </span>
                 </dd>
               </div>
@@ -2213,7 +2231,7 @@ defmodule FanfarrWeb.ItemLive.Show do
 
           <section class="rounded-lg border border-border bg-card p-4">
             <div class="flex items-center justify-between gap-3">
-              <h2 class="text-sm font-semibold text-card-foreground">ThemerrDB</h2>
+              <h2 class="text-sm font-semibold text-card-foreground">Theme source</h2>
               <button
                 :if={not @looking_up}
                 phx-click="lookup"
@@ -2229,6 +2247,47 @@ defmodule FanfarrWeb.ItemLive.Show do
                 <.icon name="lucide-loader-circle" class="size-3.5 animate-spin" /> looking up…
               </span>
             </div>
+
+            <div :if={@item.manual_theme_url in [nil, ""]} class="mt-3 text-sm text-muted-foreground">
+              No pick yet. ThemerrDB's suggestion is used, if it has one. Search below to choose your own.
+            </div>
+            <div :if={@item.manual_theme_url not in [nil, ""]} class="mt-3 space-y-2 text-sm">
+              <p class="font-medium">{@item.manual_theme_title || "Chosen video"}</p>
+              <p
+                class="break-all font-mono text-xs text-muted-foreground"
+                title={@item.manual_theme_url}
+              >
+                {@item.manual_theme_url}
+              </p>
+              <%!-- The only place a pick already made can be written again.
+              With the apply action moved onto the choice, a pick from a search
+              run yesterday would otherwise need the search running again. --%>
+              <button
+                phx-click="apply_pick"
+                disabled={@applying or @item.theme_locked}
+                class="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
+                title={apply_title(@item)}
+              >
+                <.icon name="lucide-audio-lines" class="size-3.5" />
+                {if @applying, do: "Working…", else: "Apply theme"}
+              </button>
+              <div class="flex gap-3 text-xs">
+                <button
+                  :if={Downloader.youtube_id(@item.manual_theme_url)}
+                  phx-click="preview_video"
+                  phx-value-id={Downloader.youtube_id(@item.manual_theme_url)}
+                  class="text-primary hover:underline"
+                >
+                  play preview
+                </button>
+                <button phx-click="clear_manual" class="text-muted-foreground hover:underline">
+                  clear
+                </button>
+              </div>
+              <p class="text-xs text-muted-foreground">Outranks ThemerrDB when applying.</p>
+            </div>
+
+            <div aria-hidden="true" class="my-4 border-t border-border/60"></div>
 
             <div :if={@themerr == nil} class="mt-3 text-sm text-muted-foreground">
               <span :if={@looking_up}>Asking ThemerrDB about this title…</span>
@@ -2304,48 +2363,6 @@ defmodule FanfarrWeb.ItemLive.Show do
             >
               ThemerrDB knows this title but has no theme for it.
             </p>
-          </section>
-
-          <section class="rounded-lg border border-border bg-card p-4">
-            <h2 class="text-sm font-semibold text-card-foreground">Your pick</h2>
-            <div :if={@item.manual_theme_url in [nil, ""]} class="mt-3 text-sm text-muted-foreground">
-              None. ThemerrDB's suggestion is used, if it has one. Search below to choose your own.
-            </div>
-            <div :if={@item.manual_theme_url not in [nil, ""]} class="mt-3 space-y-2 text-sm">
-              <p class="font-medium">{@item.manual_theme_title || "Chosen video"}</p>
-              <p
-                class="break-all font-mono text-xs text-muted-foreground"
-                title={@item.manual_theme_url}
-              >
-                {@item.manual_theme_url}
-              </p>
-              <%!-- The only place a pick already made can be written again.
-              With the apply action moved onto the choice, a pick from a search
-              run yesterday would otherwise need the search running again. --%>
-              <button
-                phx-click="apply_pick"
-                disabled={@applying or @item.theme_locked}
-                class="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
-                title={apply_title(@item)}
-              >
-                <.icon name="lucide-audio-lines" class="size-3.5" />
-                {if @applying, do: "Working…", else: "Apply theme"}
-              </button>
-              <div class="flex gap-3 text-xs">
-                <button
-                  :if={Downloader.youtube_id(@item.manual_theme_url)}
-                  phx-click="preview_video"
-                  phx-value-id={Downloader.youtube_id(@item.manual_theme_url)}
-                  class="text-primary hover:underline"
-                >
-                  play preview
-                </button>
-                <button phx-click="clear_manual" class="text-muted-foreground hover:underline">
-                  clear
-                </button>
-              </div>
-              <p class="text-xs text-muted-foreground">Outranks ThemerrDB when applying.</p>
-            </div>
           </section>
         </div>
 

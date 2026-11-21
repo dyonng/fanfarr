@@ -322,4 +322,31 @@ defmodule FanfarrWeb.LibraryViewTest do
       assert has_element?(view, ~s(button[data-confirm*="cannot be undone"]))
     end
   end
+
+  describe "director filter" do
+    test "narrows the table, and the URL carries it", %{conn: conn, item: item} do
+      item.(%{title: "Memento", kind: :movie, directors: ["Christopher Nolan"]})
+      item.(%{title: "Other", kind: :movie, directors: ["Someone Else"]})
+
+      {:ok, _view, html} = live(conn, "/library?director=Christopher+Nolan")
+      assert html =~ "Memento"
+      refute html =~ ">Other<"
+
+      # And the dropdown offers it without a query string.
+      {:ok, view, _} = live(conn, "/library")
+      assert has_element?(view, "select[name=director] option", "Christopher Nolan")
+    end
+
+    test "a director on the item page links to the filtered library",
+         %{conn: conn, item: item} do
+      picked = item.(%{title: "Memento", kind: :movie, directors: ["Christopher Nolan"]})
+      {:ok, view, _html} = live(conn, "/library/#{picked.id}")
+
+      assert has_element?(
+               view,
+               ~s(a[title="Everything by Christopher Nolan"]),
+               "Christopher Nolan"
+             )
+    end
+  end
 end

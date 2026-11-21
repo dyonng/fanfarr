@@ -55,6 +55,7 @@ defmodule Fanfarr.Library.ItemRefreshTest do
         audience_score_source: "rottentomatoes",
         studio: "Warner Bros. Pictures",
         collections: ["Batman Collection", "DC Universe"],
+        directors: ["Christopher Nolan"],
         added_at: ~U[2024-01-01 00:00:00Z],
         season_count: nil
       },

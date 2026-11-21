@@ -95,6 +95,7 @@ defmodule Fanfarr.Library.MediaItem do
         :audience_score_source,
         :studio,
         :collections,
+        :directors,
         :plex_theme_url,
         :plex_theme_origin,
         :plex_theme_agent,
@@ -299,6 +300,13 @@ defmodule Fanfarr.Library.MediaItem do
       allow_nil? false
       default []
       description "Plex collection names this item belongs to."
+    end
+
+    attribute :directors, {:array, :string} do
+      public? true
+      allow_nil? false
+      default []
+      description "Director names Plex reports. Usually one on a film, rarely any on a show."
     end
 
     attribute :plex_theme_url, :string do

@@ -66,6 +66,7 @@ defmodule Fanfarr.Library.ItemRefresh do
         audience_score_source: fresh.audience_score_source,
         studio: fresh.studio,
         collections: merge_collections(fresh.collections, item.collections),
+        directors: fresh.directors,
         plex_theme_url: fresh.theme,
         plex_theme_origin: origin,
         plex_theme_agent: agent,

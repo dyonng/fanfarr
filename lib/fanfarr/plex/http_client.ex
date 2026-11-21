@@ -389,6 +389,9 @@ defmodule Fanfarr.Plex.HTTPClient do
       # studio there can be several. Absent unless includeCollections=1, and
       # absent anyway for a library nobody has organised.
       collections: tags(m["Collection"]),
+      # Directors the same way: several possible, usually one on a film,
+      # usually none reported on a show.
+      directors: tags(m["Director"]),
       added_at: unix(m["addedAt"]),
       # Plex's `childCount` on a show is how many seasons it has. A film has
       # none, and neither has a show Plex has not scanned, so this stays nil
