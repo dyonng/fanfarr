@@ -88,6 +88,22 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
 
   describe "the source cache" do
     setup ctx do
+      # A private directory, not the shared default: parallel partitions
+      # are separate OS processes on the same box, and this describe
+      # clears the cache on exit -- with the shared dir that pulls the
+      # ground from under another partition's run of these same tests.
+      cache = Path.join(System.tmp_dir!(), "fanfarr-apply-cache-#{System.unique_integer([:positive])}")
+      previous = Application.get_env(:fanfarr, :cache_dir)
+      Application.put_env(:fanfarr, :cache_dir, cache)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:fanfarr, :cache_dir, previous),
+          else: Application.delete_env(:fanfarr, :cache_dir)
+
+        File.rm_rf(cache)
+      end)
+
       # The cache holds the original, which is what an ordinary apply works
       # from. `put` moves the file and renders its peaks, so this has to be
       # real audio rather than a placeholder string.
@@ -108,9 +124,8 @@ defmodule Fanfarr.Workers.ApplyThemeTest do
           :source
         )
 
-      # The cache is shared for the whole run, so a source left here would
-      # change what every other test that applies this URL does. This file is
-      # not async, so clearing it cannot pull the ground from under another.
+      # Each test re-seeds its own cache above, so clearing here only
+      # removes what this test put there.
       on_exit(fn -> File.rm_rf!(Fanfarr.Themes.SourceCache.dir()) end)
 
       :ok
