@@ -23,7 +23,7 @@ const SWIPE_EXIT_DISTANCE = "150%";
 const VARIANT_ICON_NAMES = {
   success: "lucide-circle-check",
   error: "lucide-circle-x",
-  warning: "lucide-triangle-alert",
+  warning: "lucide-triangle-exclamation-point",
   info: "lucide-info",
 };
 

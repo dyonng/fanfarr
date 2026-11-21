@@ -1177,7 +1177,7 @@ defmodule FanfarrWeb.ItemLive.Show do
               class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-auto"
               title={apply_title(@item)}
             >
-              <.icon name="lucide-music" class="size-4" />
+              <.icon name="lucide-audio-lines" class="size-4" />
               {apply_trim_label(@trim, @applying)}
             </button>
           </div>
@@ -2284,7 +2284,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                   class="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
                   title={apply_title(@item)}
                 >
-                  <.icon name="lucide-music" class="size-3.5" />
+                  <.icon name="lucide-audio-lines" class="size-3.5" />
                   {if @applying, do: "Working…", else: "Apply theme"}
                 </button>
                 <a
@@ -2328,7 +2328,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                 class="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
                 title={apply_title(@item)}
               >
-                <.icon name="lucide-music" class="size-3.5" />
+                <.icon name="lucide-audio-lines" class="size-3.5" />
                 {if @applying, do: "Working…", else: "Apply theme"}
               </button>
               <div class="flex gap-3 text-xs">
@@ -2634,7 +2634,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                     class="inline-flex h-10 shrink-0 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
                     title={apply_title(@item)}
                   >
-                    <.icon name="lucide-music" class="size-3.5" />
+                    <.icon name="lucide-audio-lines" class="size-3.5" />
                     {if @applying, do: "Working…", else: "Apply theme"}
                   </button>
                 </div>

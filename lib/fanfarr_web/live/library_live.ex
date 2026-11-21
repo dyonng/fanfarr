@@ -847,7 +847,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
             data-confirm={"Apply themes to #{MapSet.size(@selected)} selected titles? Plex uploads cannot be undone."}
             class="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 sm:h-8"
           >
-            <.icon name="lucide-music" class="size-3.5" /> Apply themes
+            <.icon name="lucide-audio-lines" class="size-3.5" /> Apply themes
           </button>
           <button phx-click="clear_selection" class="text-xs text-muted-foreground hover:underline">
             clear

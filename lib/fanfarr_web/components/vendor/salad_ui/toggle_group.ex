@@ -8,15 +8,15 @@ defmodule SaladUI.ToggleGroup do
 
   ## Example:
 
-    <.toggle_group name="style" type="single" value="bold">
-      <.toggle_group_item value="bold" builder={builder} aria-label="Toggle bold">
-        <.icon name="lucide-bold" class="h-4 w-4" />
-      </.toggle_group_item>
+    <.toggle_group name="style" type="single" value="italic">
       <.toggle_group_item value="italic" builder={builder} aria-label="Toggle italic">
         <.icon name="lucide-italic" class="h-4 w-4" />
       </.toggle_group_item>
       <.toggle_group_item value="underline" builder={builder} aria-label="Toggle underline">
         <.icon name="lucide-underline" class="h-4 w-4" />
+      </.toggle_group_item>
+      <.toggle_group_item value="strikethrough" builder={builder} aria-label="Toggle strikethrough">
+        <.icon name="lucide-strikethrough" class="h-4 w-4" />
       </.toggle_group_item>
     </.toggle_group>
   """

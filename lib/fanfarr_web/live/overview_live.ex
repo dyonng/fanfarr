@@ -196,7 +196,7 @@ defmodule FanfarrWeb.OverviewLive.Index do
                 data-confirm={"Apply #{@overview.ready} themes? Plex uploads cannot be undone."}
                 class="mt-4 inline-flex h-11 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:h-9"
               >
-                <.icon name="lucide-music" class="size-4" /> Apply all {@overview.ready}
+                <.icon name="lucide-audio-lines" class="size-4" /> Apply all {@overview.ready}
               </button>
             </section>
 
@@ -356,7 +356,7 @@ defmodule FanfarrWeb.OverviewLive.Index do
                   name={
                     if problem.level == :error,
                       do: "lucide-circle-x",
-                      else: "lucide-triangle-alert"
+                      else: "lucide-triangle-exclamation-point"
                   }
                   class={[
                     "mt-0.5 size-4 shrink-0",
