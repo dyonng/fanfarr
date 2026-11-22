@@ -961,7 +961,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </script>
         </nav>
 
-        <div class="min-w-0 max-w-3xl space-y-6">
+        <div class="min-w-0 max-w-5xl space-y-6">
           <section
             :if={section_visible?(@settings_filter, "settings-appearance")}
             id="settings-appearance"
