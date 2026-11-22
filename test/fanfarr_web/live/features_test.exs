@@ -907,6 +907,35 @@ defmodule FanfarrWeb.FeaturesTest do
       assert is_nil(Fanfarr.Library.get_media_item!(item.id).crop_target_ms)
     end
 
+    test "a failed attempt offers retry where it failed", %{conn: conn, item: item} do
+      Fanfarr.Themes.record_theme_outcome!(%{
+        media_item_id: item.id,
+        source: :youtube,
+        method: :local_file,
+        status: :failed,
+        error: "yt-dlp exited 1"
+      })
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      html = view |> element("button", "retry") |> render_click()
+      assert html =~ "Retrying the theme write"
+
+      jobs =
+        Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
+
+      assert [job] = jobs
+      assert job.args["media_item_id"] == item.id
+    end
+
+    test "the trimmer documents its keys and the finder states precedence",
+         %{conn: conn, item: item} do
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      render_click(view, "trim", %{})
+      html = render_async(view, 10_000)
+      assert html =~ "Keys work here"
+      assert html =~ "Your pick wins"
+    end
+
     test "a custom length is badged by the title", %{conn: conn, item: item} do
       {:ok, _} = Fanfarr.Library.set_crop_target(item, %{crop_target_ms: 45_000})
       {:ok, _view, html} = live(conn, "/library/#{item.id}")
@@ -923,21 +952,21 @@ defmodule FanfarrWeb.FeaturesTest do
       {:ok, _view, html} = live(conn, "/library/#{item.id}")
       assert html =~ "Theme source"
       assert html =~ "Mine"
-      refute html =~ "Your pick"
+      refute html =~ ">Your pick<"
       refute html =~ ">ThemerrDB<"
     end
 
     test "the duration cap lifts per title, from beside Refresh",
          %{conn: conn, item: item} do
       {:ok, view, html} = live(conn, "/library/#{item.id}")
-      assert html =~ "Length cap on"
+      assert html =~ "15-min cap on"
 
       html = render_click(view, "toggle_duration_limit", %{})
-      assert html =~ "No length cap"
+      assert html =~ "Ignoring 15-min cap"
       assert Fanfarr.Library.get_media_item!(item.id).ignore_duration_limit
 
       html = render_click(view, "toggle_duration_limit", %{})
-      assert html =~ "Length cap on"
+      assert html =~ "15-min cap on"
       refute Fanfarr.Library.get_media_item!(item.id).ignore_duration_limit
     end
 

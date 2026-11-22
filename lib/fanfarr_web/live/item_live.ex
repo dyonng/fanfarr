@@ -307,6 +307,13 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
+  # A failed history row offers the way back right where it failed. Re-resolves
+  # the source rather than replaying the old failure: the failure was usually
+  # the network, not the choice.
+  def handle_event("retry_apply", _params, socket) do
+    queue(socket, flash: "Retrying the theme write")
+  end
+
   # Opening the editor is what triggers source resolution, and that can mean a
   # yt-dlp round trip -- so it happens off the LiveView process and the panel
   # says it is fetching rather than the page appearing to hang.
@@ -828,7 +835,7 @@ defmodule FanfarrWeb.ItemLive.Show do
                 title="Downloads reject sources over fifteen minutes. On, the cap is skipped for this title; the size cap always stays."
               >
                 <.icon name="lucide-timer-off" class="size-4" />
-                {if @item.ignore_duration_limit, do: "No length cap", else: "Length cap on"}
+                {if @item.ignore_duration_limit, do: "Ignoring 15-min cap", else: "15-min cap on"}
               </button>
             </div>
             <p :if={@item.kind == :movie} class="mt-2 text-xs text-muted-foreground">
@@ -1137,6 +1144,14 @@ defmodule FanfarrWeb.ItemLive.Show do
                   </button>
                 </label>
               </div>
+
+              <p class="text-xs text-muted-foreground">
+                Keys work here: <kbd>←</kbd> <kbd>→</kbd>
+                move a focused handle, <kbd>[</kbd> <kbd>]</kbd>
+                drop the points at the playhead, <kbd>space</kbd>
+                previews, <kbd>Home</kbd>
+                jumps to the start.
+              </p>
 
               <details class="text-xs text-muted-foreground">
                 <summary class="min-h-11 cursor-pointer list-none sm:min-h-0">
@@ -2356,7 +2371,8 @@ defmodule FanfarrWeb.ItemLive.Show do
           <div class="border-b border-border px-4 py-3">
             <h2 class="text-sm font-semibold text-card-foreground">Find a theme</h2>
             <p class="text-xs text-muted-foreground">
-              Search YouTube from here, listen, and pick. What you pick is exactly what gets applied.
+              Your pick wins, then ThemerrDB's suggestion above, then anything you
+              find here. What you pick is exactly what gets applied.
             </p>
           </div>
 
@@ -2726,7 +2742,17 @@ defmodule FanfarrWeb.ItemLive.Show do
                       {entry.destination_path}
                     </span>
                   </td>
-                  <td class="px-2 py-2 text-xs text-destructive">{entry.error}</td>
+                  <td class="px-2 py-2 text-xs text-destructive">
+                    {entry.error}
+                    <button
+                      :if={entry.status == :failed}
+                      phx-click="retry_apply"
+                      disabled={@applying or @item.theme_locked}
+                      class="mt-1 block text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      retry
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>

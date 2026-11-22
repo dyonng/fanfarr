@@ -375,4 +375,19 @@ defmodule FanfarrWeb.BackupsTest do
       assert get(conn, "/backups/nothing-here.sqlite").status == 404
     end
   end
+
+  describe "section anchors" do
+    test "every card is one click away from the top", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      for anchor <- ~w(appearance authentication plex libraries scheduling root-folders
+                        path-mappings theme-downloads theme-crop logs) do
+        assert has_element?(view, ~s(nav a[href="#settings-#{anchor}"])), anchor
+      end
+
+      # The two cards that kept their tested ids still answer to them.
+      assert has_element?(view, ~s(nav a[href="#notifications-card"]))
+      assert has_element?(view, ~s(nav a[href="#backups-card"]))
+    end
+  end
 end

@@ -734,8 +734,10 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <input
             type="search"
             name="q"
+            id="library-search"
+            phx-hook=".FocusSearch"
             value={@filters.q}
-            placeholder="Search titles…"
+            placeholder="Search titles…  ( / )"
             phx-debounce="300"
             class="h-11 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:w-56"
           />
@@ -805,6 +807,27 @@ defmodule FanfarrWeb.LibraryLive.Index do
             </option>
           </select>
         </form>
+
+        <%!-- "/" focuses search from anywhere on the page that is not already
+        typing. The one shortcut worth having: search is the front door of
+        this table, and its hint lives in the placeholder, not a help page. --%>
+        <script :type={Phoenix.LiveView.ColocatedHook} name=".FocusSearch">
+          export default {
+            mounted() {
+              this.onKey = (event) => {
+                if (event.key !== "/") return
+                const tag = event.target.tagName
+                if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return
+                event.preventDefault()
+                this.el.focus()
+              }
+              window.addEventListener("keydown", this.onKey)
+            },
+            destroyed() {
+              window.removeEventListener("keydown", this.onKey)
+            }
+          }
+        </script>
 
         <div :if={@items == []} class="rounded-lg border border-dashed border-border p-10 text-center">
           <p class="text-sm text-muted-foreground">

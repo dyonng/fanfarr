@@ -776,7 +776,28 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </:subtitle>
         </Layouts.page_header>
 
-        <section class="rounded-lg border border-border bg-card p-4">
+        <nav
+          aria-label="Settings sections"
+          class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"
+        >
+          <a href="#settings-appearance" class="hover:text-primary hover:underline">Appearance</a>
+          <a href="#settings-authentication" class="hover:text-primary hover:underline">Authentication</a>
+          <a href="#settings-plex" class="hover:text-primary hover:underline">Plex</a>
+          <a href="#settings-libraries" class="hover:text-primary hover:underline">Libraries</a>
+          <a href="#settings-scheduling" class="hover:text-primary hover:underline">Scheduling</a>
+          <a href="#settings-root-folders" class="hover:text-primary hover:underline">Root folders</a>
+          <a href="#settings-path-mappings" class="hover:text-primary hover:underline">Path mappings</a>
+          <a href="#settings-theme-downloads" class="hover:text-primary hover:underline">Downloads</a>
+          <a href="#settings-theme-crop" class="hover:text-primary hover:underline">Crop</a>
+          <a href="#notifications-card" class="hover:text-primary hover:underline">Notifications</a>
+          <a href="#backups-card" class="hover:text-primary hover:underline">Backups</a>
+          <a href="#settings-logs" class="hover:text-primary hover:underline">Logs</a>
+        </nav>
+
+        <section
+          id="settings-appearance"
+          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+        >
           <h2 class="text-sm font-semibold text-card-foreground">Appearance</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Stored in this browser, not on the server — each device remembers its own.
@@ -786,7 +807,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </div>
         </section>
 
-        <section class="rounded-lg border border-border bg-card p-4">
+        <section
+          id="settings-authentication"
+          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+        >
           <h2 class="text-sm font-semibold text-card-foreground">Authentication</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Skip sign-in for requests from a local address (loopback, 10/8, 172.16/12,
@@ -811,7 +835,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </div>
         </section>
 
-        <section class="rounded-lg border border-border bg-card p-4">
+        <section id="settings-plex" class="rounded-lg border border-border bg-card p-4 scroll-mt-4">
           <h2 class="text-sm font-semibold text-card-foreground">Plex</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Values here override PLEX_URL / PLEX_TOKEN from the environment.
@@ -872,7 +896,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </form>
         </section>
 
-        <section class="rounded-lg border border-border bg-card p-4">
+        <section
+          id="settings-libraries"
+          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+        >
           <h2 class="text-sm font-semibold text-card-foreground">Libraries</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Disabled by default: uploads cannot be undone, so each library is opt-in.
@@ -904,7 +931,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </ul>
         </section>
 
-        <section class="rounded-lg border border-border bg-card p-4">
+        <section
+          id="settings-scheduling"
+          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+        >
           <h2 class="text-sm font-semibold text-card-foreground">Scheduling</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             How often Fanfarr starts this work on its own. 0 turns a schedule off — the
@@ -943,7 +973,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </form>
         </section>
 
-        <section class="rounded-lg border border-border bg-card p-4">
+        <section
+          id="settings-root-folders"
+          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+        >
           <div class="flex items-center justify-between">
             <h2 class="text-sm font-semibold text-card-foreground">Root folders</h2>
             <button
@@ -1021,7 +1054,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </form>
         </section>
 
-        <section class="rounded-lg border border-border bg-card p-4">
+        <section
+          id="settings-path-mappings"
+          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+        >
           <h2 class="text-sm font-semibold text-card-foreground">Path mappings</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Only for prefixes root folders cannot cover. plex_prefix:local_prefix pairs,
@@ -1041,7 +1077,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </form>
         </section>
 
-        <section class="rounded-lg border border-border bg-card p-4">
+        <section
+          id="settings-theme-downloads"
+          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+        >
           <h2 class="text-sm font-semibold text-card-foreground">Theme downloads</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Overrides YTDLP_PROXY and THEME_LOUDNESS_LUFS from the environment.
@@ -1160,7 +1199,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
             </button>
           </form>
         </section>
-        <section class="rounded-lg border border-border bg-card p-4">
+        <section
+          id="settings-theme-crop"
+          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+        >
           <h2 class="text-sm font-semibold text-card-foreground">Theme crop</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             A theme loops in a detail page rather than being listened to, so eleven
@@ -1247,7 +1289,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
             </button>
           </form>
         </section>
-        <section id="notifications-card" class="rounded-lg border border-border bg-card p-4">
+        <section
+          id="notifications-card"
+          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+        >
           <h2 class="text-sm font-semibold text-card-foreground">Notifications</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             Fanfarr runs on its own, so a failure is only news if something says so. One
@@ -1346,7 +1391,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
             </div>
           </form>
         </section>
-        <section id="backups-card" class="rounded-lg border border-border bg-card p-4">
+        <section id="backups-card" class="rounded-lg border border-border bg-card p-4 scroll-mt-4">
           <h2 class="text-sm font-semibold text-card-foreground">Backups</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             The database is everything Fanfarr knows — your settings, the mirror of Plex, and
@@ -1576,7 +1621,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
             somewhere else.
           </p>
         </section>
-        <section class="rounded-lg border border-border bg-card p-4">
+        <section id="settings-logs" class="rounded-lg border border-border bg-card p-4 scroll-mt-4">
           <h2 class="text-sm font-semibold text-card-foreground">Logs</h2>
           <p class="mt-1 text-xs text-muted-foreground">
             The log is kept in the database, so it survives a restart — which is when it is

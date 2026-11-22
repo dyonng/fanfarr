@@ -127,6 +127,12 @@ defmodule FanfarrWeb.LibraryViewTest do
       assert drawn?(view, "Title")
       assert drawn?(view, "Seasons")
     end
+
+    test "the search advertises its shortcut", %{conn: conn} do
+      {:ok, _view, html} = live(conn, "/library")
+      assert html =~ "FocusSearch"
+      assert html =~ "( / )"
+    end
   end
 
   describe "the new columns" do
