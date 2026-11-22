@@ -34,7 +34,93 @@ defmodule FanfarrWeb.SettingsLive.Index do
        max_file_size: 512 * 1024 * 1024
      )
      |> assign(:folder_path, "")
+     |> assign(:collapsed_sections, collapsed_sections())
+     |> assign(:settings_filter, "")
      |> load()}
+  end
+
+  # Card collapse, remembered server-side so every browser agrees: this is
+  # one operator's console, not a per-device preference like the theme.
+  # Stored as one comma string rather than a row per card.
+  @section_keywords %{
+    "settings-appearance" => "appearance theme dark light browser",
+    "settings-authentication" => "authentication login password user local bypass",
+    "settings-plex" => "plex server url token connection",
+    "settings-libraries" => "libraries sections shows movies enable",
+    "settings-scheduling" => "scheduling sync interval hours cron jobs",
+    "settings-root-folders" => "root folders paths drives mounts rescan",
+    "settings-path-mappings" => "path mappings translate docker rewrite",
+    "settings-theme-downloads" => "downloads youtube yt-dlp proxy loudness blacklist quality",
+    "settings-theme-crop" => "crop length trim auto fade graph",
+    "notifications-card" => "notifications webhook ntfy alerts",
+    "backups-card" => "backups snapshots restore download keep size",
+    "settings-logs" => "logs"
+  }
+
+  defp collapsed_sections do
+    Fanfarr.Config.get("ui_collapsed_sections")
+    |> to_string()
+    |> String.split(",", trim: true)
+    |> MapSet.new()
+  end
+
+  defp section_visible?(filter, id) do
+    case String.trim(to_string(filter || "")) do
+      "" -> true
+      q -> String.contains?(@section_keywords[id] || "", String.downcase(q))
+    end
+  end
+
+  # The anchor rail renders from this, not from hand-written links, so a
+  # future card cannot forget its anchor -- and the filter can narrow the
+  # rail with the cards instead of pointing at hidden sections.
+  defp nav_sections do
+    [
+      {"settings-appearance", "Appearance"},
+      {"settings-authentication", "Authentication"},
+      {"settings-plex", "Plex"},
+      {"settings-libraries", "Libraries"},
+      {"settings-scheduling", "Scheduling"},
+      {"settings-root-folders", "Root folders"},
+      {"settings-path-mappings", "Path mappings"},
+      {"settings-theme-downloads", "Downloads"},
+      {"settings-theme-crop", "Crop"},
+      {"notifications-card", "Notifications"},
+      {"backups-card", "Backups"},
+      {"settings-logs", "Logs"}
+    ]
+  end
+
+  # Which cards differ from shipped defaults, so the eye lands on what the
+  # operator actually changed. Stored keys, not effective values: an env var
+  # is deployment, not a decision made here. Appearance and Logs never qualify
+  # -- one lives in the browser, the other has no settings.
+  defp modified_sections(assigns) do
+    keys =
+      Fanfarr.Settings.list_settings!()
+      |> Enum.map(& &1.key)
+      |> MapSet.new()
+
+    has_any = fn prefixes ->
+      Enum.any?(keys, fn key -> Enum.any?(prefixes, &String.starts_with?(key, &1)) end)
+    end
+
+    [
+      {"settings-authentication", MapSet.member?(keys, "bypass_auth_for_local_networks")},
+      {"settings-plex", has_any.(["plex_"])},
+      {"settings-libraries", Enum.any?(assigns.sections, & &1.enabled)},
+      {"settings-scheduling", has_any.(["sync_interval_hours", "themerrdb_interval_hours"])},
+      {"settings-root-folders", assigns.root_folders != []},
+      {"settings-path-mappings", has_any.(["path_mappings"])},
+      {"settings-theme-downloads",
+       has_any.(["ytdlp_proxy", "theme_loudness_lufs", "search_blacklist"])},
+      {"settings-theme-crop", has_any.(["auto_crop_"])},
+      {"notifications-card", has_any.(["notify_"])},
+      {"backups-card", has_any.(["backup_"])}
+    ]
+    |> Enum.filter(&elem(&1, 1))
+    |> Enum.map(&elem(&1, 0))
+    |> MapSet.new()
   end
 
   # Blank clears the setting, which is how a field goes back to its default. A
@@ -186,6 +272,14 @@ defmodule FanfarrWeb.SettingsLive.Index do
     |> assign(:notify_configured, Fanfarr.Notify.enabled?())
     |> assign(:notify_types, notify_types())
     |> assign(:schedules, schedules())
+    |> then(fn socket ->
+      assigns = socket.assigns
+
+      assign(socket,
+        modified_sections: modified_sections(assigns),
+        collapsed_sections: collapsed_sections()
+      )
+    end)
   end
 
   # Each recurring task with everything the section renders: what it is, how
@@ -207,6 +301,26 @@ defmodule FanfarrWeb.SettingsLive.Index do
   # "Test" sees what is typed rather than what was last saved -- testing before
   # saving is the whole point of a test button.
   @impl true
+  def handle_event("filter_sections", %{"q" => q}, socket) do
+    {:noreply, assign(socket, :settings_filter, q)}
+  end
+
+  def handle_event("clear_filter", _params, socket) do
+    {:noreply, assign(socket, :settings_filter, "")}
+  end
+
+  def handle_event("toggle_card", %{"id" => id}, socket) do
+    collapsed =
+      if MapSet.member?(socket.assigns.collapsed_sections, id) do
+        MapSet.delete(socket.assigns.collapsed_sections, id)
+      else
+        MapSet.put(socket.assigns.collapsed_sections, id)
+      end
+
+    Fanfarr.Settings.put_setting!("ui_collapsed_sections", Enum.join(collapsed, ","))
+    {:noreply, assign(socket, :collapsed_sections, collapsed)}
+  end
+
   def handle_event("plex_form", %{"intent" => "test"} = params, socket) do
     with {:ok, url} <- Fanfarr.Config.normalize_plex_url(params["plex_url"] || ""),
          {:ok, token} <- token_from(params) do
@@ -768,7 +882,10 @@ defmodule FanfarrWeb.SettingsLive.Index do
       current_user={@current_user}
       queue={@queue}
     >
-      <div class="max-w-3xl space-y-6">
+      <div
+        class="space-y-6 lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:items-start lg:gap-6 lg:space-y-0"
+        id="settings-layout"
+      >
         <Layouts.page_header title="Settings">
           <:subtitle>
             Everything here takes effect without a restart, and overrides the matching
@@ -777,980 +894,1354 @@ defmodule FanfarrWeb.SettingsLive.Index do
         </Layouts.page_header>
 
         <nav
+          id="settings-nav"
+          phx-hook=".SettingsNav"
           aria-label="Settings sections"
-          class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"
+          class="lg:sticky lg:top-4 lg:row-span-2 lg:self-start"
         >
-          <a href="#settings-appearance" class="hover:text-primary hover:underline">Appearance</a>
-          <a href="#settings-authentication" class="hover:text-primary hover:underline">Authentication</a>
-          <a href="#settings-plex" class="hover:text-primary hover:underline">Plex</a>
-          <a href="#settings-libraries" class="hover:text-primary hover:underline">Libraries</a>
-          <a href="#settings-scheduling" class="hover:text-primary hover:underline">Scheduling</a>
-          <a href="#settings-root-folders" class="hover:text-primary hover:underline">Root folders</a>
-          <a href="#settings-path-mappings" class="hover:text-primary hover:underline">Path mappings</a>
-          <a href="#settings-theme-downloads" class="hover:text-primary hover:underline">Downloads</a>
-          <a href="#settings-theme-crop" class="hover:text-primary hover:underline">Crop</a>
-          <a href="#notifications-card" class="hover:text-primary hover:underline">Notifications</a>
-          <a href="#backups-card" class="hover:text-primary hover:underline">Backups</a>
-          <a href="#settings-logs" class="hover:text-primary hover:underline">Logs</a>
+          <form
+            id="settings-filter"
+            phx-change="filter_sections"
+            class="mb-2"
+            aria-label="Filter settings"
+          >
+            <input
+              type="search"
+              name="q"
+              value={@settings_filter}
+              placeholder="Filter settings…"
+              autocomplete="off"
+              class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground"
+            />
+          </form>
+          <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground lg:flex-col lg:items-start lg:gap-1.5">
+            <a
+              :for={{id, label} <- nav_sections()}
+              :if={section_visible?(@settings_filter, id)}
+              href={"#" <> id}
+              data-section-link={id}
+              class="hover:text-primary hover:underline"
+            >{label}</a>
+          </div>
+          <script :type={Phoenix.LiveView.ColocatedHook} name=".SettingsNav">
+            export default {
+              mounted() {
+                const links = new Map(
+                  Array.from(this.el.querySelectorAll("[data-section-link]")).map((a) => [
+                    a.getAttribute("data-section-link"),
+                    a,
+                  ])
+                )
+                const mark = (id) => {
+                  links.forEach((a, key) => {
+                    const on = key === id
+                    a.classList.toggle("text-primary", on)
+                    a.classList.toggle("font-medium", on)
+                  })
+                }
+                this.observer = new IntersectionObserver(
+                  (entries) => {
+                    entries.forEach((e) => {
+                      if (e.isIntersecting) mark(e.target.id)
+                    })
+                  },
+                  {rootMargin: "-30% 0px -60% 0px"}
+                )
+                links.forEach((_, id) => {
+                  const el = document.getElementById(id)
+                  if (el) this.observer.observe(el)
+                })
+              },
+              destroyed() {
+                if (this.observer) this.observer.disconnect()
+              },
+            }
+          </script>
         </nav>
 
-        <section
-          id="settings-appearance"
-          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
-        >
-          <h2 class="text-sm font-semibold text-card-foreground">Appearance</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Stored in this browser, not on the server — each device remembers its own.
-          </p>
-          <div class="mt-3">
-            <Layouts.theme_toggle />
-          </div>
-        </section>
-
-        <section
-          id="settings-authentication"
-          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
-        >
-          <h2 class="text-sm font-semibold text-card-foreground">Authentication</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Skip sign-in for requests from a local address (loopback, 10/8, 172.16/12,
-            192.168/16, link-local), so anyone already on your network goes straight in.
-            Checked against the actual connection, not a header, so it cannot be spoofed
-            from outside. If Fanfarr sits behind a reverse proxy, this is the proxy's own
-            address — every request will look local, and the bypass will apply to all of
-            them.
-          </p>
-          <div class="mt-3 flex items-center justify-between">
-            <p class="text-sm font-medium">Disable authentication for local addresses</p>
-            <button
-              phx-click="toggle_local_auth_bypass"
-              class={[
-                "rounded-full px-3 py-1 text-xs font-medium",
-                @local_auth_bypass && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-                !@local_auth_bypass && "bg-muted text-muted-foreground"
-              ]}
-            >
-              {if @local_auth_bypass, do: "Enabled", else: "Disabled"}
-            </button>
-          </div>
-        </section>
-
-        <section id="settings-plex" class="rounded-lg border border-border bg-card p-4 scroll-mt-4">
-          <h2 class="text-sm font-semibold text-card-foreground">Plex</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Values here override PLEX_URL / PLEX_TOKEN from the environment.
-          </p>
-          <form id="plex-form" phx-submit="plex_form" class="mt-4 space-y-3">
-            <div>
-              <label class="text-xs font-medium text-muted-foreground">Server URL</label>
-              <input
-                type="text"
-                name="plex_url"
-                value={@plex_url}
-                placeholder="http://host.docker.internal:32400"
-                spellcheck="false"
-                class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              />
-            </div>
-            <div>
-              <label class="text-xs font-medium text-muted-foreground">
-                Token {if @plex_token_set, do: "(set — leave blank to keep)", else: ""}
-              </label>
-              <input
-                type="password"
-                name="plex_token"
-                placeholder={if @plex_token_set, do: "••••••••", else: "X-Plex-Token"}
-                autocomplete="off"
-                class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              />
-            </div>
-            <div class="flex items-center gap-2">
-              <button
-                name="intent"
-                value="save"
-                class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              >
-                Save
-              </button>
-              <button
-                name="intent"
-                value="test"
-                disabled={@testing}
-                class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-              >
-                <.icon :if={@testing} name="lucide-loader-circle" class="size-4 animate-spin" />
-                {if @testing, do: "Testing…", else: "Test connection"}
-              </button>
-              <span :if={@test_result} class="text-sm">
-                <span
-                  :if={match?({:ok, _}, @test_result)}
-                  class="text-emerald-600 dark:text-emerald-400"
-                >
-                  {elem(@test_result, 1)}
-                </span>
-                <span :if={match?({:error, _}, @test_result)} class="text-destructive">
-                  {elem(@test_result, 1)}
-                </span>
-              </span>
-            </div>
-          </form>
-        </section>
-
-        <section
-          id="settings-libraries"
-          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
-        >
-          <h2 class="text-sm font-semibold text-card-foreground">Libraries</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Disabled by default: uploads cannot be undone, so each library is opt-in.
-            Sync from the Library page discovers new ones.
-          </p>
-          <div :if={@sections == []} class="mt-4 text-sm text-muted-foreground">
-            None discovered yet — configure Plex above, then Sync from the Library page.
-          </div>
-          <ul class="mt-3 divide-y divide-border/60">
-            <li :for={s <- @sections} class="flex items-center justify-between py-2">
-              <div>
-                <p class="text-sm font-medium">{s.title}</p>
-                <p class="text-xs text-muted-foreground">
-                  {if s.kind == :show, do: "Series", else: "Movies"} · plex key {s.plex_key}
-                </p>
-              </div>
-              <button
-                phx-click="toggle_section"
-                phx-value-id={s.id}
-                class={[
-                  "rounded-full px-3 py-1 text-xs font-medium",
-                  s.enabled && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-                  !s.enabled && "bg-muted text-muted-foreground"
-                ]}
-              >
-                {if s.enabled, do: "Enabled", else: "Disabled"}
-              </button>
-            </li>
-          </ul>
-        </section>
-
-        <section
-          id="settings-scheduling"
-          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
-        >
-          <h2 class="text-sm font-semibold text-card-foreground">Scheduling</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            How often Fanfarr starts this work on its own. 0 turns a schedule off — the
-            buttons still work, nothing else changes. Checked every five minutes, so an
-            interval is accurate to about that.
-          </p>
-          <form id="schedules-form" phx-submit="save_schedules" class="mt-4 space-y-4">
-            <div :for={schedule <- @schedules} class="flex flex-wrap items-start gap-3">
-              <div class="min-w-56 flex-1">
-                <label
-                  class="text-xs font-medium text-muted-foreground"
-                  for={"schedule-#{schedule.key}"}
-                >
-                  {schedule.label}
-                </label>
-                <p class="mt-0.5 text-xs text-muted-foreground">{schedule.description}</p>
-                <p class="mt-1 font-mono text-[11px] text-muted-foreground">
-                  last run {relative(schedule.last_run_at)} · next {next_label(schedule)}
-                </p>
-              </div>
-              <div class="flex items-center gap-2">
-                <input
-                  type="text"
-                  inputmode="numeric"
-                  id={"schedule-#{schedule.key}"}
-                  name={schedule.key}
-                  value={schedule.hours}
-                  class="mt-1 h-9 w-20 rounded-md border border-input bg-background px-3 font-mono text-sm"
-                />
-                <span class="mt-1 text-xs text-muted-foreground">hours</span>
-              </div>
-            </div>
-            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Save
-            </button>
-          </form>
-        </section>
-
-        <section
-          id="settings-root-folders"
-          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
-        >
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-card-foreground">Root folders</h2>
-            <button
-              phx-click="recheck_root_folders"
-              class="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground"
-            >
-              Re-check
-            </button>
-          </div>
-          <p class="mt-1 text-xs text-muted-foreground">
-            The container paths your libraries are mounted at (/tv1, /movies1 …), as in Sonarr.
-            Items are located by directory name across these, and themes are written to the
-            drive that actually holds the show.
-          </p>
-          <ul class="mt-3 divide-y divide-border/60">
-            <li :for={rf <- @root_folders} class="flex items-center justify-between py-2">
-              <div>
-                <p class="font-mono text-sm">{rf.path}</p>
-                <p class="text-xs text-muted-foreground">
-                  {(rf.label != "" && rf.label) || rf.kind}
-                  <span :if={rf.checked_at}>
-                    · {if rf.accessible, do: "accessible", else: "NOT ACCESSIBLE"} · {if rf.writable,
-                      do: "writable",
-                      else: "read-only"}{if rf.free_bytes,
-                      do: " · #{FanfarrWeb.Format.bytes(rf.free_bytes)} free"}
-                  </span>
-                </p>
-              </div>
-              <button
-                phx-click="delete_root_folder"
-                phx-value-id={rf.id}
-                class="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              >
-                <.icon name="lucide-trash" class="size-4" />
-              </button>
-            </li>
-          </ul>
-          <form
-            id="root-folder-form"
-            phx-submit="add_root_folder"
-            class="mt-3 flex flex-wrap items-end gap-2"
+        <div class="min-w-0 space-y-6">
+          <section
+            :if={section_visible?(@settings_filter, "settings-appearance")}
+            id="settings-appearance"
+            data-collapsed={if MapSet.member?(@collapsed_sections, "settings-appearance"), do: "true"}
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
           >
-            <div class="flex">
-              <input
-                type="text"
-                name="path"
-                value={@folder_path}
-                placeholder="/tv1"
-                class="h-9 w-44 rounded-l-md border border-input bg-background px-3 font-mono text-sm"
-              />
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">Appearance</h2>
               <button
                 type="button"
-                phx-click="browse"
-                phx-value-path={@folder_path}
-                class="h-9 rounded-r-md border border-l-0 border-input px-2 text-xs hover:bg-accent hover:text-accent-foreground"
-                title="Browse the container's filesystem"
+                phx-click="toggle_card"
+                phx-value-id="settings-appearance"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               >
-                <.icon name="lucide-folder-open" class="size-4" />
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "settings-appearance") && "rotate-180"
+                  ]}
+                />
               </button>
             </div>
-            <input
-              type="text"
-              name="label"
-              placeholder="label (optional)"
-              class="h-9 w-40 rounded-md border border-input bg-background px-3 text-sm"
-            />
-            <select name="kind" class="h-9 rounded-md border border-input bg-background px-2 text-sm">
-              <option value="any">Any</option>
-              <option value="show">Series</option>
-              <option value="movie">Movies</option>
-            </select>
-            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Add
-            </button>
-          </form>
-        </section>
-
-        <section
-          id="settings-path-mappings"
-          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
-        >
-          <h2 class="text-sm font-semibold text-card-foreground">Path mappings</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Only for prefixes root folders cannot cover. plex_prefix:local_prefix pairs,
-            separated by semicolons; longest match wins.
-          </p>
-          <form id="path-mappings-form" phx-submit="save_paths" class="mt-3 flex gap-2">
-            <input
-              type="text"
-              name="path_mappings"
-              value={@path_mappings}
-              placeholder="/media/merged-storage/TV:/tv"
-              class="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm sm:h-9"
-            />
-            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Save
-            </button>
-          </form>
-        </section>
-
-        <section
-          id="settings-theme-downloads"
-          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
-        >
-          <h2 class="text-sm font-semibold text-card-foreground">Theme downloads</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Overrides YTDLP_PROXY and THEME_LOUDNESS_LUFS from the environment.
-          </p>
-          <form
-            id="apply-concurrency-form"
-            phx-submit="save_apply_concurrency"
-            class="mt-3 flex items-end gap-2"
-          >
-            <div class="flex-1">
-              <label class="text-xs font-medium text-muted-foreground" for="apply-concurrency">
-                Themes at once
-              </label>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                How many themes download and apply in parallel, {@apply_concurrency_range.first}–{@apply_concurrency_range.last}.
-                Raising it finishes a bulk run sooner; each job downloads audio, re-encodes it
-                and writes to your media drive, and YouTube is less forgiving of many parallel
-                requests from one address. Takes effect on work already queued.
-              </p>
-              <input
-                type="text"
-                inputmode="numeric"
-                id="apply-concurrency"
-                name="apply_concurrency"
-                value={@apply_concurrency}
-                class="mt-2 h-9 w-20 rounded-md border border-input bg-background px-3 font-mono text-sm"
-              />
-            </div>
-            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Save
-            </button>
-          </form>
-          <%!-- With the downloader, because that is what these are about:
-          patterns for results that are not worth offering because they will
-          not download. --%>
-          <form id="search-blacklist-form" phx-submit="save_search_blacklist" class="mt-4">
-            <label class="text-xs font-medium text-muted-foreground" for="search-blacklist">
-              Search blocklist
-            </label>
-            <p class="mt-0.5 text-xs text-muted-foreground">
-              One regular expression per line, matched case-insensitively against each result's
-              title and channel. Anything that matches is hidden from YouTube search results, and
-              the page says how many went.
-            </p>
             <p class="mt-1 text-xs text-muted-foreground">
-              <span class="font-medium">What <code class="font-mono">vevo</code> catches:</span>
-              less than you might expect. A search listing reports the artist, not the channel —
-              Taylor Swift's official upload comes back as "Taylor Swift" with no VEVO anywhere
-              in it. Measured over ten results for "official music video vevo", one matched. To
-              catch the rest, add a pattern on the title, such as <code class="font-mono">\(Official.*Video\)</code>.
+              Stored in this browser, not on the server — each device remembers its own.
             </p>
-            <textarea
-              id="search-blacklist"
-              name="search_blacklist"
-              rows="4"
-              spellcheck="false"
-              placeholder="vevo"
-              class="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
-            >{@search_blacklist}</textarea>
-            <div class="mt-2 flex items-center gap-2">
+            <div class="mt-3">
+              <Layouts.theme_toggle />
+            </div>
+          </section>
+
+          <section
+            :if={section_visible?(@settings_filter, "settings-authentication")}
+            id="settings-authentication"
+            data-collapsed={
+              if MapSet.member?(@collapsed_sections, "settings-authentication"), do: "true"
+            }
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Authentication<span
+                  :if={MapSet.member?(@modified_sections, "settings-authentication")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="settings-authentication"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "settings-authentication") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Skip sign-in for requests from a local address (loopback, 10/8, 172.16/12,
+              192.168/16, link-local), so anyone already on your network goes straight in.
+              Checked against the actual connection, not a header, so it cannot be spoofed
+              from outside. If Fanfarr sits behind a reverse proxy, this is the proxy's own
+              address — every request will look local, and the bypass will apply to all of
+              them.
+            </p>
+            <div class="mt-3 flex items-center justify-between">
+              <p class="text-sm font-medium">Disable authentication for local addresses</p>
+              <button
+                phx-click="toggle_local_auth_bypass"
+                class={[
+                  "rounded-full px-3 py-1 text-xs font-medium",
+                  @local_auth_bypass && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                  !@local_auth_bypass && "bg-muted text-muted-foreground"
+                ]}
+              >
+                {if @local_auth_bypass, do: "Enabled", else: "Disabled"}
+              </button>
+            </div>
+          </section>
+
+          <section
+            :if={section_visible?(@settings_filter, "settings-plex")}
+            id="settings-plex"
+            data-collapsed={if MapSet.member?(@collapsed_sections, "settings-plex"), do: "true"}
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Plex<span
+                  :if={MapSet.member?(@modified_sections, "settings-plex")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="settings-plex"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "settings-plex") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Values here override PLEX_URL / PLEX_TOKEN from the environment.
+            </p>
+            <form id="plex-form" phx-submit="plex_form" class="mt-4 space-y-3">
+              <div>
+                <label class="text-xs font-medium text-muted-foreground">Server URL</label>
+                <input
+                  type="text"
+                  name="plex_url"
+                  value={@plex_url}
+                  placeholder="http://host.docker.internal:32400"
+                  spellcheck="false"
+                  class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                />
+              </div>
+              <div>
+                <label class="text-xs font-medium text-muted-foreground">
+                  Token {if @plex_token_set, do: "(set — leave blank to keep)", else: ""}
+                </label>
+                <input
+                  type="password"
+                  name="plex_token"
+                  placeholder={if @plex_token_set, do: "••••••••", else: "X-Plex-Token"}
+                  autocomplete="off"
+                  class="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                />
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  name="intent"
+                  value="save"
+                  class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  Save
+                </button>
+                <button
+                  name="intent"
+                  value="test"
+                  disabled={@testing}
+                  class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+                >
+                  <.icon :if={@testing} name="lucide-loader-circle" class="size-4 animate-spin" />
+                  {if @testing, do: "Testing…", else: "Test connection"}
+                </button>
+                <span :if={@test_result} class="text-sm">
+                  <span
+                    :if={match?({:ok, _}, @test_result)}
+                    class="text-emerald-600 dark:text-emerald-400"
+                  >
+                    {elem(@test_result, 1)}
+                  </span>
+                  <span :if={match?({:error, _}, @test_result)} class="text-destructive">
+                    {elem(@test_result, 1)}
+                  </span>
+                </span>
+              </div>
+            </form>
+          </section>
+
+          <section
+            :if={section_visible?(@settings_filter, "settings-libraries")}
+            id="settings-libraries"
+            data-collapsed={if MapSet.member?(@collapsed_sections, "settings-libraries"), do: "true"}
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Libraries<span
+                  :if={MapSet.member?(@modified_sections, "settings-libraries")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="settings-libraries"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "settings-libraries") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Disabled by default: uploads cannot be undone, so each library is opt-in.
+              Sync from the Library page discovers new ones.
+            </p>
+            <div :if={@sections == []} class="mt-4 text-sm text-muted-foreground">
+              None discovered yet — configure Plex above, then Sync from the Library page.
+            </div>
+            <ul class="mt-3 divide-y divide-border/60">
+              <li :for={s <- @sections} class="flex items-center justify-between py-2">
+                <div>
+                  <p class="text-sm font-medium">{s.title}</p>
+                  <p class="text-xs text-muted-foreground">
+                    {if s.kind == :show, do: "Series", else: "Movies"} · plex key {s.plex_key}
+                  </p>
+                </div>
+                <button
+                  phx-click="toggle_section"
+                  phx-value-id={s.id}
+                  class={[
+                    "rounded-full px-3 py-1 text-xs font-medium",
+                    s.enabled && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                    !s.enabled && "bg-muted text-muted-foreground"
+                  ]}
+                >
+                  {if s.enabled, do: "Enabled", else: "Disabled"}
+                </button>
+              </li>
+            </ul>
+          </section>
+
+          <section
+            :if={section_visible?(@settings_filter, "settings-scheduling")}
+            id="settings-scheduling"
+            data-collapsed={if MapSet.member?(@collapsed_sections, "settings-scheduling"), do: "true"}
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Scheduling<span
+                  :if={MapSet.member?(@modified_sections, "settings-scheduling")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="settings-scheduling"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "settings-scheduling") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              How often Fanfarr starts this work on its own. 0 turns a schedule off — the
+              buttons still work, nothing else changes. Checked every five minutes, so an
+              interval is accurate to about that.
+            </p>
+            <form id="schedules-form" phx-submit="save_schedules" class="mt-4 space-y-4">
+              <div :for={schedule <- @schedules} class="flex flex-wrap items-start gap-3">
+                <div class="min-w-56 flex-1">
+                  <label
+                    class="text-xs font-medium text-muted-foreground"
+                    for={"schedule-#{schedule.key}"}
+                  >
+                    {schedule.label}
+                  </label>
+                  <p class="mt-0.5 text-xs text-muted-foreground">{schedule.description}</p>
+                  <p class="mt-1 font-mono text-[11px] text-muted-foreground">
+                    last run {relative(schedule.last_run_at)} · next {next_label(schedule)}
+                  </p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <input
+                    type="text"
+                    inputmode="numeric"
+                    id={"schedule-#{schedule.key}"}
+                    name={schedule.key}
+                    value={schedule.hours}
+                    class="mt-1 h-9 w-20 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                  />
+                  <span class="mt-1 text-xs text-muted-foreground">hours</span>
+                </div>
+              </div>
               <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
                 Save
               </button>
-              <span class="text-xs text-muted-foreground">
-                Up to {@blacklist_limits.patterns} patterns, {@blacklist_limits.length} characters each.
-              </span>
-            </div>
-          </form>
+            </form>
+          </section>
 
-          <form
-            id="ytdlp-proxy-form"
-            phx-submit="save_ytdlp_proxy"
-            class="mt-4 flex items-end gap-2"
+          <section
+            :if={section_visible?(@settings_filter, "settings-root-folders")}
+            id="settings-root-folders"
+            data-collapsed={
+              if MapSet.member?(@collapsed_sections, "settings-root-folders"), do: "true"
+            }
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
           >
-            <div class="flex-1">
-              <label class="text-xs font-medium text-muted-foreground">yt-dlp proxy</label>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                Only yt-dlp's own traffic goes through this — Plex and ThemerrDB are unaffected.
-                YouTube bot-checks a datacenter address harder than a residential one.
-              </p>
-              <input
-                type="text"
-                name="ytdlp_proxy"
-                value={@ytdlp_proxy}
-                placeholder="socks5://host:1080"
-                spellcheck="false"
-                class="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
-              />
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Root folders<span
+                  :if={MapSet.member?(@modified_sections, "settings-root-folders")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  phx-click="toggle_card"
+                  phx-value-id="settings-root-folders"
+                  aria-label="Collapse section"
+                  title="Collapse section"
+                  class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                >
+                  <.icon
+                    name="lucide-chevron-down"
+                    class={[
+                      "size-4 transition-transform",
+                      MapSet.member?(@collapsed_sections, "settings-root-folders") && "rotate-180"
+                    ]}
+                  />
+                </button>
+                <button
+                  phx-click="recheck_root_folders"
+                  class="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground"
+                >
+                  Re-check
+                </button>
+              </div>
             </div>
-            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Save
-            </button>
-          </form>
-          <form
-            id="loudness-form"
-            phx-submit="save_loudness"
-            class="mt-4 flex items-end gap-2"
-          >
-            <div class="flex-1">
-              <label class="text-xs font-medium text-muted-foreground">Loudness target (LUFS)</label>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                Every applied theme is normalised to this. -14 matches the streaming services;
-                leave blank to use that default.
-              </p>
-              <input
-                type="text"
-                inputmode="decimal"
-                name="theme_loudness_lufs"
-                value={@theme_loudness_lufs}
-                placeholder="-14"
-                class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
-              />
-            </div>
-            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Save
-            </button>
-          </form>
-        </section>
-        <section
-          id="settings-theme-crop"
-          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
-        >
-          <h2 class="text-sm font-semibold text-card-foreground">Theme crop</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            A theme loops in a detail page rather than being listened to, so eleven
-            minutes of music is a lot of library disk to play ninety seconds of. This
-            is the length the item page suggests when you press the Suggest button; it proposes, and you decide. A title with its own crop length set on its page aims at that instead.
-          </p>
-          <form id="crop-form" phx-submit="save_crop" class="mt-4 space-y-4">
-            <div class="space-y-1">
-              <label class="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  name="auto_crop_enabled"
-                  value="true"
-                  checked={@crop_enabled}
-                  class="size-4 rounded border-input"
-                /> Offer a crop suggestion on the item page
-              </label>
-              <p class="text-xs text-muted-foreground">
-                Off, the item page stops offering one and nothing is fetched or decoded;
-                trimming by hand is unaffected. The three settings below only apply while
-                this is on, and are kept either way.
-              </p>
-            </div>
-
-            <%!-- Dimmed rather than disabled when the feature is off: a disabled
-            input is not submitted, so Save would then clear the lengths rather
-            than leave them alone. --%>
-            <div class={not @crop_enabled && "opacity-60"}>
-              <label class="text-xs font-medium text-muted-foreground">Crop length (seconds)</label>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                Defaults to 90. Leave blank to go back to that.
-              </p>
-              <input
-                type="text"
-                inputmode="numeric"
-                name="auto_crop_seconds"
-                value={@crop_seconds}
-                placeholder="90"
-                class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
-              />
-            </div>
-
-            <div class={not @crop_enabled && "opacity-60"}>
-              <label class="text-xs font-medium text-muted-foreground">
-                Only crop themes longer than (seconds)
-              </label>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                The unattended rule: a theme that arrives longer than this is cropped on
-                the way in, and one shorter than it is written whole. Blank means the
-                crop length itself. Raise it if saving a few seconds is not worth
-                re-encoding the file. A trim you ask for by hand -- the item page's
-                button, or Trim in the library -- uses the crop length instead, so it
-                only declines a theme too short to hold it.
-              </p>
-              <input
-                type="text"
-                inputmode="numeric"
-                name="auto_crop_min_seconds"
-                value={@crop_min_seconds}
-                placeholder={Integer.to_string(@crop_seconds)}
-                class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
-              />
-            </div>
-
-            <div class={["space-y-1", not @crop_enabled && "opacity-60"]}>
-              <label class="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  name="auto_crop_graph"
-                  value="true"
-                  checked={@crop_graph}
-                  class="size-4 rounded border-input"
-                /> Ask YouTube's viewership graph first
-              </label>
-              <p class="text-xs text-muted-foreground">
-                On, the suggestion comes from the parts viewers replay; where there is no
-                graph it falls back to the audio. Off keeps the whole thing local: the
-                audio is decoded and analysed in the container.
-              </p>
-            </div>
-
-            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Save
-            </button>
-          </form>
-        </section>
-        <section
-          id="notifications-card"
-          class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
-        >
-          <h2 class="text-sm font-semibold text-card-foreground">Notifications</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Fanfarr runs on its own, so a failure is only news if something says so. One
-            webhook, and a switch for each kind of event. With no URL set, nothing is sent at
-            all.
-          </p>
-
-          <form id="notifications-form" phx-submit="save_notifications" class="mt-4 space-y-4">
-            <div class="grid gap-4 sm:grid-cols-[1fr_10rem]">
-              <div class="space-y-1">
-                <label class="text-xs font-medium text-muted-foreground">Webhook URL</label>
+            <p class="mt-1 text-xs text-muted-foreground">
+              The container paths your libraries are mounted at (/tv1, /movies1 …), as in Sonarr.
+              Items are located by directory name across these, and themes are written to the
+              drive that actually holds the show.
+            </p>
+            <ul class="mt-3 divide-y divide-border/60">
+              <li :for={rf <- @root_folders} class="flex items-center justify-between py-2">
+                <div>
+                  <p class="font-mono text-sm">{rf.path}</p>
+                  <p class="text-xs text-muted-foreground">
+                    {(rf.label != "" && rf.label) || rf.kind}
+                    <span :if={rf.checked_at}>
+                      · {if rf.accessible, do: "accessible", else: "NOT ACCESSIBLE"} · {if rf.writable,
+                        do: "writable",
+                        else: "read-only"}{if rf.free_bytes,
+                        do: " · #{FanfarrWeb.Format.bytes(rf.free_bytes)} free"}
+                    </span>
+                  </p>
+                </div>
+                <button
+                  phx-click="delete_root_folder"
+                  phx-value-id={rf.id}
+                  class="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <.icon name="lucide-trash" class="size-4" />
+                </button>
+              </li>
+            </ul>
+            <form
+              id="root-folder-form"
+              phx-submit="add_root_folder"
+              class="mt-3 flex flex-wrap items-end gap-2"
+            >
+              <div class="flex">
                 <input
                   type="text"
-                  name="notify_url"
-                  value={@notify_url}
-                  placeholder="https://ntfy.sh/my-fanfarr-topic"
+                  name="path"
+                  value={@folder_path}
+                  placeholder="/tv1"
+                  class="h-9 w-44 rounded-l-md border border-input bg-background px-3 font-mono text-sm"
+                />
+                <button
+                  type="button"
+                  phx-click="browse"
+                  phx-value-path={@folder_path}
+                  class="h-9 rounded-r-md border border-l-0 border-input px-2 text-xs hover:bg-accent hover:text-accent-foreground"
+                  title="Browse the container's filesystem"
+                >
+                  <.icon name="lucide-folder-open" class="size-4" />
+                </button>
+              </div>
+              <input
+                type="text"
+                name="label"
+                placeholder="label (optional)"
+                class="h-9 w-40 rounded-md border border-input bg-background px-3 text-sm"
+              />
+              <select
+                name="kind"
+                class="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="any">Any</option>
+                <option value="show">Series</option>
+                <option value="movie">Movies</option>
+              </select>
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Add
+              </button>
+            </form>
+          </section>
+
+          <section
+            :if={section_visible?(@settings_filter, "settings-path-mappings")}
+            id="settings-path-mappings"
+            data-collapsed={
+              if MapSet.member?(@collapsed_sections, "settings-path-mappings"), do: "true"
+            }
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Path mappings<span
+                  :if={MapSet.member?(@modified_sections, "settings-path-mappings")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="settings-path-mappings"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "settings-path-mappings") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Only for prefixes root folders cannot cover. plex_prefix:local_prefix pairs,
+              separated by semicolons; longest match wins.
+            </p>
+            <form id="path-mappings-form" phx-submit="save_paths" class="mt-3 flex gap-2">
+              <input
+                type="text"
+                name="path_mappings"
+                value={@path_mappings}
+                placeholder="/media/merged-storage/TV:/tv"
+                class="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm sm:h-9"
+              />
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Save
+              </button>
+            </form>
+          </section>
+
+          <section
+            :if={section_visible?(@settings_filter, "settings-theme-downloads")}
+            id="settings-theme-downloads"
+            data-collapsed={
+              if MapSet.member?(@collapsed_sections, "settings-theme-downloads"), do: "true"
+            }
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Theme downloads<span
+                  :if={MapSet.member?(@modified_sections, "settings-theme-downloads")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="settings-theme-downloads"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "settings-theme-downloads") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Overrides YTDLP_PROXY and THEME_LOUDNESS_LUFS from the environment.
+            </p>
+            <form
+              id="apply-concurrency-form"
+              phx-submit="save_apply_concurrency"
+              class="mt-3 flex items-end gap-2"
+            >
+              <div class="flex-1">
+                <label class="text-xs font-medium text-muted-foreground" for="apply-concurrency">
+                  Themes at once
+                </label>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  How many themes download and apply in parallel, {@apply_concurrency_range.first}–{@apply_concurrency_range.last}.
+                  Raising it finishes a bulk run sooner; each job downloads audio, re-encodes it
+                  and writes to your media drive, and YouTube is less forgiving of many parallel
+                  requests from one address. Takes effect on work already queued.
+                </p>
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  id="apply-concurrency"
+                  name="apply_concurrency"
+                  value={@apply_concurrency}
+                  class="mt-2 h-9 w-20 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+              </div>
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Save
+              </button>
+            </form>
+            <%!-- With the downloader, because that is what these are about:
+          patterns for results that are not worth offering because they will
+          not download. --%>
+            <form id="search-blacklist-form" phx-submit="save_search_blacklist" class="mt-4">
+              <label class="text-xs font-medium text-muted-foreground" for="search-blacklist">
+                Search blocklist
+              </label>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                One regular expression per line, matched case-insensitively against each result's
+                title and channel. Anything that matches is hidden from YouTube search results, and
+                the page says how many went.
+              </p>
+              <p class="mt-1 text-xs text-muted-foreground">
+                <span class="font-medium">What <code class="font-mono">vevo</code> catches:</span>
+                less than you might expect. A search listing reports the artist, not the channel —
+                Taylor Swift's official upload comes back as "Taylor Swift" with no VEVO anywhere
+                in it. Measured over ten results for "official music video vevo", one matched. To
+                catch the rest, add a pattern on the title, such as <code class="font-mono">\(Official.*Video\)</code>.
+              </p>
+              <textarea
+                id="search-blacklist"
+                name="search_blacklist"
+                rows="4"
+                spellcheck="false"
+                placeholder="vevo"
+                class="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+              >{@search_blacklist}</textarea>
+              <div class="mt-2 flex items-center gap-2">
+                <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                  Save
+                </button>
+                <span class="text-xs text-muted-foreground">
+                  Up to {@blacklist_limits.patterns} patterns, {@blacklist_limits.length} characters each.
+                </span>
+              </div>
+            </form>
+
+            <form
+              id="ytdlp-proxy-form"
+              phx-submit="save_ytdlp_proxy"
+              class="mt-4 flex items-end gap-2"
+            >
+              <div class="flex-1">
+                <label class="text-xs font-medium text-muted-foreground">yt-dlp proxy</label>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  Only yt-dlp's own traffic goes through this — Plex and ThemerrDB are unaffected.
+                  YouTube bot-checks a datacenter address harder than a residential one.
+                </p>
+                <input
+                  type="text"
+                  name="ytdlp_proxy"
+                  value={@ytdlp_proxy}
+                  placeholder="socks5://host:1080"
+                  spellcheck="false"
+                  class="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+              </div>
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Save
+              </button>
+            </form>
+            <form
+              id="loudness-form"
+              phx-submit="save_loudness"
+              class="mt-4 flex items-end gap-2"
+            >
+              <div class="flex-1">
+                <label class="text-xs font-medium text-muted-foreground">Loudness target (LUFS)</label>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  Every applied theme is normalised to this. -14 matches the streaming services;
+                  leave blank to use that default.
+                </p>
+                <input
+                  type="text"
+                  inputmode="decimal"
+                  name="theme_loudness_lufs"
+                  value={@theme_loudness_lufs}
+                  placeholder="-14"
+                  class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+              </div>
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Save
+              </button>
+            </form>
+          </section>
+          <section
+            :if={section_visible?(@settings_filter, "settings-theme-crop")}
+            id="settings-theme-crop"
+            data-collapsed={if MapSet.member?(@collapsed_sections, "settings-theme-crop"), do: "true"}
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Theme crop<span
+                  :if={MapSet.member?(@modified_sections, "settings-theme-crop")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="settings-theme-crop"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "settings-theme-crop") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              A theme loops in a detail page rather than being listened to, so eleven
+              minutes of music is a lot of library disk to play ninety seconds of. This
+              is the length the item page suggests when you press the Suggest button; it proposes, and you decide. A title with its own crop length set on its page aims at that instead.
+            </p>
+            <form id="crop-form" phx-submit="save_crop" class="mt-4 space-y-4">
+              <div class="space-y-1">
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    name="auto_crop_enabled"
+                    value="true"
+                    checked={@crop_enabled}
+                    class="size-4 rounded border-input"
+                  /> Offer a crop suggestion on the item page
+                </label>
+                <p class="text-xs text-muted-foreground">
+                  Off, the item page stops offering one and nothing is fetched or decoded;
+                  trimming by hand is unaffected. The three settings below only apply while
+                  this is on, and are kept either way.
+                </p>
+              </div>
+
+              <%!-- Dimmed rather than disabled when the feature is off: a disabled
+            input is not submitted, so Save would then clear the lengths rather
+            than leave them alone. --%>
+              <div class={not @crop_enabled && "opacity-60"}>
+                <label class="text-xs font-medium text-muted-foreground">Crop length (seconds)</label>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  Defaults to 90. Leave blank to go back to that.
+                </p>
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  name="auto_crop_seconds"
+                  value={@crop_seconds}
+                  placeholder="90"
+                  class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+              </div>
+
+              <div class={not @crop_enabled && "opacity-60"}>
+                <label class="text-xs font-medium text-muted-foreground">
+                  Only crop themes longer than (seconds)
+                </label>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  The unattended rule: a theme that arrives longer than this is cropped on
+                  the way in, and one shorter than it is written whole. Blank means the
+                  crop length itself. Raise it if saving a few seconds is not worth
+                  re-encoding the file. A trim you ask for by hand -- the item page's
+                  button, or Trim in the library -- uses the crop length instead, so it
+                  only declines a theme too short to hold it.
+                </p>
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  name="auto_crop_min_seconds"
+                  value={@crop_min_seconds}
+                  placeholder={Integer.to_string(@crop_seconds)}
+                  class="mt-2 h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+              </div>
+
+              <div class={["space-y-1", not @crop_enabled && "opacity-60"]}>
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    name="auto_crop_graph"
+                    value="true"
+                    checked={@crop_graph}
+                    class="size-4 rounded border-input"
+                  /> Ask YouTube's viewership graph first
+                </label>
+                <p class="text-xs text-muted-foreground">
+                  On, the suggestion comes from the parts viewers replay; where there is no
+                  graph it falls back to the audio. Off keeps the whole thing local: the
+                  audio is decoded and analysed in the container.
+                </p>
+              </div>
+
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Save
+              </button>
+            </form>
+          </section>
+          <section
+            :if={section_visible?(@settings_filter, "notifications-card")}
+            id="notifications-card"
+            data-collapsed={if MapSet.member?(@collapsed_sections, "notifications-card"), do: "true"}
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Notifications<span
+                  :if={MapSet.member?(@modified_sections, "notifications-card")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="notifications-card"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "notifications-card") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Fanfarr runs on its own, so a failure is only news if something says so. One
+              webhook, and a switch for each kind of event. With no URL set, nothing is sent at
+              all.
+            </p>
+
+            <form id="notifications-form" phx-submit="save_notifications" class="mt-4 space-y-4">
+              <div class="grid gap-4 sm:grid-cols-[1fr_10rem]">
+                <div class="space-y-1">
+                  <label class="text-xs font-medium text-muted-foreground">Webhook URL</label>
+                  <input
+                    type="text"
+                    name="notify_url"
+                    value={@notify_url}
+                    placeholder="https://ntfy.sh/my-fanfarr-topic"
+                    class="h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
+                  />
+                  <p class="text-xs text-muted-foreground">
+                    Overrides NOTIFY_URL. Blank switches notifications off entirely.
+                  </p>
+                </div>
+
+                <div class="space-y-1">
+                  <label class="text-xs font-medium text-muted-foreground">Webhook Type</label>
+                  <select
+                    name="notify_style"
+                    class="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  >
+                    <option value="" selected={@notify_inferred}>Auto</option>
+                    <option
+                      :for={style <- @notify_styles}
+                      value={style}
+                      selected={not @notify_inferred and @notify_style == style}
+                    >
+                      {style}
+                    </option>
+                  </select>
+                  <p class="text-xs text-muted-foreground">
+                    Read from the URL by default: ntfy, Discord, Slack, Gotify, or a generic object.
+                  </p>
+                </div>
+              </div>
+
+              <div class="space-y-1">
+                <label class="text-xs font-medium text-muted-foreground">
+                  Gotify application token
+                </label>
+                <input
+                  type="text"
+                  name="notify_token"
+                  value={@notify_token}
+                  autocomplete="off"
                   class="h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
                 />
                 <p class="text-xs text-muted-foreground">
-                  Overrides NOTIFY_URL. Blank switches notifications off entirely.
+                  Only Gotify needs this, and only when the shape is Gotify.
                 </p>
               </div>
 
-              <div class="space-y-1">
-                <label class="text-xs font-medium text-muted-foreground">Webhook Type</label>
-                <select
-                  name="notify_style"
-                  class="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              <div class="space-y-2 border-t border-border pt-3">
+                <p class="text-xs font-medium text-muted-foreground">What to be told about</p>
+                <label :for={type <- @notify_types} class="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    name={type.setting}
+                    value="true"
+                    checked={type.switched_on}
+                    class="mt-0.5 size-4 rounded border-input"
+                  />
+                  <span>
+                    <span class="font-medium">{type.label}</span>
+                    <span class="block text-xs text-muted-foreground">{type.description}</span>
+                  </span>
+                </label>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                  Save
+                </button>
+                <button
+                  type="button"
+                  phx-click="test_notification"
+                  disabled={@testing_notification}
+                  class="h-9 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
                 >
-                  <option value="" selected={@notify_inferred}>Auto</option>
-                  <option
-                    :for={style <- @notify_styles}
-                    value={style}
-                    selected={not @notify_inferred and @notify_style == style}
-                  >
-                    {style}
-                  </option>
-                </select>
-                <p class="text-xs text-muted-foreground">
-                  Read from the URL by default: ntfy, Discord, Slack, Gotify, or a generic object.
-                </p>
+                  {if @testing_notification, do: "Sending…", else: "Send a test"}
+                </button>
+                <span
+                  :if={not @notify_configured}
+                  class="text-xs text-amber-600 dark:text-amber-400"
+                >
+                  No URL set, so nothing is being sent.
+                </span>
               </div>
+            </form>
+          </section>
+          <section
+            :if={section_visible?(@settings_filter, "backups-card")}
+            id="backups-card"
+            data-collapsed={if MapSet.member?(@collapsed_sections, "backups-card"), do: "true"}
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">
+                Backups<span
+                  :if={MapSet.member?(@modified_sections, "backups-card")}
+                  title="Customized"
+                  class="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+                ></span>
+              </h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="backups-card"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "backups-card") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              The database is everything Fanfarr knows — your settings, the mirror of Plex, and
+              the record of every theme it has written. A snapshot is a copy of it, taken with
+              SQLite's own <code class="font-mono">VACUUM INTO</code>, which is safe while the
+              app is running. Snapshots land in the config volume; restoring one is a file swap,
+              written out in <code class="font-mono">docs/deployment.md</code>.
+            </p>
+
+            <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+              <span class="font-medium text-foreground">
+                {@backups_usage.count} snapshot{if @backups_usage.count != 1, do: "s"}
+              </span>
+              <span class="text-muted-foreground">
+                {FanfarrWeb.Format.bytes(@backups_usage.bytes)}{if @backups_cap_bytes,
+                  do: " of #{FanfarrWeb.Format.bytes(@backups_cap_bytes)}"}
+              </span>
+              <span
+                :if={@backups_usage.newest && @backups_usage.newest.taken_at}
+                class="text-muted-foreground"
+              >
+                newest {Fanfarr.Clock.ago(@backups_usage.newest.taken_at)}
+              </span>
+              <span :if={is_nil(@backups_usage.newest)} class="text-muted-foreground">
+                none yet
+              </span>
+              <span class="ml-auto font-mono text-muted-foreground">{@backups_dir}</span>
             </div>
 
-            <div class="space-y-1">
-              <label class="text-xs font-medium text-muted-foreground">
-                Gotify application token
-              </label>
-              <input
-                type="text"
-                name="notify_token"
-                value={@notify_token}
-                autocomplete="off"
-                class="h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
-              />
-              <p class="text-xs text-muted-foreground">
-                Only Gotify needs this, and only when the shape is Gotify.
+            <div
+              :if={@restore_pending}
+              class="mt-3 space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs"
+            >
+              <p class="font-medium text-foreground">
+                A restore of {@restore_pending["source"]} is staged
               </p>
+              <p class="text-muted-foreground">
+                It is applied the next time Fanfarr starts, before anything opens the database.
+                The state being replaced was snapshotted first
+                ({@restore_pending["safety_snapshot"]}), and unfinished jobs will be dropped.
+              </p>
+              <button
+                phx-click="cancel_restore"
+                class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+              >Cancel the staged restore</button>
             </div>
 
-            <div class="space-y-2 border-t border-border pt-3">
-              <p class="text-xs font-medium text-muted-foreground">What to be told about</p>
-              <label :for={type <- @notify_types} class="flex items-start gap-2 text-sm">
+            <div
+              :if={@restore_target}
+              class="mt-3 space-y-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs"
+            >
+              <p class="font-medium text-foreground">Restore {@restore_target}?</p>
+              <p class="text-muted-foreground">
+                This replaces everything Fanfarr knows with what that snapshot holds — settings,
+                the library mirror, and the record of themes written. The file being replaced is
+                kept beside it as <code class="font-mono">fanfarr.db.replaced-…</code>, a
+                pre-restore snapshot is taken first, and any unfinished jobs are dropped. Fanfarr
+                restarts to apply it.
+              </p>
+              <form phx-submit="restore_confirm" class="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="name" value={@restore_target} />
+                <input
+                  type="text"
+                  name="confirm"
+                  autocomplete="off"
+                  placeholder="type restore"
+                  class="h-8 w-40 rounded-md border border-input bg-background px-2 font-mono text-xs"
+                />
+                <button class="h-8 rounded-md bg-destructive px-3 text-xs font-medium text-destructive-foreground hover:bg-destructive/90">
+                  Restore and restart
+                </button>
+                <button
+                  type="button"
+                  phx-click="restore_cancel"
+                  class="h-8 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground"
+                >Cancel</button>
+              </form>
+            </div>
+
+            <form id="backups-form" phx-submit="save_backups" class="mt-4 space-y-4">
+              <label class="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  name={type.setting}
+                  name="backup_enabled"
                   value="true"
-                  checked={type.switched_on}
-                  class="mt-0.5 size-4 rounded border-input"
-                />
-                <span>
-                  <span class="font-medium">{type.label}</span>
-                  <span class="block text-xs text-muted-foreground">{type.description}</span>
-                </span>
+                  checked={@backups_enabled}
+                  class="size-4 rounded border-input"
+                /> Take a snapshot automatically
               </label>
-            </div>
 
-            <div class="flex flex-wrap items-center gap-2">
-              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                Save
-              </button>
-              <button
-                type="button"
-                phx-click="test_notification"
-                disabled={@testing_notification}
-                class="h-9 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-              >
-                {if @testing_notification, do: "Sending…", else: "Send a test"}
-              </button>
-              <span
-                :if={not @notify_configured}
-                class="text-xs text-amber-600 dark:text-amber-400"
-              >
-                No URL set, so nothing is being sent.
-              </span>
-            </div>
-          </form>
-        </section>
-        <section id="backups-card" class="rounded-lg border border-border bg-card p-4 scroll-mt-4">
-          <h2 class="text-sm font-semibold text-card-foreground">Backups</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            The database is everything Fanfarr knows — your settings, the mirror of Plex, and
-            the record of every theme it has written. A snapshot is a copy of it, taken with
-            SQLite's own <code class="font-mono">VACUUM INTO</code>, which is safe while the
-            app is running. Snapshots land in the config volume; restoring one is a file swap,
-            written out in <code class="font-mono">docs/deployment.md</code>.
-          </p>
+              <div class={["grid gap-4 sm:grid-cols-3", not @backups_enabled && "opacity-60"]}>
+                <div class="space-y-1">
+                  <label class="text-xs font-medium text-muted-foreground">Every (hours)</label>
+                  <input
+                    type="text"
+                    inputmode="numeric"
+                    name="backup_interval_hours"
+                    value={@backups_interval_hours}
+                    placeholder="24"
+                    class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                  />
+                  <p class="text-xs text-muted-foreground">
+                    0 turns the schedule off; blank uses 24. Off means not automatically —
+                    <span class="font-medium text-foreground">Back up now</span>
+                    still works.
+                  </p>
+                </div>
 
-          <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
-            <span class="font-medium text-foreground">
-              {@backups_usage.count} snapshot{if @backups_usage.count != 1, do: "s"}
-            </span>
-            <span class="text-muted-foreground">
-              {FanfarrWeb.Format.bytes(@backups_usage.bytes)}{if @backups_cap_bytes,
-                do: " of #{FanfarrWeb.Format.bytes(@backups_cap_bytes)}"}
-            </span>
-            <span
-              :if={@backups_usage.newest && @backups_usage.newest.taken_at}
-              class="text-muted-foreground"
-            >
-              newest {Fanfarr.Clock.ago(@backups_usage.newest.taken_at)}
-            </span>
-            <span :if={is_nil(@backups_usage.newest)} class="text-muted-foreground">
-              none yet
-            </span>
-            <span class="ml-auto font-mono text-muted-foreground">{@backups_dir}</span>
-          </div>
+                <div class="space-y-1">
+                  <label class="text-xs font-medium text-muted-foreground">How many to keep</label>
+                  <input
+                    type="text"
+                    inputmode="numeric"
+                    name="backup_keep"
+                    value={@backups_keep}
+                    placeholder="7"
+                    class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                  />
+                  <p class="text-xs text-muted-foreground">
+                    Blank keeps 7. Older ones are deleted after each new snapshot; only files
+                    Fanfarr wrote are ever deleted.
+                  </p>
+                </div>
 
-          <div
-            :if={@restore_pending}
-            class="mt-3 space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs"
-          >
-            <p class="font-medium text-foreground">
-              A restore of {@restore_pending["source"]} is staged
-            </p>
-            <p class="text-muted-foreground">
-              It is applied the next time Fanfarr starts, before anything opens the database.
-              The state being replaced was snapshotted first
-              ({@restore_pending["safety_snapshot"]}), and unfinished jobs will be dropped.
-            </p>
-            <button
-              phx-click="cancel_restore"
-              class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
-            >Cancel the staged restore</button>
-          </div>
+                <div class="space-y-1">
+                  <label class="text-xs font-medium text-muted-foreground">Size cap (MB)</label>
+                  <input
+                    type="text"
+                    inputmode="numeric"
+                    name="backup_max_mb"
+                    value={@backups_max_mb}
+                    placeholder="0"
+                    class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                  />
+                  <p class="text-xs text-muted-foreground">
+                    The oldest are deleted once the snapshots add up to more than this. 0 or blank
+                    means no cap, and the newest is never deleted.
+                  </p>
+                </div>
+              </div>
 
-          <div
-            :if={@restore_target}
-            class="mt-3 space-y-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs"
-          >
-            <p class="font-medium text-foreground">Restore {@restore_target}?</p>
-            <p class="text-muted-foreground">
-              This replaces everything Fanfarr knows with what that snapshot holds — settings,
-              the library mirror, and the record of themes written. The file being replaced is
-              kept beside it as <code class="font-mono">fanfarr.db.replaced-…</code>, a
-              pre-restore snapshot is taken first, and any unfinished jobs are dropped. Fanfarr
-              restarts to apply it.
-            </p>
-            <form phx-submit="restore_confirm" class="flex flex-wrap items-center gap-2">
-              <input type="hidden" name="name" value={@restore_target} />
-              <input
-                type="text"
-                name="confirm"
-                autocomplete="off"
-                placeholder="type restore"
-                class="h-8 w-40 rounded-md border border-input bg-background px-2 font-mono text-xs"
-              />
-              <button class="h-8 rounded-md bg-destructive px-3 text-xs font-medium text-destructive-foreground hover:bg-destructive/90">
-                Restore and restart
-              </button>
-              <button
-                type="button"
-                phx-click="restore_cancel"
-                class="h-8 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground"
-              >Cancel</button>
+              <div class="flex items-center gap-2">
+                <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                  Save
+                </button>
+                <button
+                  type="button"
+                  phx-click="backup_now"
+                  disabled={@backing_up}
+                  class="h-9 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+                >
+                  {if @backing_up, do: "Working…", else: "Back up now"}
+                </button>
+              </div>
             </form>
-          </div>
 
-          <form id="backups-form" phx-submit="save_backups" class="mt-4 space-y-4">
-            <label class="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                name="backup_enabled"
-                value="true"
-                checked={@backups_enabled}
-                class="size-4 rounded border-input"
-              /> Take a snapshot automatically
-            </label>
-
-            <div class={["grid gap-4 sm:grid-cols-3", not @backups_enabled && "opacity-60"]}>
-              <div class="space-y-1">
-                <label class="text-xs font-medium text-muted-foreground">Every (hours)</label>
-                <input
-                  type="text"
-                  inputmode="numeric"
-                  name="backup_interval_hours"
-                  value={@backups_interval_hours}
-                  placeholder="24"
-                  class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
-                />
-                <p class="text-xs text-muted-foreground">
-                  0 turns the schedule off; blank uses 24. Off means not automatically —
-                  <span class="font-medium text-foreground">Back up now</span>
-                  still works.
-                </p>
-              </div>
-
-              <div class="space-y-1">
-                <label class="text-xs font-medium text-muted-foreground">How many to keep</label>
-                <input
-                  type="text"
-                  inputmode="numeric"
-                  name="backup_keep"
-                  value={@backups_keep}
-                  placeholder="7"
-                  class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
-                />
-                <p class="text-xs text-muted-foreground">
-                  Blank keeps 7. Older ones are deleted after each new snapshot; only files
-                  Fanfarr wrote are ever deleted.
-                </p>
-              </div>
-
-              <div class="space-y-1">
-                <label class="text-xs font-medium text-muted-foreground">Size cap (MB)</label>
-                <input
-                  type="text"
-                  inputmode="numeric"
-                  name="backup_max_mb"
-                  value={@backups_max_mb}
-                  placeholder="0"
-                  class="h-9 w-32 rounded-md border border-input bg-background px-3 font-mono text-sm"
-                />
-                <p class="text-xs text-muted-foreground">
-                  The oldest are deleted once the snapshots add up to more than this. 0 or blank
-                  means no cap, and the newest is never deleted.
-                </p>
+            <div :if={@backups_list != []} class="mt-4 space-y-1 border-t border-border pt-3">
+              <div
+                :for={snapshot <- @backups_list}
+                class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
+              >
+                <span class="font-mono text-foreground">{snapshot.name}</span>
+                <span class="text-muted-foreground">
+                  {if snapshot.bytes,
+                    do: FanfarrWeb.Format.bytes(snapshot.bytes),
+                    else: "unreadable"}
+                </span>
+                <span :if={snapshot.taken_at} class="text-muted-foreground">
+                  {Fanfarr.Clock.precise(snapshot.taken_at)}
+                </span>
+                <span
+                  :if={snapshot.kind == :foreign}
+                  class="rounded bg-muted px-1.5 py-0.5 text-muted-foreground"
+                >
+                  not written by Fanfarr
+                </span>
+                <span class="ml-auto flex items-center gap-2">
+                  <button
+                    phx-click="restore_ask"
+                    phx-value-name={snapshot.name}
+                    class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+                  >Restore</button>
+                  <a
+                    href={"/backups/#{snapshot.name}"}
+                    class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+                  >Download</a>
+                  <button
+                    :if={snapshot.kind != :foreign}
+                    phx-click="delete_backup"
+                    phx-value-name={snapshot.name}
+                    data-confirm="Delete this snapshot? It cannot be brought back."
+                    class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+                  >Delete</button>
+                </span>
               </div>
             </div>
 
-            <div class="flex items-center gap-2">
+            <form
+              id="restore-upload-form"
+              phx-change="validate_upload"
+              phx-submit="restore_upload"
+              class="mt-4 space-y-2 border-t border-border pt-3"
+            >
+              <label class="text-xs font-medium text-muted-foreground">
+                Restore from a file kept elsewhere
+              </label>
+              <p class="text-xs text-muted-foreground">
+                The way back when the disk holding these snapshots is the thing that failed. The
+                file is checked before anything is staged: a header, SQLite's own page check, and
+                the schema this application expects.
+              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <.live_file_input
+                  upload={@uploads.snapshot}
+                  class="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs"
+                />
+                <button class="h-8 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground">
+                  Restore from file
+                </button>
+              </div>
+            </form>
+
+            <p class="mt-3 text-xs text-muted-foreground">
+              A snapshot contains your Plex token and the dashboard's password hash, so downloads
+              are logged and the file is served only to a signed-in session. A snapshot on the
+              same disk as the database is not protection against that disk failing — copy them
+              somewhere else.
+            </p>
+          </section>
+          <section
+            :if={section_visible?(@settings_filter, "settings-logs")}
+            id="settings-logs"
+            data-collapsed={if MapSet.member?(@collapsed_sections, "settings-logs"), do: "true"}
+            class="rounded-lg border border-border bg-card p-4 scroll-mt-4"
+          >
+            <div class="flex items-center justify-between gap-2" data-card-head>
+              <h2 class="text-sm font-semibold text-card-foreground">Logs</h2>
+              <button
+                type="button"
+                phx-click="toggle_card"
+                phx-value-id="settings-logs"
+                aria-label="Collapse section"
+                title="Collapse section"
+                class="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <.icon
+                  name="lucide-chevron-down"
+                  class={[
+                    "size-4 transition-transform",
+                    MapSet.member?(@collapsed_sections, "settings-logs") && "rotate-180"
+                  ]}
+                />
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              The log is kept in the database, so it survives a restart — which is when it is
+              most worth reading. Overrides LOG_RETENTION_ENTRIES from the environment.
+            </p>
+            <form
+              id="log-retention-form"
+              phx-submit="save_log_retention"
+              class="mt-3 flex items-end gap-2"
+            >
+              <div class="flex-1">
+                <label class="text-xs font-medium text-muted-foreground" for="log-retention">
+                  Lines to keep
+                </label>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  The oldest are dropped past this, {@log_retention_range.first}–{@log_retention_range.last}.
+                  Clearing the log entirely is a button on the Logs page.
+                </p>
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  id="log-retention"
+                  name="log_retention_entries"
+                  value={@log_retention}
+                  class="mt-2 h-9 w-24 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+              </div>
               <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
                 Save
               </button>
-              <button
-                type="button"
-                phx-click="backup_now"
-                disabled={@backing_up}
-                class="h-9 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-              >
-                {if @backing_up, do: "Working…", else: "Back up now"}
-              </button>
-            </div>
-          </form>
+            </form>
 
-          <div :if={@backups_list != []} class="mt-4 space-y-1 border-t border-border pt-3">
-            <div
-              :for={snapshot <- @backups_list}
-              class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
-            >
-              <span class="font-mono text-foreground">{snapshot.name}</span>
-              <span class="text-muted-foreground">
-                {if snapshot.bytes,
-                  do: FanfarrWeb.Format.bytes(snapshot.bytes),
-                  else: "unreadable"}
-              </span>
-              <span :if={snapshot.taken_at} class="text-muted-foreground">
-                {Fanfarr.Clock.precise(snapshot.taken_at)}
-              </span>
-              <span
-                :if={snapshot.kind == :foreign}
-                class="rounded bg-muted px-1.5 py-0.5 text-muted-foreground"
-              >
-                not written by Fanfarr
-              </span>
-              <span class="ml-auto flex items-center gap-2">
-                <button
-                  phx-click="restore_ask"
-                  phx-value-name={snapshot.name}
-                  class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
-                >Restore</button>
-                <a
-                  href={"/backups/#{snapshot.name}"}
-                  class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
-                >Download</a>
-                <button
-                  :if={snapshot.kind != :foreign}
-                  phx-click="delete_backup"
-                  phx-value-name={snapshot.name}
-                  data-confirm="Delete this snapshot? It cannot be brought back."
-                  class="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-accent-foreground"
-                >Delete</button>
-              </span>
-            </div>
-          </div>
-
-          <form
-            id="restore-upload-form"
-            phx-change="validate_upload"
-            phx-submit="restore_upload"
-            class="mt-4 space-y-2 border-t border-border pt-3"
-          >
-            <label class="text-xs font-medium text-muted-foreground">
-              Restore from a file kept elsewhere
-            </label>
-            <p class="text-xs text-muted-foreground">
-              The way back when the disk holding these snapshots is the thing that failed. The
-              file is checked before anything is staged: a header, SQLite's own page check, and
-              the schema this application expects.
-            </p>
-            <div class="flex flex-wrap items-center gap-2">
-              <.live_file_input
-                upload={@uploads.snapshot}
-                class="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs"
-              />
-              <button class="h-8 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground">
-                Restore from file
-              </button>
-            </div>
-          </form>
-
-          <p class="mt-3 text-xs text-muted-foreground">
-            A snapshot contains your Plex token and the dashboard's password hash, so downloads
-            are logged and the file is served only to a signed-in session. A snapshot on the
-            same disk as the database is not protection against that disk failing — copy them
-            somewhere else.
-          </p>
-        </section>
-        <section id="settings-logs" class="rounded-lg border border-border bg-card p-4 scroll-mt-4">
-          <h2 class="text-sm font-semibold text-card-foreground">Logs</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            The log is kept in the database, so it survives a restart — which is when it is
-            most worth reading. Overrides LOG_RETENTION_ENTRIES from the environment.
-          </p>
-          <form
-            id="log-retention-form"
-            phx-submit="save_log_retention"
-            class="mt-3 flex items-end gap-2"
-          >
-            <div class="flex-1">
-              <label class="text-xs font-medium text-muted-foreground" for="log-retention">
-                Lines to keep
-              </label>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                The oldest are dropped past this, {@log_retention_range.first}–{@log_retention_range.last}.
-                Clearing the log entirely is a button on the Logs page.
-              </p>
-              <input
-                type="text"
-                inputmode="numeric"
-                id="log-retention"
-                name="log_retention_entries"
-                value={@log_retention}
-                class="mt-2 h-9 w-24 rounded-md border border-input bg-background px-3 font-mono text-sm"
-              />
-            </div>
-            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Save
-            </button>
-          </form>
-
-          <%!-- Beside the log retention, because they are the same decision
+            <%!-- Beside the log retention, because they are the same decision
           about two records and someone tightening one usually means both. Two
           numbers rather than one: the log is lines of text and this is rows of
           finished work, and they grow at rates that have nothing to do with
           each other. --%>
-          <form id="job-history-form" phx-submit="save_job_history" class="mt-4 flex items-end gap-2">
-            <div class="flex-1">
-              <label class="text-xs font-medium text-muted-foreground" for="job-history">
-                Activity entries to keep
-              </label>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                Finished jobs listed on Activity, {@job_history_range.first}–{@job_history_range.last}.
-                The oldest are dropped past this. Work still queued or running is never dropped,
-                and each item keeps its own theme history regardless.
-              </p>
-              <input
-                type="text"
-                inputmode="numeric"
-                id="job-history"
-                name="job_history_entries"
-                value={@job_history}
-                class="mt-2 h-9 w-24 rounded-md border border-input bg-background px-3 font-mono text-sm"
-              />
-            </div>
-            <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Save
-            </button>
-          </form>
-        </section>
-      </div>
+            <form
+              id="job-history-form"
+              phx-submit="save_job_history"
+              class="mt-4 flex items-end gap-2"
+            >
+              <div class="flex-1">
+                <label class="text-xs font-medium text-muted-foreground" for="job-history">
+                  Activity entries to keep
+                </label>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  Finished jobs listed on Activity, {@job_history_range.first}–{@job_history_range.last}.
+                  The oldest are dropped past this. Work still queued or running is never dropped,
+                  and each item keeps its own theme history regardless.
+                </p>
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  id="job-history"
+                  name="job_history_entries"
+                  value={@job_history}
+                  class="mt-2 h-9 w-24 rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+              </div>
+              <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Save
+              </button>
+            </form>
+          </section>
+        </div>
 
-      <div
-        :if={@browser}
-        id="folder-browser"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-        phx-window-keydown="close_browser"
-        phx-key="Escape"
-      >
-        <div class="w-full max-w-lg rounded-lg border border-border bg-card shadow-lg">
-          <div class="flex items-center justify-between border-b border-border px-4 py-3">
-            <div class="min-w-0">
-              <h3 class="text-sm font-semibold">Choose a folder</h3>
-              <p class="truncate font-mono text-xs text-muted-foreground" title={@browser.path}>
-                {@browser.path}
-              </p>
+        <div
+          :if={@browser}
+          id="folder-browser"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          phx-window-keydown="close_browser"
+          phx-key="Escape"
+        >
+          <div class="w-full max-w-lg rounded-lg border border-border bg-card shadow-lg">
+            <div class="flex items-center justify-between border-b border-border px-4 py-3">
+              <div class="min-w-0">
+                <h3 class="text-sm font-semibold">Choose a folder</h3>
+                <p class="truncate font-mono text-xs text-muted-foreground" title={@browser.path}>
+                  {@browser.path}
+                </p>
+              </div>
+              <button
+                phx-click="close_browser"
+                class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                aria-label="Close"
+              >
+                <.icon name="lucide-x" class="size-4" />
+              </button>
             </div>
-            <button
-              phx-click="close_browser"
-              class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              aria-label="Close"
-            >
-              <.icon name="lucide-x" class="size-4" />
-            </button>
-          </div>
-          <p :if={@browser.error} class="px-4 py-3 text-sm text-destructive">
-            Cannot read {@browser.path}: {inspect(@browser.error)}
-          </p>
-          <ul class="max-h-80 overflow-y-auto py-1 text-sm">
-            <li :if={@browser.parent}>
-              <button
-                phx-click="browse"
-                phx-value-path={@browser.parent}
-                class="flex w-full items-center gap-2 px-4 py-1.5 text-left text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            <p :if={@browser.error} class="px-4 py-3 text-sm text-destructive">
+              Cannot read {@browser.path}: {inspect(@browser.error)}
+            </p>
+            <ul class="max-h-80 overflow-y-auto py-1 text-sm">
+              <li :if={@browser.parent}>
+                <button
+                  phx-click="browse"
+                  phx-value-path={@browser.parent}
+                  class="flex w-full items-center gap-2 px-4 py-1.5 text-left text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                >
+                  <.icon name="lucide-corner-left-up" class="size-4" /> ..
+                </button>
+              </li>
+              <li :for={dir <- @browser.dirs}>
+                <button
+                  phx-click="browse"
+                  phx-value-path={dir.path}
+                  class="flex w-full items-center gap-2 px-4 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+                >
+                  <.icon name="lucide-folder" class="size-4 text-muted-foreground" /> {dir.name}
+                </button>
+              </li>
+              <li
+                :if={@browser.dirs == [] and is_nil(@browser.error)}
+                class="px-4 py-3 text-muted-foreground"
               >
-                <.icon name="lucide-corner-left-up" class="size-4" /> ..
-              </button>
-            </li>
-            <li :for={dir <- @browser.dirs}>
+                No subfolders.
+              </li>
+            </ul>
+            <div class="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
               <button
-                phx-click="browse"
-                phx-value-path={dir.path}
-                class="flex w-full items-center gap-2 px-4 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+                phx-click="close_browser"
+                class="h-8 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground"
               >
-                <.icon name="lucide-folder" class="size-4 text-muted-foreground" /> {dir.name}
+                Cancel
               </button>
-            </li>
-            <li
-              :if={@browser.dirs == [] and is_nil(@browser.error)}
-              class="px-4 py-3 text-muted-foreground"
-            >
-              No subfolders.
-            </li>
-          </ul>
-          <div class="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
-            <button
-              phx-click="close_browser"
-              class="h-8 rounded-md border border-border px-3 text-xs hover:bg-accent hover:text-accent-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              phx-click="pick_folder"
-              phx-value-path={@browser.path}
-              class="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              Use this folder
-            </button>
+              <button
+                phx-click="pick_folder"
+                phx-value-path={@browser.path}
+                class="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                Use this folder
+              </button>
+            </div>
           </div>
         </div>
       </div>

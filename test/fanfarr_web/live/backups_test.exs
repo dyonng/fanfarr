@@ -389,5 +389,34 @@ defmodule FanfarrWeb.BackupsTest do
       assert has_element?(view, ~s(nav a[href="#notifications-card"]))
       assert has_element?(view, ~s(nav a[href="#backups-card"]))
     end
+
+    test "collapsing a card sticks across reloads", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+      view |> element("button[phx-value-id=\"settings-plex\"]") |> render_click()
+
+      {:ok, _view, html} = live(conn, "/settings")
+      assert html =~ ~s(data-collapsed="true")
+    end
+
+    test "the filter narrows to matching cards", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/settings")
+
+      html =
+        view
+        |> element("form[aria-label=\"Filter settings\"]")
+        |> render_change(%{q: "backup"})
+
+      assert html =~ "Backups"
+      refute html =~ "Root folders"
+    end
+
+    test "customized cards carry a dot", %{conn: conn, dir: dir} do
+      snapshot_in(dir, "fanfarr-20260926-120000.sqlite")
+      {:ok, _view, html} = live(conn, "/settings")
+
+      # This setup configures a backup dir, so exactly one card is modified.
+      # Appearance is browser-local and never dots.
+      assert length(String.split(html, "title=\"Customized\"")) - 1 == 1
+    end
   end
 end

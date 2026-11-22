@@ -77,6 +77,13 @@
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
+/* Collapsed settings cards keep only their header row. The rule keys off
+   the data attribute rather than a class so the server stays the source of
+   truth and no per-card rule is needed. */
+section[data-collapsed="true"] > :not([data-card-head]) {
+  display: none;
+}
+
 /* This file is for your main application CSS */
 
 /* Split-flap world: Barlow Condensed, self-hosted (OFL), for display type --
