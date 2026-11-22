@@ -348,5 +348,32 @@ defmodule FanfarrWeb.LibraryViewTest do
                "Christopher Nolan"
              )
     end
+
+    test "director is an opt-in column", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+      refute drawn?(view, "Director")
+
+      view |> element("button", "Columns") |> render_click()
+
+      view
+      |> form("#library-columns", %{"cols" => ["title", "director"]})
+      |> render_submit()
+
+      assert drawn?(view, "Director")
+
+      # ...and off again without disturbing the rest.
+      {:ok, view, _} = live(conn, "/library")
+      assert drawn?(view, "Title")
+    end
+
+    test "sorting by director orders by name", %{conn: conn, item: item} do
+      item.(%{title: "Zed Film", kind: :movie, directors: ["Zed Director"]})
+      item.(%{title: "Aye Film", kind: :movie, directors: ["Aye Director"]})
+
+      {:ok, _view, html} = live(conn, "/library?cols=title,director&sort=director")
+      {aye, _} = :binary.match(html, "Aye Film")
+      {zed, _} = :binary.match(html, "Zed Film")
+      assert aye < zed
+    end
   end
 end

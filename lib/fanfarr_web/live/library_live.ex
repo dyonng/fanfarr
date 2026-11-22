@@ -32,6 +32,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
     %{key: "critic", label: "Critics"},
     %{key: "audience", label: "Audience"},
     %{key: "studio", label: "Studio"},
+    %{key: "director", label: "Director", hidden: true},
     %{key: "status", label: "Theme"},
     %{key: "size", label: "Size"},
     %{key: "length", label: "Length"},
@@ -477,7 +478,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # Enum.sort_by/3 is stable and the query arrives ordered by title, so equal
   # keys stay alphabetical instead of shuffling between renders.
 
-  @sortable ~w(title year kind critic audience studio status size length added seasons)
+  @sortable ~w(title year kind critic audience studio director status size length added seasons)
 
   defp sort(items, nil), do: items
 
@@ -502,6 +503,10 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # Nil rather than "" for the unattributed, so they sort last with the
   # unrated rather than first under an invisible empty string.
   defp key(item, "studio"), do: item.studio && String.downcase(item.studio)
+
+  defp key(item, "director"),
+    do: item.directors |> Enum.map(&String.downcase/1) |> Enum.sort() |> Enum.join(", ")
+
   defp key(item, "status"), do: status_rank(item.theme_status)
   # Nil rather than 0 for a title we never wrote a theme for, so it sorts last
   # with the unrated rather than as the smallest size on the page.
@@ -541,7 +546,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
   # ascending sort, which buries the thing being looked for; they sort last in
   # both directions instead.
   defp comparator(column, direction)
-       when column in ~w(critic audience year studio size length seasons) do
+       when column in ~w(critic audience year studio director size length seasons) do
     fn a, b ->
       cond do
         # Two unrated items are equal, and a stable sort keeps equal elements
@@ -967,6 +972,15 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   Studio
                 </.column_header>
                 <.column_header
+                  :if={showing?(@visible_columns, "director")}
+                  sort={@filters.sort}
+                  column="director"
+                  params={@filters}
+                  class="hidden md:table-cell"
+                >
+                  Director
+                </.column_header>
+                <.column_header
                   :if={showing?(@visible_columns, "status")}
                   sort={@filters.sort}
                   column="status"
@@ -1114,6 +1128,13 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   title={studio_title(item)}
                 >
                   {item.studio}
+                </td>
+                <td
+                  :if={showing?(@visible_columns, "director")}
+                  class="hidden max-w-40 truncate px-3 py-2 text-muted-foreground md:table-cell"
+                  title={Enum.join(item.directors, ", ")}
+                >
+                  {Enum.join(item.directors, ", ")}
                 </td>
                 <td :if={showing?(@visible_columns, "status")} class="px-3 py-2">
                   <.status_badge status={item.theme_status} />
