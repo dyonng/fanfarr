@@ -12,7 +12,18 @@ defmodule Fanfarr.MixProject do
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      consolidate_protocols: Mix.env() != :dev
+      consolidate_protocols: Mix.env() != :dev,
+      usage_rules: usage_rules()
+    ]
+  end
+
+  # usage_rules.sync generates USAGE_RULES.md from dependency rules, not
+  # AGENTS.md: that file is the curated decision record and generated
+  # content must not touch it.
+  defp usage_rules do
+    [
+      file: "USAGE_RULES.md",
+      usage_rules: [:usage_rules, :ash, ~r/^ash_/, :phoenix, ~r/^phoenix_/]
     ]
   end
 
@@ -41,6 +52,7 @@ defmodule Fanfarr.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:usage_rules, "~> 1.0", only: [:dev]},
       {:bcrypt_elixir, "~> 3.0"},
       # Every Plex, ThemerrDB and poster request. This was missing: Req reached
       # dev and test transitively through igniter (dev/test only), compiled
