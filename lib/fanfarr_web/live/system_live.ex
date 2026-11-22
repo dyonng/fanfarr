@@ -146,7 +146,7 @@ defmodule FanfarrWeb.SystemLive.Index do
       current_user={@current_user}
       queue={@queue}
     >
-      <div class="max-w-3xl space-y-6">
+      <div class="max-w-5xl space-y-6">
         <Layouts.page_header title="System">
           <:subtitle>
             <span :if={@snapshot}>
@@ -168,10 +168,14 @@ defmodule FanfarrWeb.SystemLive.Index do
           </:actions>
         </Layouts.page_header>
 
-        <section class="rounded-lg border border-border bg-card">
-          <h2 class="border-b border-border px-4 py-3 text-sm font-semibold text-card-foreground">
-            Health
-          </h2>
+        <%!-- Health and About share a row on desktop: the checks read as
+        name/value pairs that stretch, and About is short enough to ride
+        beside them instead of leaving a void under a lone column. --%>
+        <div class="grid items-start gap-6 lg:grid-cols-3">
+          <section class="rounded-lg border border-border bg-card lg:col-span-2">
+            <h2 class="border-b border-border px-4 py-3 text-sm font-semibold text-card-foreground">
+              Health
+            </h2>
           <div :if={!@snapshot} class="px-4 py-6 text-sm text-muted-foreground">
             No results yet.
           </div>
@@ -193,8 +197,38 @@ defmodule FanfarrWeb.SystemLive.Index do
                 <p :if={check.detail} class="mt-0.5 text-xs text-muted-foreground">{check.detail}</p>
               </div>
             </li>
-          </ul>
-        </section>
+            </ul>
+          </section>
+
+          <section class="rounded-lg border border-border bg-card p-4">
+            <h2 class="text-sm font-semibold text-card-foreground">About</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Quote the version line when reporting a problem; it identifies the exact image.
+            </p>
+            <dl class="mt-3 grid gap-x-6 gap-y-2 text-sm">
+              <div>
+                <dt class="text-xs text-muted-foreground">Version</dt>
+                <dd class="mt-0.5 font-mono text-xs">{@about.version}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">Authentication</dt>
+                <dd class="mt-0.5 text-sm">{@about.auth}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">Database</dt>
+                <dd class="mt-0.5 break-all font-mono text-xs">{@about.database}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">Cache</dt>
+                <dd class="mt-0.5 break-all font-mono text-xs">{@about.cache_dir}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">Runtime</dt>
+                <dd class="mt-0.5 font-mono text-xs">Elixir {@about.elixir} · OTP {@about.otp}</dd>
+              </div>
+            </dl>
+          </section>
+        </div>
 
         <section class="rounded-lg border border-border bg-card">
           <div class="border-b border-border px-4 py-3">
@@ -280,25 +314,6 @@ defmodule FanfarrWeb.SystemLive.Index do
               >{@tool_output}</pre>
             </div>
           </div>
-        </section>
-
-        <section class="rounded-lg border border-border bg-card p-4">
-          <h2 class="text-sm font-semibold text-card-foreground">About</h2>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Quote the version line when reporting a problem; it identifies the exact image.
-          </p>
-          <dl class="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
-            <dt class="text-muted-foreground">Version</dt>
-            <dd class="font-mono text-xs">{@about.version}</dd>
-            <dt class="text-muted-foreground">Authentication</dt>
-            <dd>{@about.auth}</dd>
-            <dt class="text-muted-foreground">Database</dt>
-            <dd class="truncate font-mono text-xs">{@about.database}</dd>
-            <dt class="text-muted-foreground">Cache</dt>
-            <dd class="truncate font-mono text-xs">{@about.cache_dir}</dd>
-            <dt class="text-muted-foreground">Runtime</dt>
-            <dd class="font-mono text-xs">Elixir {@about.elixir} · OTP {@about.otp}</dd>
-          </dl>
         </section>
       </div>
     </Layouts.app>

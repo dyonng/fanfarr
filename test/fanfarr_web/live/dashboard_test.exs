@@ -711,8 +711,11 @@ defmodule FanfarrWeb.DashboardTest do
       rf =
         Fanfarr.Library.create_root_folder!(%{path: "/tv1", label: "", kind: :show})
 
-      {:ok, view, html} = live(conn, "/settings")
-      refute html =~ "data-confirm"
+      {:ok, view, _html} = live(conn, "/settings")
+
+      # Scoped to the remove button: the backups card elsewhere on the page
+      # legitimately confirms before deleting a snapshot.
+      refute has_element?(view, ~s(button[phx-value-id="#{rf.id}"][data-confirm]))
 
       view |> element(~s(button[phx-value-id="#{rf.id}"])) |> render_click()
 
