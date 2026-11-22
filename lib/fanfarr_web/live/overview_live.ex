@@ -144,7 +144,7 @@ defmodule FanfarrWeb.OverviewLive.Index do
                       style={"width: #{section.percent}%"}
                     />
                   </div>
-                  <span class="w-10 shrink-0 text-right text-sm tabular-nums">
+                  <span class="w-10 shrink-0 text-right font-flap text-sm font-semibold tabular-nums">
                     {section.percent}%
                   </span>
                 </div>
@@ -389,7 +389,7 @@ defmodule FanfarrWeb.OverviewLive.Index do
     ~H"""
     <.link navigate={@to} class="flex items-baseline gap-3 rounded-md hover:underline">
       <span class={[
-        "w-12 shrink-0 text-right text-lg font-semibold tabular-nums",
+        "w-12 shrink-0 text-right font-flap text-lg font-semibold tabular-nums",
         @tone == :error && "text-destructive",
         @tone == :action && "text-foreground",
         @tone == :info && "text-muted-foreground"

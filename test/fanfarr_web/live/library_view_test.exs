@@ -133,6 +133,14 @@ defmodule FanfarrWeb.LibraryViewTest do
       assert html =~ "FocusSearch"
       assert html =~ "( / )"
     end
+
+    test "the board marks rows for the cascade", %{conn: conn, item: item} do
+      item.(%{title: "Seed Film"})
+      {:ok, view, _html} = live(conn, "/library")
+
+      assert has_element?(view, "tbody[phx-hook]")
+      assert has_element?(view, ~s(tr[id^="row-"][data-status]))
+    end
   end
 
   describe "the new columns" do

@@ -78,3 +78,64 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+
+/* Split-flap world: Barlow Condensed, self-hosted (OFL), for display type --
+   row titles, page headings, counts. Body stays on the system stack. */
+@font-face {
+  font-family: "Flap";
+  src: url("/fonts/barlow-condensed-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Flap";
+  src: url("/fonts/barlow-condensed-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme inline {
+  --font-flap: "Flap", "Arial Narrow", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* The board's signature move: changed rows flip in top to bottom, each a
+   breath after the last, like flaps cycling to the new reading. The hook
+   below staggers added rows; rows that merely re-render sit still. */
+@keyframes flap-in {
+  from {
+    opacity: 0.25;
+    transform: translateY(-7px);
+    background-color: color-mix(in oklch, var(--primary) 14%, transparent);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    background-color: transparent;
+  }
+}
+
+.flap-new {
+  animation: flap-in 0.45s cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flap-new {
+    animation: none;
+  }
+}
+
+/* Key hints inherit the world instead of the browser default: mono, one
+   border, no shadow. */
+kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}

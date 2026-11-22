@@ -1052,9 +1052,14 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 </.column_header>
               </tr>
             </thead>
-            <tbody>
+            <tbody
+              id="library-rows"
+              phx-hook=".FlapBoard"
+            >
               <tr
                 :for={item <- @items}
+                id={"row-#{item.id}"}
+                data-status={item.theme_status}
                 class={[
                   "border-b border-border/60 transition-colors hover:bg-muted/40",
                   MapSet.member?(@selected, item.id) && "bg-primary/5"
@@ -1094,7 +1099,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   >excluded</span>
                   <.link
                     navigate={~p"/library/#{item.id}?#{item_params(@filters)}"}
-                    class="font-medium hover:underline"
+                    class="font-flap text-[15px] font-medium tracking-wide hover:underline"
                   >
                     {item.title}
                   </.link>
@@ -1193,6 +1198,60 @@ defmodule FanfarrWeb.LibraryLive.Index do
             </tbody>
           </table>
         </div>
+
+        <%!-- The board's signature move. LiveView patches rows in place, so
+        the hook watches for what actually changed: rows that arrived new
+        and rows whose status flipped cascade in top to bottom, each a
+        breath after the last. Re-renders that change nothing stay still. --%>
+        <script :type={Phoenix.LiveView.ColocatedHook} name=".FlapBoard">
+          export default {
+            mounted() {
+              this.seen = new Map()
+              this.el.querySelectorAll("tr[id]").forEach((row) => {
+                this.seen.set(row.id, row.getAttribute("data-status"))
+              })
+
+              this.observer = new MutationObserver((mutations) => {
+                const changed = []
+                mutations.forEach((m) => {
+                  m.addedNodes.forEach((node) => {
+                    if (node.nodeType !== 1 || node.tagName !== "TR" || !node.id) return
+                    changed.push(node)
+                  })
+                  if (m.type === "attributes" && m.target.tagName === "TR") {
+                    const row = m.target
+                    const before = this.seen.get(row.id)
+                    const now = row.getAttribute("data-status")
+                    if (before !== undefined && before !== now) changed.push(row)
+                    this.seen.set(row.id, now)
+                  }
+                })
+                changed.forEach((row, i) => {
+                  row.classList.remove("flap-new")
+                  row.style.animationDelay = `${Math.min(i, 20) * 22}ms`
+                  requestAnimationFrame(() => row.classList.add("flap-new"))
+                })
+                // Rebuild: rows that left the page (paging, filtering) stop
+                // being remembered, so a return visit flips them in again.
+                this.seen = new Map(
+                  Array.from(this.el.querySelectorAll("tr[id]")).map((row) => [
+                    row.id,
+                    row.getAttribute("data-status"),
+                  ])
+                )
+              })
+              this.observer.observe(this.el, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ["data-status"],
+              })
+            },
+            destroyed() {
+              this.observer.disconnect()
+            },
+          }
+        </script>
 
         <.pagination page={@page} pages={@pages} filters={@filters} position="below the table" />
       </div>
