@@ -886,18 +886,20 @@ defmodule FanfarrWeb.SettingsLive.Index do
         class="space-y-6 lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:items-start lg:gap-6 lg:space-y-0"
         id="settings-layout"
       >
-        <Layouts.page_header title="Settings">
-          <:subtitle>
-            Everything here takes effect without a restart, and overrides the matching
-            environment variable.
-          </:subtitle>
-        </Layouts.page_header>
+        <div class="lg:col-span-2">
+          <Layouts.page_header title="Settings">
+            <:subtitle>
+              Everything here takes effect without a restart, and overrides the matching
+              environment variable.
+            </:subtitle>
+          </Layouts.page_header>
+        </div>
 
         <nav
           id="settings-nav"
           phx-hook=".SettingsNav"
           aria-label="Settings sections"
-          class="lg:sticky lg:top-4 lg:row-span-2 lg:self-start"
+          class="lg:sticky lg:top-4 lg:self-start"
         >
           <form
             id="settings-filter"
@@ -959,7 +961,7 @@ defmodule FanfarrWeb.SettingsLive.Index do
           </script>
         </nav>
 
-        <div class="min-w-0 space-y-6">
+        <div class="min-w-0 max-w-3xl space-y-6">
           <section
             :if={section_visible?(@settings_filter, "settings-appearance")}
             id="settings-appearance"
