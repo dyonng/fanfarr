@@ -399,5 +399,25 @@ defmodule FanfarrWeb.LibraryViewTest do
       assert html =~ "Memento"
       refute html =~ ">Other<"
     end
+
+    test "a failed row retries where it stands", %{conn: conn, item: item} do
+      failed = item.(%{title: "Heat"})
+
+      Fanfarr.Themes.record_theme_outcome!(%{
+        media_item_id: failed.id,
+        source: :youtube,
+        method: :local_file,
+        status: :failed,
+        error: "yt-dlp exited 1"
+      })
+
+      {:ok, view, _html} = live(conn, "/library")
+      html = view |> element("button", "retry") |> render_click()
+      assert html =~ "Retrying the theme write"
+
+      jobs = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
+      assert [job] = jobs
+      assert job.args["media_item_id"] == failed.id
+    end
   end
 end

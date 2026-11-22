@@ -37,12 +37,41 @@ defmodule Fanfarr.Themes.Writer do
     tmp = temp_name(destination)
 
     with :ok <- stage(source, tmp),
+         :ok <- stash_previous(destination),
          :ok <- promote(tmp, destination) do
       :ok
     else
       {:error, reason} ->
         File.rm(tmp)
         {:error, reason}
+    end
+  end
+
+  @doc """
+  Where the file `place/2` replaced last lives, if anything did.
+
+  One generation only: each write moves the current file here first, so an
+  undo restores exactly what the last apply replaced -- nothing older.
+  """
+  @spec previous(Path.t()) :: Path.t()
+  def previous(destination) do
+    destination
+    |> Path.rootname()
+    |> Kernel.<>(".previous")
+    |> Kernel.<>(Path.extname(destination))
+  end
+
+  # The file being replaced is somebody's theme until the new one proves
+  # itself. Best effort on purpose: stashing must never fail a write, and
+  # a missing previous just means there is nothing to undo to.
+  defp stash_previous(destination) do
+    if File.regular?(destination) do
+      case File.cp(destination, previous(destination)) do
+        :ok -> fsync(previous(destination))
+        {:error, _} -> :ok
+      end
+    else
+      :ok
     end
   end
 

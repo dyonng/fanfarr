@@ -180,6 +180,16 @@ defmodule FanfarrWeb.OverviewTest do
       assert view |> element(~s(a[href="/library?status=failed"])) |> has_element?()
     end
 
+    test "the stalest missing titles are one click away", %{conn: conn} do
+      tv = section()
+      item(tv, %{title: "Obscure", imdb_id: "tt1111111"})
+      themerr_answer("tt1111111")
+
+      {:ok, view, _html} = live(conn, "/")
+
+      assert view |> element(~s(a[href*="status=missing"][href*="sort=added"])) |> has_element?()
+    end
+
     test "the ids are recomputed at click time, not carried from the render",
          %{conn: conn} do
       # This page can sit open for hours. A list assembled at render would

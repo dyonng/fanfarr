@@ -29,6 +29,28 @@ defmodule Fanfarr.Library do
     |> Enum.map(& &1.path)
   end
 
+  @doc """
+  The next title needing attention after the queue moves: failed first, since
+  a retry is cheaper than a first attempt, then missing, alphabetical within
+  each. Skips `except_id`, so applying-and-moving-on never lands back where
+  it started. nil when the queue is clear.
+
+  Reads the whole mirror the way the library page already does -- same cost
+  class, same staleness contract.
+  """
+  @spec next_needing_attention!(term(), String.t() | nil) ::
+          Fanfarr.Library.MediaItem.t() | nil
+  def next_needing_attention!(actor, except_id \\ nil) do
+    Fanfarr.Library.MediaItem
+    |> Ash.Query.load([:theme_status])
+    |> Ash.read!(actor: actor)
+    |> Enum.filter(&(&1.theme_status in [:failed, :missing] and &1.id != except_id))
+    |> Enum.sort_by(
+      &{if(&1.theme_status == :failed, do: 0, else: 1), String.downcase(&1.title || "")}
+    )
+    |> List.first()
+  end
+
   resources do
     resource Fanfarr.Library.Section do
       define :list_sections, action: :read

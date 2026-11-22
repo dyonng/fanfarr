@@ -38,6 +38,21 @@ defmodule Fanfarr.Themes.WriterTest do
     assert File.read!(dst) == "the-new-one"
   end
 
+  test "stashes the replaced file for undo", ctx do
+    dst = Path.join(ctx.dest, "theme.mp3")
+    File.write!(dst, "the-old-one")
+
+    assert :ok = Writer.place(source(ctx.src, "the-new-one"), dst)
+    assert File.read!(Writer.previous(dst)) == "the-old-one"
+  end
+
+  test "no previous file means nothing stashed", ctx do
+    dst = Path.join(ctx.dest, "theme.mp3")
+
+    assert :ok = Writer.place(source(ctx.src), dst)
+    refute File.exists?(Writer.previous(dst))
+  end
+
   test "leaves no temporary files behind on success", ctx do
     dst = Path.join(ctx.dest, "theme.mp3")
     assert :ok = Writer.place(source(ctx.src), dst)

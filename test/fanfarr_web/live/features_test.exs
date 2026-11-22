@@ -255,7 +255,7 @@ defmodule FanfarrWeb.FeaturesTest do
       })
 
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
-      render_click(view, "apply_pick", %{})
+      render_click(view, "apply_best", %{})
 
       assert [job] = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
       assert job.args["theme_url"] == "https://youtu.be/saved000000"
@@ -526,13 +526,13 @@ defmodule FanfarrWeb.FeaturesTest do
       {:ok, view, html} = live(conn, "/library/#{item.id}")
       refute html =~ "Working on this item"
 
-      html = render_click(view, "apply_pick", %{})
+      html = render_click(view, "apply_best", %{})
 
       # The click has to visibly do something. On a busy queue the worker may
       # not start for minutes, so this cannot wait for the worker to say so.
       assert html =~ "Working on this item"
       assert html =~ "Working…"
-      assert has_element?(view, ~s(button[phx-click="apply_pick"][disabled]))
+      assert has_element?(view, ~s(button[phx-click="apply_best"][disabled]))
     end
 
     test "a queued job is still reflected after a reload", %{conn: conn, item: item} do
@@ -604,7 +604,7 @@ defmodule FanfarrWeb.FeaturesTest do
 
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
 
-      html = view |> element("button[phx-click=use_themerr]") |> render_click()
+      html = view |> element("button[phx-click=apply_best]") |> render_click()
 
       assert html =~ "ThemerrDB suggestion"
 
@@ -927,6 +927,31 @@ defmodule FanfarrWeb.FeaturesTest do
       assert job.args["media_item_id"] == item.id
     end
 
+    test "undo offers the previous file back", %{conn: conn, item: item} do
+      dir =
+        Path.join(System.tmp_dir!(), "fanfarr-undo-page-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf(dir) end)
+
+      path = Path.join(dir, "theme.mp3")
+      File.write!(path, "current")
+      File.write!(Fanfarr.Themes.Writer.previous(path), "previous")
+
+      Fanfarr.Library.record_local_theme!(item, %{
+        local_theme_present: true,
+        local_theme_path: path
+      })
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      html = view |> element("button", "Undo apply") |> render_click()
+      assert html =~ "Putting back the previous theme"
+
+      jobs = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "UndoTheme"))
+      assert [job] = jobs
+      assert job.args["media_item_id"] == item.id
+    end
+
     test "the trimmer documents its keys and the finder states precedence",
          %{conn: conn, item: item} do
       {:ok, view, _html} = live(conn, "/library/#{item.id}")
@@ -934,6 +959,26 @@ defmodule FanfarrWeb.FeaturesTest do
       html = render_async(view, 10_000)
       assert html =~ "Keys work here"
       assert html =~ "Your pick wins"
+    end
+
+    test "apply and next queues this one and moves on", %{conn: conn, item: item} do
+      Fanfarr.Library.set_manual_theme!(item, %{manual_theme_url: "https://youtu.be/abc"})
+
+      other =
+        Fanfarr.Library.sync_media_item_from_plex!(%{
+          plex_rating_key: "102",
+          section_id: item.section_id,
+          title: "Zed",
+          kind: :show
+        })
+
+      {:ok, view, _html} = live(conn, "/library/#{item.id}")
+      view |> element("button", "Apply & next →") |> render_click()
+      assert_redirect(view, "/library/#{other.id}")
+
+      jobs = Fanfarr.Repo.all(Oban.Job) |> Enum.filter(&(&1.worker =~ "ApplyTheme"))
+      assert [job] = jobs
+      assert job.args["media_item_id"] == item.id
     end
 
     test "a custom length is badged by the title", %{conn: conn, item: item} do

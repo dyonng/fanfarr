@@ -190,6 +190,18 @@ defmodule FanfarrWeb.OverviewLive.Index do
                 />
               </dl>
 
+              <%!-- Hopeless cases first: a title missing for a year is a
+                decision (exclude it, or find its theme by hand), not a task
+                to re-read every morning. Added-ascending puts the stalest
+                known additions first; never-scanned sorts last. --%>
+              <.link
+                :if={@overview.ready > 0}
+                navigate={~p"/library?#{%{"status" => "missing", "sort" => "added"}}"}
+                class="mt-3 inline-block text-xs text-muted-foreground hover:text-primary hover:underline"
+              >
+                oldest missing first →
+              </.link>
+
               <button
                 :if={@overview.ready > 0}
                 phx-click="apply_ready"

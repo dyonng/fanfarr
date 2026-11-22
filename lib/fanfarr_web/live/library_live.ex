@@ -196,6 +196,16 @@ defmodule FanfarrWeb.LibraryLive.Index do
     {:noreply, assign(socket, :selected, selected)}
   end
 
+  # One failed row, re-queued where it stands. The bulk bar covers the
+  # selection; this covers the glance that finds a single red badge.
+  def handle_event("retry", %{"id" => id}, socket) do
+    if enqueue_apply(id) do
+      {:noreply, socket |> load_items() |> put_flash(:info, "Retrying the theme write")}
+    else
+      {:noreply, put_flash(socket, :error, "Could not queue the retry")}
+    end
+  end
+
   def handle_event("select_page", _params, socket) do
     page_ids = Enum.map(socket.assigns.items, & &1.id)
     selected = socket.assigns.selected
@@ -1165,6 +1175,15 @@ defmodule FanfarrWeb.LibraryLive.Index do
                 </td>
                 <td :if={showing?(@visible_columns, "status")} class="px-3 py-2">
                   <.status_badge status={item.theme_status} />
+                  <button
+                    :if={item.theme_status == :failed}
+                    phx-click="retry"
+                    phx-value-id={item.id}
+                    title="Queue the write again"
+                    class="ml-1 text-xs text-primary hover:underline"
+                  >
+                    retry
+                  </button>
                 </td>
                 <td
                   :if={showing?(@visible_columns, "size")}

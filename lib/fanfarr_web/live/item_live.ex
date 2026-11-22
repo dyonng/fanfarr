@@ -217,16 +217,6 @@ defmodule FanfarrWeb.ItemLive.Show do
     end
   end
 
-  def handle_event("use_themerr", _params, socket) do
-    case socket.assigns.themerr do
-      %{youtube_theme_url: url} when is_binary(url) and url != "" ->
-        apply_pick(socket, url, "ThemerrDB suggestion")
-
-      _ ->
-        {:noreply, put_flash(socket, :error, "ThemerrDB has no suggestion for this item")}
-    end
-  end
-
   def handle_event("search", %{"q" => q}, socket) do
     q = String.trim(q)
 
@@ -295,15 +285,47 @@ defmodule FanfarrWeb.ItemLive.Show do
      |> start_async(:refresh, fn -> Fanfarr.Library.ItemRefresh.refresh(item) end)}
   end
 
-  # Re-applying what is already pinned, from the card that shows it. The pick
-  # survives a Remove, so this is the one-click way back.
-  def handle_event("apply_pick", _params, socket) do
-    case socket.assigns.item.manual_theme_url do
-      url when is_binary(url) and url != "" ->
-        apply_pick(socket, url, socket.assigns.item.manual_theme_title)
+  # One card, one apply: the pick when there is one, else ThemerrDB's
+  # suggestion. The card states the precedence twice already; the handler
+  # just follows it.
+  def handle_event("apply_best", _params, socket) do
+    case best_pick(socket) do
+      {:ok, url, title} ->
+        apply_pick(socket, url, title)
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "There is no pick to apply")}
+      :error ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Nothing to apply yet -- pick a video or wait for a ThemerrDB suggestion"
+         )}
+    end
+  end
+
+  # Queue this one and move to the next title needing work, so triage is one
+  # pass instead of fifty page loads. Failed first: a retry is cheaper than
+  # a first attempt, and the queue order says so too.
+  def handle_event("apply_and_next", _params, socket) do
+    case best_pick(socket) do
+      {:ok, url, title} ->
+        {:noreply, socket} = apply_pick(socket, url, title)
+
+        case next_path(socket) do
+          nil ->
+            {:noreply, put_flash(socket, :info, "Queued. Nothing else needs work.")}
+
+          to ->
+            {:noreply, push_navigate(socket, to: to)}
+        end
+
+      :error ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Nothing to apply yet -- pick a video or wait for a ThemerrDB suggestion"
+         )}
     end
   end
 
@@ -312,6 +334,18 @@ defmodule FanfarrWeb.ItemLive.Show do
   # the network, not the choice.
   def handle_event("retry_apply", _params, socket) do
     queue(socket, flash: "Retrying the theme write")
+  end
+
+  def handle_event("undo_apply", _params, socket) do
+    case %{media_item_id: socket.assigns.item.id}
+         |> Fanfarr.Workers.UndoTheme.new()
+         |> Oban.insert() do
+      {:ok, _} ->
+        {:noreply, put_flash(socket, :info, "Putting back the previous theme")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Could not queue the undo")}
+    end
   end
 
   # Opening the editor is what triggers source resolution, and that can mean a
@@ -441,6 +475,55 @@ defmodule FanfarrWeb.ItemLive.Show do
   # worker's uniqueness window is keyed on it, so picking a second video within
   # five minutes of the first is a different job rather than a duplicate that
   # gets silently dropped.
+  defp best_pick(socket) do
+    item = socket.assigns.item
+
+    cond do
+      is_binary(item.manual_theme_url) and item.manual_theme_url != "" ->
+        {:ok, item.manual_theme_url, item.manual_theme_title}
+
+      match?(%{youtube_theme_url: url} when is_binary(url) and url != "", socket.assigns.themerr) ->
+        %{youtube_theme_url: url} = socket.assigns.themerr
+        {:ok, url, "ThemerrDB suggestion"}
+
+      true ->
+        :error
+    end
+  end
+
+  defp next_path(socket) do
+    item = socket.assigns.item
+
+    case Fanfarr.Library.next_needing_attention!(socket.assigns.current_user, item.id) do
+      nil -> nil
+      next -> ~p"/library/#{next.id}"
+    end
+  end
+
+  # What the card's single button will write. nil means disabled with an
+  # explanation rather than a dead button.
+  defp apply_source(item, themerr) do
+    cond do
+      is_binary(item.manual_theme_url) and item.manual_theme_url != "" -> :pick
+      match?(%{youtube_theme_url: url} when is_binary(url) and url != "", themerr) -> :themerrdb
+      true -> nil
+    end
+  end
+
+  defp apply_source_label(item, themerr) do
+    case apply_source(item, themerr) do
+      :pick -> "Applies your pick."
+      :themerrdb -> "Applies ThemerrDB's suggestion."
+      nil -> "Nothing to apply yet -- pick a video or wait for a suggestion."
+    end
+  end
+
+  defp previous_theme?(%{local_theme_path: path}) when is_binary(path) and path != "" do
+    path |> Fanfarr.Themes.Writer.previous() |> File.regular?()
+  end
+
+  defp previous_theme?(_item), do: false
+
   defp apply_pick(socket, url, title) do
     Library.set_manual_theme!(socket.assigns.item, %{
       manual_theme_url: url,
@@ -902,6 +985,14 @@ defmodule FanfarrWeb.ItemLive.Show do
                 title="Delete the theme.mp3 Fanfarr wrote. Anything already uploaded into Plex itself stays -- Plex has no API to remove that."
               >
                 <.icon name="lucide-trash" class="size-3.5" /> Remove theme
+              </button>
+              <button
+                :if={previous_theme?(@item)}
+                phx-click="undo_apply"
+                class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:h-8"
+                title="Put back the file the last apply replaced, and tell Plex. Never uploads."
+              >
+                <.icon name="lucide-undo-2" class="size-3.5" /> Undo apply
               </button>
             </div>
           </div>
@@ -2261,17 +2352,8 @@ defmodule FanfarrWeb.ItemLive.Show do
                 {@item.manual_theme_url}
               </p>
               <%!-- The only place a pick already made can be written again.
-              With the apply action moved onto the choice, a pick from a search
+              With the apply action on the card, a pick from a search
               run yesterday would otherwise need the search running again. --%>
-              <button
-                phx-click="apply_pick"
-                disabled={@applying or @item.theme_locked}
-                class="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
-                title={apply_title(@item)}
-              >
-                <.icon name="lucide-audio-lines" class="size-3.5" />
-                {if @applying, do: "Working…", else: "Apply theme"}
-              </button>
               <div class="flex gap-3 text-xs">
                 <button
                   :if={Downloader.youtube_id(@item.manual_theme_url)}
@@ -2338,15 +2420,6 @@ defmodule FanfarrWeb.ItemLive.Show do
                 >
                   <.icon name="lucide-play" class="size-3.5" /> Preview
                 </button>
-                <button
-                  phx-click="use_themerr"
-                  disabled={@applying or @item.theme_locked}
-                  class="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-2"
-                  title={apply_title(@item)}
-                >
-                  <.icon name="lucide-audio-lines" class="size-3.5" />
-                  {if @applying, do: "Working…", else: "Apply theme"}
-                </button>
                 <a
                   href={@themerr.youtube_theme_url}
                   target="_blank"
@@ -2355,6 +2428,34 @@ defmodule FanfarrWeb.ItemLive.Show do
                 >
                   open on YouTube ↗
                 </a>
+              </div>
+            </div>
+
+            <%!-- One card, one apply. What it writes is the pick when there
+            is one, else ThemerrDB's suggestion -- the precedence the pick
+            block and the finder header both state, restated where the
+            button lives so two identical buttons never share a card again. --%>
+            <div class="mt-4 border-t border-border/60 pt-3">
+              <button
+                phx-click="apply_best"
+                disabled={@applying or @item.theme_locked or is_nil(apply_source(@item, @themerr))}
+                title={apply_title(@item)}
+                class="inline-flex h-11 w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9"
+              >
+                <.icon name="lucide-audio-lines" class="size-4" />
+                {if @applying, do: "Working…", else: "Apply theme"}
+              </button>
+              <div class="mt-2 flex items-center justify-between gap-2">
+                <p class="text-xs text-muted-foreground">{apply_source_label(@item, @themerr)}</p>
+                <button
+                  :if={not is_nil(apply_source(@item, @themerr))}
+                  phx-click="apply_and_next"
+                  disabled={@applying or @item.theme_locked}
+                  class="shrink-0 text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Queue this one and move to the next title that needs work"
+                >
+                  Apply & next →
+                </button>
               </div>
             </div>
 
