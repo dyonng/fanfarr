@@ -44,6 +44,7 @@ defmodule Fanfarr.Workers.SyncSection do
       origins = origins(config, items)
       paths = paths(config, items, section)
       collections = collections(config, section, items)
+      directors = known_directors(section)
 
       # Before the upsert, or the renamed item is already in as a second row
       # and there is nothing left to re-key.
@@ -55,30 +56,21 @@ defmodule Fanfarr.Workers.SyncSection do
         Enum.each(chunk, fn item ->
           {origin, agent} = Map.get(origins, item.rating_key, {:none, nil})
 
-          Library.sync_media_item_from_plex!(%{
-            plex_rating_key: item.rating_key,
-            section_id: section.id,
-            guid: item.guid,
-            title: item.title,
-            year: item.year,
-            kind: item.kind,
-            plex_path: Map.get(paths, item.rating_key),
-            imdb_id: item.imdb_id,
-            tmdb_id: item.tmdb_id,
-            tvdb_id: item.tvdb_id,
-            plex_thumb_key: item.thumb,
-            critic_score: item.critic_score,
-            critic_score_source: item.critic_score_source,
-            audience_score: item.audience_score,
-            audience_score_source: item.audience_score_source,
-            studio: item.studio,
-            collections: Map.get(collections, item.rating_key, item.collections),
-            plex_theme_url: item.theme,
-            plex_theme_origin: origin,
-            plex_theme_agent: agent,
-            added_at: item.added_at,
-            season_count: item.season_count
-          })
+          attrs =
+            item
+            |> Fanfarr.Library.SyncAttrs.for_item()
+            |> Map.merge(%{
+              section_id: section.id,
+              plex_path: Map.get(paths, item.rating_key),
+              collections: Map.get(collections, item.rating_key, item.collections),
+              # The listing does not always carry Director tags, and a sync
+              # that cannot see them must not wipe what a refresh wrote.
+              directors: merge_directors(item.directors, Map.get(directors, item.rating_key, [])),
+              plex_theme_origin: origin,
+              plex_theme_agent: agent
+            })
+
+          Library.sync_media_item_from_plex!(attrs)
         end)
       end)
 
@@ -131,6 +123,17 @@ defmodule Fanfarr.Workers.SyncSection do
         %{}
     end
   end
+
+  # What the rows already carry, by rating key. Read once per sync, not per
+  # item: it is one local query, and the merge below needs it for every row.
+  defp known_directors(section) do
+    section.id
+    |> Library.media_items_in_section!()
+    |> Map.new(&{&1.plex_rating_key, &1.directors})
+  end
+
+  defp merge_directors([], existing), do: existing
+  defp merge_directors(fresh, _existing), do: fresh
 
   defp memberships(config, collections) do
     collections

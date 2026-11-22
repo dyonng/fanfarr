@@ -49,6 +49,7 @@ defmodule Fanfarr.Workers.SyncTest do
         audience_score_source: "rottentomatoes",
         studio: "Toei Animation",
         collections: [],
+        directors: [],
         added_at: ~U[2024-01-01 00:00:00Z],
         season_count: 3
       },
@@ -145,6 +146,33 @@ defmodule Fanfarr.Workers.SyncTest do
     # A show Plex has not scanned has no count. Nil is the answer rather than
     # zero, which would claim a season that does not exist.
     assert Enum.find(items, &(&1.title == "Never Scanned")).season_count == nil
+  end
+
+  test "directors arrive on the section sync, and an empty listing does not wipe them" do
+    # Parsed and then never passed to the write: Refresh wrote them because
+    # it goes through item_refresh, and Sync stayed silent because
+    # sync_section built its own map without them.
+    expect(Fanfarr.PlexClientMock, :sections, fn _ -> {:ok, [section()]} end)
+    assert :ok = perform_job(Fanfarr.Workers.SyncLibrary, %{})
+    [s] = Fanfarr.Library.list_sections!()
+
+    expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+      {:ok, [plex_item(%{directors: ["Christopher Nolan"]})]}
+    end)
+
+    assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+    assert [%{directors: ["Christopher Nolan"]}] = Fanfarr.Library.list_media_items!()
+
+    # A listing without Director tags is a server that does not report them,
+    # not a film that lost its director: keep what the earlier sync wrote.
+    expect(Fanfarr.PlexClientMock, :items, fn _config, "1" ->
+      {:ok, [plex_item(%{directors: []})]}
+    end)
+
+    assert :ok = perform_job(Fanfarr.Workers.SyncSection, %{section_id: s.id})
+
+    assert [%{directors: ["Christopher Nolan"]}] = Fanfarr.Library.list_media_items!()
   end
 
   test "syncing twice updates rather than duplicates" do
