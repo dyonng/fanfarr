@@ -93,9 +93,16 @@ defmodule Fanfarr.MixProject do
       # Lucide, not Heroicons: the UI is built on shadcn components and Lucide
       # is the set they are drawn against. Sparse-checked out and never
       # compiled -- the Tailwind plugin in assets/vendor/lucide.js reads the
-      # SVGs directly and emits only the icons actually referenced.
+      # SVGs directly and emits only the icons actually referenced. Pinned to
+      # a commit, not the branch: Lucide renames icons between releases and
+      # tracking main turned two bumps into icon hunts. Bump deliberately.
       {:lucide,
-       github: "lucide-icons/lucide", sparse: "icons", app: false, compile: false, depth: 1},
+       github: "lucide-icons/lucide",
+       ref: "c1a02a04d4f3f7049d44567d62b8b06cff0b9103",
+       sparse: "icons",
+       app: false,
+       compile: false,
+       depth: 1},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
