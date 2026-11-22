@@ -1099,7 +1099,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   >excluded</span>
                   <.link
                     navigate={~p"/library/#{item.id}?#{item_params(@filters)}"}
-                    class="font-flap text-[15px] font-medium tracking-wide hover:underline"
+                    class="font-medium hover:underline"
                   >
                     {item.title}
                   </.link>

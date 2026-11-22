@@ -18,8 +18,10 @@ failed. No new hues were added for decoration.
 ## Type
 
 Barlow Condensed (self-hosted woff2, OFL, `priv/static/fonts/`) as `font-flap`
-for display: page titles, library title cells, attention counts, coverage
-percentages. Body, labels, and controls stay on the system sans. Tabular
+for large numerals only: attention counts, coverage percentages. Running
+text -- table titles, headings, body -- stays on the system sans: condensed
+at text size reads worse on a surface scanned fast, which is the whole job
+here. Tabular
 numerals wherever numbers change between renders.
 
 ## Signature move

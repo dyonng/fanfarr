@@ -293,7 +293,7 @@ defmodule FanfarrWeb.Layouts do
     ~H"""
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="min-w-0">
-        <h1 class="font-flap text-2xl font-semibold tracking-wide">
+        <h1 class="text-2xl font-semibold tracking-tight">
           {@title}<span :for={suffix <- @title_suffix}>{render_slot(suffix)}</span>
         </h1>
         <p :if={@subtitle != []} class="mt-1 text-sm text-muted-foreground">
