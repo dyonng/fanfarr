@@ -375,5 +375,15 @@ defmodule FanfarrWeb.LibraryViewTest do
       {zed, _} = :binary.match(html, "Zed Film")
       assert aye < zed
     end
+
+    test "a director name in the table narrows to them", %{conn: conn, item: item} do
+      item.(%{title: "Memento", kind: :movie, directors: ["Christopher Nolan"]})
+      item.(%{title: "Other", kind: :movie, directors: ["Someone Else"]})
+      {:ok, view, _html} = live(conn, "/library?cols=title,director")
+
+      html = view |> element("a", "Christopher Nolan") |> render_click()
+      assert html =~ "Memento"
+      refute html =~ ">Other<"
+    end
   end
 end

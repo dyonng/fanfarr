@@ -1122,7 +1122,18 @@ defmodule FanfarrWeb.LibraryLive.Index do
                   class="hidden max-w-40 truncate px-3 py-2 text-muted-foreground md:table-cell"
                   title={Enum.join(item.directors, ", ")}
                 >
-                  {Enum.join(item.directors, ", ")}
+                  <%!-- A name here is a filter waiting to happen, the same as
+                  on the item page: narrowing to one director from a cell that
+                  names them beats retyping it into the dropdown. --%>
+                  <span :for={{director, index} <- Enum.with_index(item.directors)}>
+                    <.link
+                      patch={
+                        ~p"/library?#{header_params(Map.put(@filters, :director, director), @filters.sort)}"
+                      }
+                      title={"Everything by #{director}"}
+                      class="hover:text-primary hover:underline"
+                    >{director}</.link><span :if={index < length(item.directors) - 1}>,</span>
+                  </span>
                 </td>
                 <td :if={showing?(@visible_columns, "status")} class="px-3 py-2">
                   <.status_badge status={item.theme_status} />
