@@ -48,31 +48,18 @@ defmodule Fanfarr.Library.ItemRefresh do
          {:ok, fresh} <- Client.impl().item(config, item.plex_rating_key) do
       {origin, agent} = origin(config, fresh)
 
-      Library.sync_media_item_from_plex!(%{
-        plex_rating_key: fresh.rating_key,
-        section_id: item.section_id,
-        guid: fresh.guid,
-        title: fresh.title,
-        year: fresh.year,
-        kind: fresh.kind,
-        plex_path: presence(fresh.path) || item.plex_path,
-        imdb_id: fresh.imdb_id,
-        tmdb_id: fresh.tmdb_id,
-        tvdb_id: fresh.tvdb_id,
-        plex_thumb_key: fresh.thumb,
-        critic_score: fresh.critic_score,
-        critic_score_source: fresh.critic_score_source,
-        audience_score: fresh.audience_score,
-        audience_score_source: fresh.audience_score_source,
-        studio: fresh.studio,
-        collections: merge_collections(fresh.collections, item.collections),
-        directors: fresh.directors,
-        plex_theme_url: fresh.theme,
-        plex_theme_origin: origin,
-        plex_theme_agent: agent,
-        added_at: fresh.added_at,
-        season_count: fresh.season_count
-      })
+      attrs =
+        fresh
+        |> Library.SyncAttrs.for_item()
+        |> Map.merge(%{
+          section_id: item.section_id,
+          plex_path: presence(fresh.path) || item.plex_path,
+          collections: merge_collections(fresh.collections, item.collections),
+          plex_theme_origin: origin,
+          plex_theme_agent: agent
+        })
+
+      Library.sync_media_item_from_plex!(attrs)
 
       {:ok, Library.get_media_item!(item.id, load: [:theme_status, :section])}
     end

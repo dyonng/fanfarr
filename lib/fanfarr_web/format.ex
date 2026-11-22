@@ -52,4 +52,31 @@ defmodule FanfarrWeb.Format do
 
     "#{minutes}:#{seconds}"
   end
+
+  @doc """
+  A per-title crop length typed into the trim panel or the bulk dialog, in
+  milliseconds.
+
+  One definition because the two inputs mean the same thing and the bounds
+  are the same judgement: shorter than five seconds is not a theme, and
+  longer than fifteen minutes never survives the downloader's ceiling. Blank
+  clears back to the global target. The settings page parses its own
+  version, with its own bounds, and stays separate.
+  """
+  @spec parse_crop_seconds(String.t()) :: {:ok, pos_integer() | nil} | {:error, String.t()}
+  def parse_crop_seconds(raw) do
+    case raw |> to_string() |> String.trim() do
+      "" ->
+        {:ok, nil}
+
+      typed ->
+        case Integer.parse(typed) do
+          {seconds, ""} when seconds >= 5 and seconds <= 900 ->
+            {:ok, seconds * 1000}
+
+          _ ->
+            {:error, "Crop length must be a whole number of seconds, from 5 to 900."}
+        end
+    end
+  end
 end

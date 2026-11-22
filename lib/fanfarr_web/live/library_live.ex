@@ -263,21 +263,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
     match?({:ok, _}, %{media_item_id: id} |> Fanfarr.Workers.TrimTheme.new() |> Oban.insert())
   end
 
-  defp parse_bulk_seconds(raw) do
-    case raw |> to_string() |> String.trim() do
-      "" ->
-        {:ok, nil}
-
-      typed ->
-        case Integer.parse(typed) do
-          {seconds, ""} when seconds >= 5 and seconds <= 900 ->
-            {:ok, seconds * 1000}
-
-          _ ->
-            {:error, "Crop length must be a whole number of seconds, from 5 to 900."}
-        end
-    end
-  end
+  # One definition in FanfarrWeb.Format, shared with the trim panel: the
+  # two inputs mean the same thing.
+  defdelegate parse_bulk_seconds(raw), to: FanfarrWeb.Format, as: :parse_crop_seconds
 
   defp apply_length(id, ms, duration) do
     with {:ok, item} <- Fanfarr.Library.get_media_item(id),

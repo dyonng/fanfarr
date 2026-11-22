@@ -639,23 +639,9 @@ defmodule FanfarrWeb.ItemLive.Show do
   defp crop_target_flash(nil), do: "Crop length back to the global target."
   defp crop_target_flash(ms), do: "Crop length for this title: #{div(ms, 1000)}s."
 
-  # Seconds, because the input speaks seconds. Bounds match the settings page
-  # below and the downloader ceiling above.
-  defp parse_crop_seconds(raw) do
-    case raw |> to_string() |> String.trim() do
-      "" ->
-        {:ok, nil}
-
-      typed ->
-        case Integer.parse(typed) do
-          {seconds, ""} when seconds >= 5 and seconds <= 900 ->
-            {:ok, seconds * 1000}
-
-          _ ->
-            {:error, "Crop length must be a whole number of seconds, from 5 to 900."}
-        end
-    end
-  end
+  # One definition in FanfarrWeb.Format, shared with the bulk dialog: the
+  # two inputs mean the same thing.
+  defdelegate parse_crop_seconds(raw), to: FanfarrWeb.Format
 
   # The length the suggestion aims at for this title: its own when set, the
   # global target otherwise.

@@ -49,4 +49,16 @@ defmodule FanfarrWeb.FormatTest do
     # format and this stays unambiguous.
     assert Format.duration_ms(900_000) == "15:00"
   end
+
+  test "a crop length parses to milliseconds, blank means the global target" do
+    assert Format.parse_crop_seconds("45") == {:ok, 45_000}
+    assert Format.parse_crop_seconds(" 45 ") == {:ok, 45_000}
+    assert Format.parse_crop_seconds("") == {:ok, nil}
+
+    assert {:error, message} = Format.parse_crop_seconds("2")
+    assert message =~ "from 5 to 900"
+
+    assert {:error, _} = Format.parse_crop_seconds("901")
+    assert {:error, _} = Format.parse_crop_seconds("forty-five")
+  end
 end
