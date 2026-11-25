@@ -165,7 +165,7 @@ defmodule FanfarrWeb.DashboardTest do
       {:ok, _view, html} = live(conn, "/library")
 
       assert html =~ ~s(class="flex min-w-0 flex-1 flex-col pl-52)
-      assert html =~ ~s(<main class="min-w-0 flex-1)
+      assert html =~ ~s(<main id="content" tabindex="-1" class="min-w-0 flex-1)
     end
 
     test "the sidebar starts collapsed on a narrow viewport", %{conn: conn} do

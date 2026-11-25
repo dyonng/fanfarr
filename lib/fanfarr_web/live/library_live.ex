@@ -915,7 +915,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-border bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th class="w-8 p-0">
+                <th scope="col" class="w-8 p-0">
                   <label class="flex min-h-11 cursor-pointer items-center px-3 py-2 sm:min-h-0">
                     <input
                       type="checkbox"
@@ -926,7 +926,9 @@ defmodule FanfarrWeb.LibraryLive.Index do
                     />
                   </label>
                 </th>
-                <th class="hidden w-10 px-1 py-2 sm:table-cell"></th>
+                <th scope="col" class="hidden w-10 px-1 py-2 sm:table-cell">
+                  <span class="sr-only">Poster</span>
+                </th>
                 <.column_header
                   :if={showing?(@visible_columns, "title")}
                   sort={@filters.sort}
@@ -1395,7 +1397,7 @@ defmodule FanfarrWeb.LibraryLive.Index do
       |> assign(:indicator, sort_indicator(assigns.sort, assigns.column))
 
     ~H"""
-    <th class={["px-3 py-2 font-medium", @class]}>
+    <th scope="col" class={["px-3 py-2 font-medium", @class]}>
       <.link
         patch={~p"/library?#{header_params(@params, @next)}"}
         title={@title}

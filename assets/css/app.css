@@ -77,6 +77,20 @@
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
+/* Let the browser theme its own UI -- scrollbars, form controls, the
+   overscroll canvas -- to match the page instead of staying light-styled.
+   The tokens below already flip with data-theme, so every surface that
+   reads them follows a manual toggle as well as the OS setting. */
+:root {
+  color-scheme: light dark;
+  scrollbar-color: var(--muted-foreground) transparent;
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
 /* Collapsed settings cards keep only their header row. The rule keys off
    the data attribute rather than a class so the server stays the source of
    truth and no per-card rule is needed. */

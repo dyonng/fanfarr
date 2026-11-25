@@ -43,6 +43,12 @@ defmodule FanfarrWeb.Layouts do
   def app(assigns) do
     ~H"""
     <div class="flex min-h-screen bg-background text-foreground">
+      <a
+        href="#content"
+        class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
       <%!-- Sidebar: the *arr convention -- persistent, dark, icon + label.
       Width and every label in it answer to [data-sidebar] on <html>, set
       before first paint by the script in root.html.heex -- the same
@@ -172,7 +178,7 @@ defmodule FanfarrWeb.Layouts do
 
       px-4 below sm: six units of padding either side is 48px of a 390px screen. --%>
       <div class="flex min-w-0 flex-1 flex-col pl-52 transition-[padding] [[data-sidebar=collapsed]_&]:pl-14">
-        <main class="min-w-0 flex-1 px-4 py-6 sm:px-6">
+        <main id="content" tabindex="-1" class="min-w-0 flex-1 px-4 py-6 outline-none sm:px-6">
           {render_slot(@inner_block)}
         </main>
       </div>
