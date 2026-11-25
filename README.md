@@ -20,6 +20,12 @@ history for this title.
 
 ![Item page](docs/img/item.png)
 
+**Trim editor** — waveform with draggable handles, crop suggestions from
+viewership or loudness analysis, fades, and loop preview, all inline on the
+item page.
+
+![Trim editor](docs/img/trim.png)
+
 **Settings** — Plex connection, libraries, root folders, path mappings, theme
 downloads, and appearance, all in one place.
 
