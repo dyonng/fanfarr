@@ -67,7 +67,7 @@ defmodule Fanfarr.MixProject do
       # Safe here because no OAuth strategy is configured -- password only --
       # so no Assent code path runs. Revisit when ash_authentication 5
       # final is out; its RCs already allow assent ~> 0.3.2.
-      {:assent, "~> 0.3.2", override: true},
+      {:assent, "~> 0.4.0", override: true},
       {:ash_authentication_phoenix, "~> 2.0"},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:oban, "~> 2.0"},
